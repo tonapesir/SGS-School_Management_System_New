@@ -1,0 +1,2567 @@
+﻿<!DOCTYPE html>
+<html lang="mr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>श्री.गोविंदराम सेक्सरिया हायस्कूल, पाचोरा</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#1a2a4a">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link href="https://fonts.googleapis.com/css2?family=Mukta:wght@400;700&family=Noto+Serif+Devanagari:wght@400;600;700;900&family=Noto+Sans+Devanagari:wght@400;600;700&family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pizzip@3.1.8/dist/pizzip.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/docxtemplater@3.49.0/build/docxtemplater.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/html-docx-js@0.3.1/dist/html-docx.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+<link rel="stylesheet" href="style.css">
+
+</head>
+<body class="auth-locked">
+
+<!-- LOGIN SCREEN -->
+<div id="loginScreen" class="login-screen">
+  <div class="login-card">
+    <div class="login-head">
+      <div style="font-size:42px">🏫</div>
+      <h1>श्री.गोविंदराम सेक्सरिया हायस्कूल</h1>
+      <p>School Management System Login</p>
+    </div>
+    <form class="login-body" onsubmit="attemptLogin(event)">
+      <button type="button" class="btn btn-blue" id="preConnectBtn" onclick="preConnectLogin()" style="width:100%;padding:9px 14px;margin-bottom:6px">🔄 प्रथम शाळेशी जोडा (जलद व सुरक्षित Login साठी)</button>
+      <div id="preConnectStatus" style="font-size:11.5px;text-align:center;margin:0 0 14px;min-height:14px"></div>
+      <div class="login-field">
+        <label>Username</label>
+        <input id="loginUsername" autocomplete="username" placeholder="user_1 / user_2 / user_3" required>
+      </div>
+      <div class="login-field">
+        <label>Password</label>
+        <input id="loginPassword" type="password" autocomplete="current-password" placeholder="Password" required>
+      </div>
+      <button class="btn btn-gold" type="submit" style="width:100%;padding:11px 18px">Login</button>
+      <div id="loginStatus" class="login-status"></div>
+    </form>
+  </div>
+</div>
+
+<!-- TOP NAV -->
+<div class="topnav">
+  <div class="brand">🏫 SGS हायस्कूल पाचोरा v3</div>
+  <button class="navbtn active" data-page="dashboard" data-master-only="true" onclick="showPage('dashboard',this)">🏠 मुख्यपृष्ठ</button>
+  <button class="navbtn" data-page="student" data-master-only="true" onclick="showPage('student',this)">👤 विद्यार्थी माहिती</button>
+  <button class="navbtn" data-page="lc" data-master-only="true" onclick="showPage('lc',this)">📋 LC Issue</button>
+  <button class="navbtn" data-page="bonafide" onclick="showPage('bonafide',this)">📄 बोनाफाईड</button>
+  <button class="navbtn" data-page="attendance" onclick="showPage('attendance',this)">✅ उपस्थिती प्रमाणपत्र</button>
+  <button class="navbtn" data-page="search" onclick="showPage('search',this)">🔍 विद्यार्थी शोधा</button>
+  <button class="navbtn" data-page="history" onclick="showPage('history',this)">📁 History / Export</button>
+  <button class="navbtn" data-page="profile" onclick="showPage('profile',this)">🪪 Profile</button>
+  <button class="navbtn" data-page="users" data-master-only="true" onclick="showPage('users',this)">👥 Users</button>
+  <button class="navbtn master-only" data-page="stats" onclick="showPage('stats',this)">📊 सांख्यिकी अहवाल</button>
+  <button class="navbtn master-only" data-page="maintenance" onclick="showPage('maintenance',this);feeLoadCurrentTotal();">🔧 मेंटेनन्स</button>
+  <button class="navbtn master-only" data-page="classinfo" onclick="showPage('classinfo',this)">🏫 वर्ग माहिती</button>
+  <button class="navbtn master-only" data-page="report" onclick="showPage('report',this);rpInit();">📑 रिपोर्ट</button>
+  <button class="navbtn super-only" data-page="superadmin" onclick="showPage('superadmin',this)">🛡️ Super Admin</button>
+  <button class="navbtn master-only" data-page="attanalytics" onclick="showPage('attanalytics',this)">📈 हजेरी विश्लेषण</button>
+  <button class="navbtn" data-page="teacher" onclick="showPage('teacher',this)">🏫 वर्ग शिक्षक</button>
+  <span class="user-chip" id="authUserChip">User</span>
+  <button class="logout-btn" onclick="logoutUser()">Logout</button>
+</div>
+
+<!-- CONFIG BAR -->
+<div class="cfgbar cfgbar-script" id="urlConfigBar">
+  <label>⚙️ Google Sheets URL:</label>
+  <input type="url" id="sheetsUrl" placeholder="https://script.google.com/macros/s/YOUR_ID/exec" oninput="saveUrl()">
+  <button onclick="testConnection()" style="background:#1a8a3a;border:none;border-radius:5px;padding:7px 14px;color:#fff;font-weight:700;cursor:pointer;font-size:12px">🔧 Test</button>
+  <button onclick="bulkLoadAll()" id="bulkLoadBtn" style="background:#1a4a7a;border:none;border-radius:5px;padding:7px 14px;color:#fff;font-weight:700;cursor:pointer;font-size:12px">⚡ सर्व Load करा</button>
+  <span class="hint">Apps Script Web App URL — सर्व pages साठी एकच URL वापरतो</span>
+  <div id="testStatus" style="font-size:12px;margin-top:6px;padding:6px 10px;border-radius:5px;display:none"></div>
+  <!-- Cache status bar -->
+  <div id="cacheStatusBar" style="width:100%;margin-top:6px;font-size:11px;padding:5px 10px;border-radius:5px;background:#0d1b35;border:1px solid #2a3a5a;display:none;align-items:center;gap:10px;flex-wrap:wrap">
+    <span id="cacheStatusText" style="color:#7ef7a0;font-weight:700"></span>
+    <span id="cacheProgressBar" style="display:none;flex:1;min-width:120px;height:6px;background:#1a2a4a;border-radius:3px;overflow:hidden"><span id="cacheProgressFill" style="display:block;height:100%;width:0%;background:#1a8a3a;transition:width 0.3s"></span></span>
+    <button onclick="clearStudentCache()" style="background:#5a2020;border:none;border-radius:4px;padding:3px 10px;color:#ffb0b0;font-size:10px;font-weight:700;cursor:pointer">🗑️ Cache Clear</button>
+    <button onclick="bulkLoadAll()" style="background:#1a4a2a;border:none;border-radius:4px;padding:3px 10px;color:#7ef7a0;font-size:10px;font-weight:700;cursor:pointer">🔄 Refresh</button>
+  </div>
+</div>
+
+<!-- WORD TEMPLATE UPLOAD BAR -->
+<div class="cfgbar master-only" style="background:#1a2a1a;border-bottom:1px solid #2a4a2a;gap:16px;flex-wrap:wrap">
+  <label style="color:#7ef7a0;white-space:nowrap">📝 Word Templates (.docx):</label>
+  <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+    <label style="font-size:11px;color:#aaa">📋 LC:</label>
+    <input type="file" id="tpl_lc" accept=".docx" onchange="loadTemplate('lc',this)" style="font-size:11px;color:#ccc;background:#0a1a0a;border:1px solid #2a4a2a;border-radius:4px;padding:3px 6px;width:160px">
+    <span id="tpl_lc_status" style="font-size:10px;color:#7ef7a0"></span>
+  </div>
+  <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+    <label style="font-size:11px;color:#aaa">📄 Bonafide:</label>
+    <input type="file" id="tpl_bf" accept=".docx" onchange="loadTemplate('bf',this)" style="font-size:11px;color:#ccc;background:#0a1a0a;border:1px solid #2a4a2a;border-radius:4px;padding:3px 6px;width:160px">
+    <span id="tpl_bf_status" style="font-size:10px;color:#7ef7a0"></span>
+  </div>
+  <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+    <label style="font-size:11px;color:#aaa">✅ Attendance:</label>
+    <input type="file" id="tpl_at" accept=".docx" onchange="loadTemplate('at',this)" style="font-size:11px;color:#ccc;background:#0a1a0a;border:1px solid #2a4a2a;border-radius:4px;padding:3px 6px;width:160px">
+    <span id="tpl_at_status" style="font-size:10px;color:#7ef7a0"></span>
+  </div>
+  <span style="font-size:10px;color:#888">Template मध्ये {«field»} placeholders वापरा → खाली Placeholder List पहा</span>
+  <button onclick="showPlaceholders()" style="background:#1a4a7a;border:none;border-radius:4px;padding:5px 12px;color:#fff;font-size:11px;font-weight:700;cursor:pointer">📋 Placeholder List</button>
+</div>
+
+<!-- PLACEHOLDER GUIDE MODAL -->
+<div id="phModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:9998;overflow-y:auto">
+  <div style="max-width:900px;margin:30px auto;background:#1a2a4a;border:2px solid #d4902a;border-radius:8px;padding:24px;color:#f0e8d8;font-size:12px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <h2 style="color:#d4902a;font-size:16px">📋 Word Template — Placeholder List</h2>
+      <button onclick="document.getElementById('phModal').style.display='none'" style="background:#c0521a;border:none;color:#fff;padding:6px 14px;border-radius:4px;cursor:pointer;font-weight:700">✕ बंद करा</button>
+    </div>
+    <p style="color:#aaa;margin-bottom:12px">Template .docx मध्ये खालील placeholders <b style="color:#e8b05a">{fieldname}</b> असे साध्या text प्रमाणे लिहा. Word MergeField वापरू नका.</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px">
+      <div>
+        <div style="color:#e8b05a;font-weight:700;border-bottom:1px solid #d4902a;padding-bottom:4px;margin-bottom:8px">📋 LC Fields</div>
+        <table style="width:100%;border-collapse:collapse;font-size:11px">
+          <tr style="color:#d4902a"><th style="text-align:left;padding:2px 4px">Placeholder</th><th style="text-align:left;padding:2px 4px">माहिती</th></tr>
+          ${[
+            ['{lc_no}','LC नंबर'],
+            ['{lc_date}','LC दिनांक'],
+            ['{reg_no}','रजिस्टर नं.'],
+            ['{student_id}','Student ID'],
+            ['{full_name}','पूर्ण नाव'],
+            ['{first_name}','नाव'],
+            ['{father_name}','वडिलांचे नाव'],
+            ['{surname}','आडनाव'],
+            ['{mother_name}','आईचे नाव'],
+            ['{aadhar}','आधार नंबर'],
+            ['{pen}','PEN नंबर'],
+            ['{book_no}','जनरल रजि. बुक नं.'],
+            ['{gender_title}','कुमार/कुमारी'],
+            ['{dob}','जन्म दिनांक'],
+            ['{dob_words}','जन्म दिनांक अक्षरी'],
+            ['{religion}','धर्म'],
+            ['{caste}','जात'],
+            ['{subcaste}','पोटजात'],
+            ['{nationality}','राष्ट्रीयत्व'],
+            ['{mother_tongue}','मातृभाषा'],
+            ['{birth_village}','जन्मगाव'],
+            ['{birth_taluka}','तालुका'],
+            ['{birth_district}','जिल्हा'],
+            ['{birth_state}','राज्य'],
+            ['{country}','देश'],
+            ['{prev_school}','मागील शाळा'],
+            ['{adm_date}','प्रवेश दिनांक'],
+            ['{adm_class}','प्रवेश इयत्ता'],
+            ['{class_start_date}','शै. वर्ष सुरुवात दिनांक'],
+            ['{class_start_month_mr}','शै. वर्ष सुरुवात महिना'],
+            ['{class_start_year}','शै. वर्ष सुरुवात वर्ष'],
+            ['{leave_date}','शाळा सोडणे दिनांक'],
+            ['{leave_class}','सोडणे इयत्ता'],
+            ['{leave_class_words}','सोडणे इयत्ता अक्षरी'],
+            ['{leave_month_mr}','सोडणे महिना मराठी'],
+            ['{leave_year}','सोडणे वर्ष'],
+            ['{progress}','प्रगती'],
+            ['{conduct}','वर्तणूक'],
+            ['{reason}','शाळा सोडण्याचे कारण'],
+            ['{lc_type}','मुळप्रत/दुय्यमप्रत'],
+            ['{medium}','माध्यम'],
+            ['{next_school}','पुढील शाळा'],
+            ['{fee_status}','Fee Status'],
+            ['{today}','आजची तारीख'],
+          ].map(r=>`<tr><td style="padding:2px 4px;color:#7ef7a0;font-family:monospace">${r[0]}</td><td style="padding:2px 4px;color:#ccc">${r[1]}</td></tr>`).join('')}
+        </table>
+      </div>
+      <div>
+        <div style="color:#e8b05a;font-weight:700;border-bottom:1px solid #d4902a;padding-bottom:4px;margin-bottom:8px">📄 Bonafide Fields</div>
+        <table style="width:100%;border-collapse:collapse;font-size:11px">
+          <tr style="color:#d4902a"><th style="text-align:left;padding:2px 4px">Placeholder</th><th style="text-align:left;padding:2px 4px">माहिती</th></tr>
+          ${[
+            ['{cert_no}','दाखला क्र.'],
+            ['{reg_no}','रजिस्टर नं.'],
+            ['{full_name}','पूर्ण नाव'],
+            ['{first_name}','नाव'],
+            ['{father_name}','वडिलांचे नाव'],
+            ['{surname}','आडनाव'],
+            ['{gender_title}','कुमार/कुमारी'],
+            ['{gender_he}','तो/ती'],
+            ['{gender_his}','त्याची/तिची'],
+            ['{dob}','जन्म दिनांक'],
+            ['{dob_words}','जन्म दिनांक अक्षरी'],
+            ['{religion}','धर्म'],
+            ['{caste}','जात'],
+            ['{caste_full}','धर्म + जात'],
+            ['{nationality}','राष्ट्रीयत्व'],
+            ['{iyatta}','इयत्ता मराठी'],
+            ['{tukdi}','तुकडी'],
+            ['{ac_year}','शैक्षणिक वर्ष'],
+            ['{adm_date}','प्रवेश दिनांक'],
+            ['{adm_class}','प्रवेश इयत्ता'],
+            ['{birth_village}','जन्मगाव'],
+            ['{birth_taluka}','तालुका'],
+            ['{birth_district}','जिल्हा'],
+            ['{purpose}','उद्देश'],
+            ['{remarks}','शेरा'],
+            ['{today}','आजची तारीख'],
+          ].map(r=>`<tr><td style="padding:2px 4px;color:#7ef7a0;font-family:monospace">${r[0]}</td><td style="padding:2px 4px;color:#ccc">${r[1]}</td></tr>`).join('')}
+        </table>
+      </div>
+      <div>
+        <div style="color:#e8b05a;font-weight:700;border-bottom:1px solid #d4902a;padding-bottom:4px;margin-bottom:8px">✅ Attendance Fields</div>
+        <table style="width:100%;border-collapse:collapse;font-size:11px">
+          <tr style="color:#d4902a"><th style="text-align:left;padding:2px 4px">Placeholder</th><th style="text-align:left;padding:2px 4px">माहिती</th></tr>
+          ${[
+            ['{cert_no}','दाखला क्र.'],
+            ['{reg_no}','रजिस्टर नं.'],
+            ['{full_name}','पूर्ण नाव'],
+            ['{first_name}','नाव'],
+            ['{father_name}','वडिलांचे नाव'],
+            ['{surname}','आडनाव'],
+            ['{gender_title}','कुमार/कुमारी'],
+            ['{gender_he}','तो/ती'],
+            ['{gender_his}','त्याची/तिची'],
+            ['{iyatta}','इयत्ता मराठी'],
+            ['{tukdi}','तुकडी'],
+            ['{ac_year}','शैक्षणिक वर्ष'],
+            ['{total_days}','एकूण दिवस'],
+            ['{present_days}','उपस्थित दिवस'],
+            ['{attendance_pct}','उपस्थिती %'],
+            ['{from_date}','कालावधी पासून'],
+            ['{to_date}','कालावधी पर्यंत'],
+            ['{purpose}','उद्देश'],
+            ['{remarks}','शेरा'],
+            ['{today}','आजची तारीख'],
+          ].map(r=>`<tr><td style="padding:2px 4px;color:#7ef7a0;font-family:monospace">${r[0]}</td><td style="padding:2px 4px;color:#ccc">${r[1]}</td></tr>`).join('')}
+        </table>
+        <div style="margin-top:16px;padding:10px;background:#0d1b0d;border-radius:4px;border:1px solid #2a4a2a">
+          <div style="color:#e8b05a;font-weight:700;margin-bottom:6px">📌 Template कसे बनवायचे?</div>
+          <ol style="color:#ccc;line-height:1.8;padding-left:16px">
+            <li>Word मध्ये template उघडा</li>
+            <li>जिथे data यायला हवे तिथे <b style="color:#7ef7a0">{full_name}</b> असे लिहा</li>
+            <li>File → Save As → .docx format मध्ये save करा</li>
+            <li>वरती Template Upload मध्ये upload करा</li>
+            <li>📝 Word बटण दाबल्यावर filled .docx download होईल</li>
+            <li>Word मध्ये उघडून File → Export → PDF करा</li>
+          </ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== DASHBOARD ==================== -->
+<div class="page active" id="pg-dashboard">
+  <div style="text-align:center;padding:20px 0 24px">
+    <div style="font-size:48px">🏫</div>
+    <h1 style="font-size:22px;color:var(--gold2);font-weight:700;margin-top:8px">श्री.गोविंदराव सक्सेरिया हायस्कूल, पाचोरा</h1>
+    <p style="font-size:12px;opacity:.6;margin-top:4px">School Management System | Software Developed by Tonape sir (SGS Highschool, Pachora)</p>
+  </div>
+
+
+  <div class="dash">
+    <div class="dcard" data-page="student" data-master-only="true" onclick="showPage('student',this)">
+      <div class="icon">👤</div>
+      <h3>विद्यार्थी माहिती</h3>
+      <p>Student Entry, Search & Update</p>
+    </div>
+    <div class="dcard" data-page="lc" data-master-only="true" onclick="showPage('lc',this)">
+      <div class="icon">📋</div>
+      <h3>LC Issue</h3>
+      <p>शाळा सोडल्याचा दाखला</p>
+    </div>
+    <div class="dcard" data-page="bonafide" onclick="showPage('bonafide',this)">
+      <div class="icon">📄</div>
+      <h3>बोनाफाईड</h3>
+      <p>Bonafide Certificate</p>
+    </div>
+    <div class="dcard" data-page="attendance" onclick="showPage('attendance',this)">
+      <div class="icon">✅</div>
+	  <h3>उपस्थिती प्रमाणपत्र</h3>
+      <p>Attendance Certificate</p>
+	</div>
+    <div class="dcard" data-page="search" onclick="showPage('search',this)">
+      <div class="icon">🔍</div>
+      <h3>विद्यार्थी शोधा</h3>
+      <p>Search Students</p>
+    </div>
+    <div class="dcard" data-page="history" onclick="showPage('history',this)">
+      <div class="icon">📁</div>
+      <h3>History / Export</h3>
+      <p>LC/BF/AT History & Bulk Export</p>
+    </div>
+    <div class="dcard" data-page="profile" onclick="showPage('profile',this)">
+      <div class="icon">🪪</div>
+      <h3>Student Profile</h3>
+      <p>फोटो सह संपूर्ण माहिती</p>
+    </div>
+    <div class="dcard" data-page="users" data-master-only="true" onclick="showPage('users',this)">
+      <div class="icon">👥</div>
+      <h3>User Management</h3>
+      <p>Users जोडा/Edit/Delete, Password बदला</p>
+    </div>
+    <div class="dcard master-only" data-page="stats" onclick="showPage('stats',this)">
+      <div class="icon">📊</div>
+      <h3>सांख्यिकी अहवाल</h3>
+      <p>वर्गनिहाय हजेरी, फी, प्रवर्ग व वय अहवाल</p>
+    </div>
+    <div class="dcard master-only" data-page="maintenance" onclick="showPage('maintenance',this);feeLoadCurrentTotal();">
+      <div class="icon">🔧</div>
+      <h3>मेंटेनन्स</h3>
+      <p>विद्यार्थ्यांचा वर्ग/तुकडी बदल, Delete</p>
+    </div>
+    <div class="dcard master-only" data-page="classinfo" onclick="showPage('classinfo',this)">
+      <div class="icon">🏫</div>
+      <h3>वर्ग माहिती</h3>
+      <p>वर्गनिहाय विद्यार्थी यादी व Student Diary नोंदी</p>
+    </div>
+    <div class="dcard master-only" data-page="report" onclick="showPage('report',this);rpInit();">
+      <div class="icon">📑</div>
+      <h3>रिपोर्ट</h3>
+      <p>जात/प्रवर्ग/वर्ग/फी/मोबाईल/पत्ता/लिंग निहाय यादी — A4 PDF Export</p>
+    </div>
+    <div class="dcard master-only" data-page="attanalytics" onclick="showPage('attanalytics',this)">
+      <div class="icon">📈</div>
+      <h3>हजेरी विश्लेषण</h3>
+      <p>महिन्याची उपस्थिती %, सलग गैरहजर विद्यार्थी — PDF व पालकांना WhatsApp</p>
+    </div>
+    <div class="dcard super-only" data-page="superadmin" onclick="showPage('superadmin',this)">
+      <div class="icon">🛡️</div>
+      <h3>Super Admin</h3>
+      <p>थकबाकी यादी, वर्ग-बढती (Promotion), आपोआप Backup</p>
+    </div>
+    </div>
+
+  <!-- ===== आज कोणी हजेरी भरली नाही (Super Master / Master) — V19.35 ===== -->
+  <div class="card master-only" style="margin-bottom:16px">
+    <div class="card-header"><div>📋 आजची हजेरी — कोणी भरली नाही?</div><button class="btn btn-blue btn-sm" onclick="mstLoadAttendancePending()">🔄 Refresh</button></div>
+    <div class="card-body">
+      <div id="mst_attPending" style="font-size:13px">⏳ Load होत आहे...</div>
+    </div>
+  </div>
+
+  <!-- ===== आज वाढदिवस असलेले विद्यार्थी (Super Master / Master) — V19.34 ===== -->
+  <div class="card master-only" style="margin-bottom:16px">
+    <div class="card-header"><div>🎂 आज वाढदिवस असलेले विद्यार्थी</div></div>
+    <div class="card-body">
+      <div id="mst_birthdaysToday" style="font-size:13px">⏳ Load होत आहे...</div>
+    </div>
+  </div>
+
+  <!-- ===== वर्ग शिक्षकांना सूचना (Super Master / Master) — V19.19 ===== -->
+  <div class="card master-only" style="margin-bottom:16px">
+    <div class="card-header"><div>📢 सर्व वर्ग शिक्षकांना सूचना पाठवा</div></div>
+    <div class="card-body">
+      <div class="frow" style="gap:10px;flex-wrap:wrap;align-items:flex-end">
+        <div class="fg" style="min-width:220px;flex:1"><label>शीर्षक</label><input id="mst_noticeTitle" placeholder="सूचनेचे शीर्षक"></div>
+        <div class="fg" style="min-width:170px"><label>कोणासाठी</label>
+          <select id="mst_noticeTargetClass"><option value="">सर्व वर्ग</option></select>
+        </div>
+        <div class="fg" style="flex:0 0 auto"><button class="btn btn-gold" onclick="mstSaveNotice()">📢 सूचना पाठवा</button></div>
+      </div>
+      <div class="fg" style="margin-top:10px">
+        <label>तपशील</label>
+        <textarea id="mst_noticeMsg" rows="3" style="width:100%;padding:8px;border-radius:var(--r);border:1.5px solid var(--pb);background:var(--peach);font-family:inherit;font-size:14px"></textarea>
+      </div>
+      <div id="mst_noticeStatus" style="font-size:12.5px;margin-top:8px;color:#555"></div>
+      <div style="margin-top:14px">
+        <b style="font-size:13px">🕒 अलीकडील पाठवलेल्या सूचना</b>
+        <div id="mst_recentNotices" style="margin-top:8px;font-size:13px">⏳ Load होत आहे...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== LIVE STATISTICS (V19.8) ===== -->
+  <div id="dashStatsLoading">⏳ आकडेवारी Load होत आहे...</div>
+  <div class="stat-cards" id="dashStatCards" style="display:none">
+    <div class="stat-card"><div class="sc-num" id="stat_totalStudents">0</div><div class="sc-lbl">एकूण विद्यार्थी</div></div>
+    <div class="stat-card"><div class="sc-num" id="stat_totalGirls">0</div><div class="sc-lbl">एकूण मुली</div></div>
+    <div class="stat-card"><div class="sc-num" id="stat_totalBoys">0</div><div class="sc-lbl">एकूण मुले</div></div>
+    <div class="stat-card"><div class="sc-num" id="stat_todayLC">0</div><div class="sc-lbl">आजचे LC</div></div>
+    <div class="stat-card"><div class="sc-num" id="stat_todayBF">0</div><div class="sc-lbl">आजचे BF</div></div>
+    <div class="stat-card"><div class="sc-num" id="stat_monthCerts">0</div><div class="sc-lbl">या महिन्यातील Certificates</div></div>
+  </div>
+  <div class="dash-panel" id="dashClassChart" style="display:none">
+    <h4>📊 इयत्तानिहाय विद्यार्थी संख्या</h4>
+    <div id="dashClassChartBody"></div>
+  </div>
+
+  <!-- ===== ANALYTICS & REPORTING — embedded in Dashboard only (V19.9) ===== -->
+  <div id="anaLoading" style="font-size:12.5px;opacity:.7;padding:10px 0"></div>
+  <div id="anaBody" style="display:none">
+    <div class="dash-panel">
+      <h4>📈 Year-wise Admissions</h4>
+      <div id="anaAdmissions"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== STUDENT PAGE ==================== -->
+<div class="page" id="pg-student">
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <h2>👤 विद्यार्थी माहिती नोंदणी</h2>
+        <p>Student Information Entry / Search / Update</p>
+      </div>
+    </div>
+    <div class="card-body">
+
+      <!-- Search bar -->
+      <div class="searchbox">
+        <label>🔍 शोधा (Reg No):</label>
+        <input type="text" id="s_regNo" placeholder="रजिस्टर नंबर" onkeydown="if(event.key==='Enter')searchStudent('s')">
+        <button class="btn btn-orange btn-sm" onclick="searchStudent('s')">🔍 शोधा</button>
+        <button class="btn btn-gray btn-sm" onclick="clearForm('s')">🗑️ Clear</button>
+        <span id="s_rowInfo" style="font-size:11px;color:var(--gold2)"></span>
+      </div>
+
+      <!-- Gender + Photo row -->
+      <div class="frow" style="justify-content:space-between;align-items:flex-start">
+        <div class="frow" style="flex-wrap:wrap;flex:1">
+          <div class="fg w80">
+            <label>शै.वर्ष</label>
+            <select id="s_acYear"><option value="">निवडा</option><option>2026-27</option><option>2027-28</option><option>2028-29</option><option>2029-30</option></select>
+          </div>
+          <div class="fg w120"><label>रजिस्टर नं.</label><input id="s_regNo2" placeholder="Reg No."></div>
+          <div class="fg w150"><label>स्टुडंट आय.डी.नं.</label><input id="s_studentId2" placeholder="Student ID"></div>
+          <div class="fg w100"><label>बुक नं.</label><input id="s_bookNo" placeholder="Book No."></div>
+          <div class="fg w80">
+            <label>लिंग</label>
+            <select id="s_gender"><option value="">-</option><option>Male</option><option>Female</option><option>Other</option></select>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:center;gap:4px">
+          <label class="photo-box" onclick="document.getElementById('s_photoInput').click()" title="फोटो बदलण्यासाठी click करा">
+            <input type="file" id="s_photoInput" accept="image/*" onchange="previewPhoto(this,'s_photoPreview','s_photoIcon','s_photoTxt')">
+            <img id="s_photoPreview" src="" style="display:none">
+            <span id="s_photoIcon" style="font-size:22px">📷</span>
+            <span id="s_photoTxt" style="font-size:10px">फोटो</span>
+          </label>
+          <div id="s_photoStatus" style="font-size:9px;text-align:center;max-width:88px;display:none;padding:2px 4px;border-radius:3px"></div>
+          <input type="hidden" id="s_photoUrl" value="">
+        </div>
+      </div>
+
+      <div class="div"></div>
+      <div class="sec-title">ओळख / IDENTIFICATION</div>
+      <div class="frow">
+        <div class="fg w180"><label>आधार कार्ड नं.</label><input id="s_aadhar" placeholder="12 अंकी आधार" maxlength="12" inputmode="numeric" pattern="[0-9]{12}" oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,12);validateAadhar(this)"></div>
+        <div class="fg w100"><label>इयत्ता</label><select id="s_iyatta"><option value="">-</option><option>5th</option><option>6th</option><option>7th</option><option>8th</option><option>9th</option><option>10th</option></select></div>
+        <div class="fg w80"><label>तुकडी</label><select id="s_tukdi"><option value="">-</option><option>अ</option><option>ब</option><option>क</option><option>ड</option><option>इ</option><option>फ</option><option>ग</option><option>ह</option><option>आय</option></select></div>
+        <div class="fg w150"><label>PEN नं.</label><input id="s_pen" placeholder="PEN"></div>
+        <div class="fg w100"><label>रोल नं.</label><input id="s_rollNo" placeholder="Roll No."></div>
+      </div>
+
+      <div class="div"></div>
+      <div class="sec-title">नाव / NAME</div>
+      <div class="frow">
+        <div class="fg wf"><label>विद्यार्थ्याचे संपूर्ण नाव (Full Name)</label><input id="s_firstName" placeholder="उदा. रामेश्वर सुरेश पाटील (नाव वडिलांचे नाव आडनाव)"></div>
+      </div>
+      <div class="frow">
+        <div class="fg w180"><label>आईचे नाव</label><input id="s_motherName" placeholder="Mother's Name"></div>
+        <div class="fg w120"><label>धर्म</label><select id="s_religion"><option value="">-</option><option>हिंदू</option><option>मुस्लिम</option><option>ख्रिचन</option><option>बौद्ध</option><option>जैन</option><option>शीख</option><option>इतर</option></select></div>
+        <div class="fg w150"><label>जात</label><input id="s_caste" placeholder="Caste"></div>
+        <div class="fg w150"><label>पोटजात</label><input id="s_subcaste" placeholder="Sub-caste"></div>
+      </div>
+      <div class="frow">
+        <div class="fg w150">
+          <label>प्रवर्ग (Category)</label>
+          <select id="s_category">
+            <option value="">-- निवडा --</option>
+            <option>SC</option><option>ST</option><option>VJA</option>
+            <option>NT B</option><option>NT C</option><option>NT D</option>
+            <option>SEBC</option><option>SBC</option><option>OBC</option><option>Gen</option>
+          </select>
+        </div>
+        <div class="fg w120">
+          <label>Minority</label>
+          <select id="s_minority">
+            <option value="">-- निवडा --</option>
+            <option>No</option><option>Yes</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="div"></div>
+      <div class="sec-title">जन्म माहिती / BIRTH DETAILS</div>
+      <div class="frow">
+        <div class="fg w150"><label>जन्म दिनांक</label><input type="date" id="s_dob" onchange="autoDobWords()"></div>
+        <div class="fg w150"><label>राष्ट्रीयत्व</label><input id="s_nationality" value="भारतीय"></div>
+        <div class="fg w150"><label>मातृभाषा</label><select id="s_motherTongue"><option value="मराठी" selected>मराठी</option><option value="हिंदी">हिंदी</option><option value="इंग्रजी">इंग्रजी</option><option value="उर्दू">उर्दू</option></select></div>
+      </div>
+      <div class="frow">
+        <div class="fg wf"><label>जन्म दिनांक (अक्षरी) — आपोआप तयार होते</label><input id="s_dobWords" placeholder="जन्म दिनांक टाका — अक्षरी आपोआप तयार होईल" readonly style="background:#f5e8d4;cursor:not-allowed"></div>
+      </div>
+      <div class="frow">
+        <div class="fg wf"><label>जन्मस्थळ (Birth Place)</label><input id="s_birthVillage" placeholder="उदा. पिंपळगाव तालुका पाचोरा जिल्हा जळगाव राज्य महाराष्ट्र"></div>
+        </div>
+
+      <div class="div"></div>
+      <div class="sec-title">प्रवेश माहिती / ADMISSION</div>
+      <div class="frow">
+        <div class="fg wf"><label>या पूर्वीची शाळा</label><input id="s_prevSchool" placeholder="Previous School Name"></div>
+        <div class="fg w150"><label>प्रवेश दिनांक</label><input type="date" id="s_admissionDate"></div>
+        <div class="fg w120"><label>प्रवेशावेळी इयत्ता</label><select id="s_admissionClass"><option value="">-</option><option>5th</option><option>6th</option><option>7th</option><option>8th</option><option>9th</option><option>10th</option></select></div>
+      </div>
+      <div class="frow">
+        <div class="fg wf"><label>पत्ता</label><input id="s_address" placeholder="Full Address"></div>
+      </div>
+      <div class="frow">
+        <div class="fg w150"><label>WhatsApp Mobile No.</label><input id="s_whatsappMobile" placeholder="WhatsApp Number" maxlength="10"></div>
+        <div class="fg w150"><label>Alternate Mobile No.</label><input id="s_alternateMobile" placeholder="Alternate Number" maxlength="10"></div>
+      </div>
+
+      <div class="abtns">
+        <button class="btn btn-green edit-only" onclick="saveNew('s')">💾 नवीन Save करा</button>
+        <button class="btn btn-orange edit-only" id="s_updateBtn" onclick="updateRecord('s')" style="display:none">✏️ Update करा</button>
+        <button class="btn btn-blue edit-only" onclick="uploadOnlyPhoto()">📤 फोटो Upload/Update</button>
+        <button class="btn btn-gold edit-only" onclick="testPhotoDrive()">🔧 Drive Test</button>
+        <button class="btn btn-red master-only" onclick="exportStudentPDF()">📥 PDF Export</button>
+        <button class="btn btn-gray" onclick="clearForm('s')">🗑️ Clear</button>
+      </div>
+      <div class="status" id="s_status"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== LC PAGE ==================== -->
+<div class="page" id="pg-lc">
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <h2>📋 LC Issue — शाळा सोडल्याचा दाखला</h2>
+        <p>Leaving Certificate</p>
+      </div>
+    </div>
+    <div class="card-body">
+
+      <div class="searchbox">
+        <label>🔍 विद्यार्थी शोधा (Reg No):</label>
+        <input type="text" id="lc_regNo" placeholder="रजिस्टर नंबर" onkeydown="if(event.key==='Enter')searchStudent('lc')">
+        <button class="btn btn-orange btn-sm" onclick="searchStudent('lc')">🔍 शोधा</button>
+        <button class="btn btn-gray btn-sm" onclick="clearForm('lc')">🗑️ Clear</button>
+        <span id="lc_rowInfo" style="font-size:11px;color:var(--gold2)"></span>
+      </div>
+
+      <div class="sec-title">मूळ विद्यार्थी माहिती (Main Page वरून आपोआप येते)</div>
+      <div class="frow">
+        <div class="fg w150"><label>Student ID / Reg No</label><input id="lc_stxt1" placeholder="Reg No."></div>
+        <div class="fg wf"><label>विद्यार्थ्याचे संपूर्ण नाव</label><input id="lc_stxt11" placeholder="उदा. रामेश्वर सुरेश पाटील"></div>
+        <div class="fg w80"><label>लिंग</label><select id="lc_stxt15"><option value="">-</option><option>Male</option><option>Female</option><option>Other</option></select></div>
+      </div>
+      <div class="frow">
+        <div class="fg w150"><label>जन्म दिनांक</label><input type="date" id="lc_stxt19"></div>
+        <div class="fg wf"><label>जन्म दिनांक (अक्षरी)</label><input id="lc_stxt20" placeholder="DOB in words"></div>
+        <div class="fg w100"><label>इयत्ता</label><select id="lc_stxt7"><option value="">-</option><option>5th</option><option>6th</option><option>7th</option><option>8th</option><option>9th</option><option>10th</option></select></div>
+      </div>
+      <div class="frow">
+        <div class="fg wf"><label>जन्मस्थळ (Birth Place) <span style="font-size:11px;color:#aaa">— auto filled</span></label>
+          <input id="lc_stxt___village_show" readonly style="background:#f5f0e8;cursor:default;color:#333;border-color:#c8b89a" placeholder="विद्यार्थी शोधल्यावर भरते"></div>
+      </div>
+      <div class="frow">
+        <div class="fg w120"><label>जात</label><input id="lc_stxt17" placeholder="Caste"></div>
+        <div class="fg w120"><label>धर्म</label><input id="lc_stxt16" placeholder="Religion"></div>
+        <div class="fg w150"><label>राष्ट्रीयत्व</label><input id="lc_stxt21" value="भारतीय"></div>
+        <div class="fg w120"><label>मातृभाषा</label><input id="lc_stxt22" value="मराठी"></div>
+      </div>
+
+      <div class="div"></div>
+      <div class="sec-title">LC विशेष माहिती / LC SPECIFIC DETAILS</div>
+      <div class="frow">
+        <div class="fg w150"><label>प्रवेश दिनांक</label><input type="date" id="lc_stxt57"></div>
+        <div class="fg w120"><label>प्रवेशावेळी इयत्ता</label><select id="lc_stxt58"><option value="">-</option><option>1st</option><option>2nd</option><option>3rd</option><option>4th</option><option>5th</option><option>6th</option><option>7th</option><option>8th</option><option>9th</option><option>10th</option></select></div>
+        <div class="fg w150"><label>शाळा सोडल्याची तारीख</label><input type="date" id="lc_stxt65"></div>
+        <div class="fg w120"><label>सोडताना इयत्ता</label><select id="lc_stxt66"><option value="">-</option><option>5th</option><option>6th</option><option>7th</option><option>8th</option><option>9th</option><option>10th</option></select></div>
+        <div class="fg w180"><label>शै. वर्ष सुरुवात दिनांक</label><input type="date" id="lc_stxt82"></div>
+      </div>
+      <div class="frow">
+        <div class="fg w180"><label>LC क्रमांक (LC No.)</label><input id="lc_stxt72" placeholder="LC Number"></div>
+        <div class="fg w150"><label>LC दिनांक</label><input type="date" id="lc_stxt71"></div>
+        <div class="fg w180"><label>TC / Conduct</label><input id="lc_stxt21" value="चांगला"></div>
+      </div>
+      <div class="frow">
+        <div class="fg w180"><label>Progress (प्रगती)</label><input id="lc_stxt21" value="चांगली"></div>
+        <div class="fg w150"><label>सर्टिफिकेट मिळालेले? (Stxt75)</label><input id="lc_stxt75" placeholder="Yes/No"></div>
+        <div class="fg w150"><label>Stxt76</label><input id="lc_stxt76" placeholder=""></div>
+      </div>
+      <div class="frow">
+        <div class="fg wf"><label>शेरा / Remarks</label><textarea id="lc_stxt64" placeholder="Remarks / Notes"></textarea></div>
+      </div>
+      <div class="frow">
+        <div class="fg w180"><label>Medium of Instruction</label><input id="lc_stxt59" placeholder="Marathi/Semi English"></div>
+        <div class="fg w180"><label>पुढील शाळेचे नाव</label><input id="lc_stxt77" placeholder="Next School Name"></div>
+        <div class="fg w80"><label>LC Count (Stxt78)</label><input id="lc_stxt78" placeholder="1"></div>
+        <div class="fg w180"><label>Stxt79 (Fee Status)</label><input id="lc_stxt79" placeholder=""></div>
+      </div>
+
+      <div class="div"></div>
+      <div class="sec-title">इतर शैक्षणिक माहिती</div>
+      <div class="lc-grid">
+        <div class="fg"><label>Stxt60 - Subject1</label><input id="lc_stxt60" placeholder=""></div>
+        <div class="fg"><label>Stxt61 - Subject2</label><input id="lc_stxt61" placeholder=""></div>
+        <div class="fg"><label>Stxt62 - Subject3</label><input id="lc_stxt62" placeholder=""></div>
+        <div class="fg"><label>Stxt63 - Subject4</label><input id="lc_stxt63" placeholder=""></div>
+        <div class="fg"><label>Stxt67</label><input id="lc_stxt67" placeholder=""></div>
+        <div class="fg"><label>Stxt68</label><input id="lc_stxt68" placeholder=""></div>
+        <div class="fg"><label>Stxt69</label><input id="lc_stxt69" placeholder=""></div>
+        <div class="fg"><label>Stxt70</label><input id="lc_stxt70" placeholder=""></div>
+        <div class="fg"><label>Stxt80 - Nationality Type</label><input id="lc_stxt80" placeholder=""></div>
+      </div>
+
+      <div class="abtns">
+        <button class="btn btn-green edit-only master-only" onclick="saveLCData()">💾 Save LC Data</button>
+        <button class="btn btn-orange edit-only master-only" id="lc_updateBtn" onclick="updateLCRecord()" style="display:none">✏️ Update करा</button>
+        <button class="btn btn-gold" onclick="showLCCert()">📋 LC दाखला पाहा / Print</button>
+        <button class="btn btn-blue master-only" onclick="exportLCWord()">📝 LC Word (.docx)</button>
+        <button class="btn btn-red master-only" onclick="exportLCPDF()">📥 LC PDF Export</button>
+        <button class="btn btn-gray" onclick="clearForm('lc')">🗑️ Clear</button>
+      </div>
+      <div class="status" id="lc_status"></div>
+      <!-- Hidden cache for certificate generation -->
+      <input type="hidden" id="lc_stxt___aadhar">
+      <input type="hidden" id="lc_stxt___mother">
+      <input type="hidden" id="lc_stxt___village">
+      <input type="hidden" id="lc_stxt___taluka">
+      <input type="hidden" id="lc_stxt___district">
+      <input type="hidden" id="lc_stxt___state">
+      <input type="hidden" id="lc_stxt___prevSchool">
+      <input type="hidden" id="lc_stxt___gender">
+      <input type="hidden" id="lc_stxt___pen">
+      <input type="hidden" id="lc_stxt___bookNo">
+      <input type="hidden" id="lc_stxt___subcaste">
+      <input type="hidden" id="lc_stxt___country">
+      <input type="hidden" id="lc_stxt___leaveMonth">
+    </div>
+  </div>
+</div>
+
+<!-- ==================== BONAFIDE PAGE ==================== -->
+<div class="page" id="pg-bonafide">
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <h2>📄 बोनाफाईड प्रमाणपत्र</h2>
+        <p>Bonafide Certificate</p>
+      </div>
+    </div>
+    <div class="card-body">
+
+      <div class="searchbox">
+        <label>🔍 विद्यार्थी शोधा (Reg No):</label>
+        <input type="text" id="bf_regNo" placeholder="रजिस्टर नंबर" onkeydown="if(event.key==='Enter')searchStudent('bf')">
+        <button class="btn btn-orange btn-sm" onclick="searchStudent('bf')">🔍 शोधा</button>
+        <button class="btn btn-gray btn-sm" onclick="clearForm('bf')">🗑️ Clear</button>
+        <span id="bf_rowInfo" style="font-size:11px;color:var(--gold2)"></span>
+      </div>
+
+      <div class="sec-title">विद्यार्थी माहिती (आपोआप येते)</div>
+      <div class="frow">
+        <div class="fg w150"><label>Student ID / Reg No</label><input id="bf_stxt1" placeholder="Reg No."></div>
+        <div class="fg wf"><label>विद्यार्थ्याचे संपूर्ण नाव</label><input id="bf_stxt11" placeholder="उदा. रामेश्वर सुरेश पाटील"></div>
+      </div>
+      <div class="frow">
+        <div class="fg w150"><label>जन्म दिनांक</label><input type="date" id="bf_stxt19"></div>
+        <div class="fg wf"><label>जन्म दिनांक (अक्षरी)</label><input id="bf_stxt20" placeholder="DOB in words"></div>
+        <div class="fg w100"><label>इयत्ता</label><select id="bf_stxt7"><option value="">-</option><option>5th</option><option>6th</option><option>7th</option><option>8th</option><option>9th</option><option>10th</option></select></div>
+        <div class="fg w80"><label>तुकडी</label><select id="bf_stxt8"><option value="">-</option><option>अ</option><option>ब</option><option>क</option><option>ड</option><option>इ</option><option>फ</option><option>ग</option><option>ह</option><option>आय</option></select></div>
+      </div>
+      <div class="frow">
+        <div class="fg wf"><label>जन्मस्थळ (Birth Place) <span style="font-size:11px;color:#aaa">— auto filled</span></label>
+          <input id="bf_stxt___birthVillage_show" readonly style="background:#f5f0e8;cursor:default;color:#333;border-color:#c8b89a" placeholder="विद्यार्थी शोधल्यावर भरते"></div>
+        <div class="fg w120"><label>जात</label><input id="bf_stxt17" placeholder="Caste"></div>
+        <div class="fg w120"><label>धर्म</label><input id="bf_stxt16" placeholder="Religion"></div>
+        <div class="fg w150"><label>राष्ट्रीयत्व</label><input id="bf_stxt21" value="भारतीय"></div>
+      </div>
+
+      <div class="div"></div>
+      <div class="sec-title">बोनाफाईड विशेष माहिती</div>
+      <div class="frow">
+        <div class="fg w180"><label>शै.वर्ष (Academic Year)</label><select id="bf_stxt2" value="2026-27">-</option><option>2026-27</option><option>2027-28</option><option>2028-29</option></select></div>
+        <div class="fg w150"><label>बोनाफाईड दिनांक</label><input type="date" id="bf_stxt57"></div>
+        <div class="fg wf">
+          <label>उद्देश (Purpose)</label>
+          <select id="bf_stxt3_sel" onchange="bfPurposeChange()" style="width:100%;padding:7px 10px;border-radius:var(--r);border:1.5px solid var(--pb);background:var(--peach);font-family:inherit;font-size:14px;color:#2a1a0a">
+            <option value="">-- उद्देश निवडा --</option>
+            <option value="शिष्यवृत्ती अर्ज करण्यासाठी">शिष्यवृत्ती अर्ज करण्यासाठी</option>
+            <option value="आधार कार्ड अद्यावत करण्यासाठी">आधार कार्ड अद्यावत करण्यासाठी</option>
+            <option value="बँक खाते उघडण्यासाठी">बँक खाते उघडण्यासाठी</option>
+            <option value="जातीचा दाखला काढण्यासाठी">जातीचा दाखला काढण्यासाठी</option>
+            <option value="राष्ट्रीयत्व आणि अधिवास प्रमाणपत्र मिळवण्यासाठी">राष्ट्रीयत्व आणि अधिवास प्रमाणपत्र मिळवण्यासाठी</option>
+            <option value="एसटी महामंडळाच्या पास सुविधा मिळणेसाठी">एसटी महामंडळाच्या पास सुविधा मिळणेसाठी</option>
+            <option value="जन्म दाखला वरील माहिती अद्यावत करण्यासाठी">जन्म दाखला वरील माहिती अद्यावत करण्यासाठी</option>
+            <option value="शालेय रेकॉर्ड वरील माहिती दुरुस्ती / अद्यावत करण्यासाठी">शालेय रेकॉर्ड वरील माहिती दुरुस्ती / अद्यावत करण्यासाठी</option>
+            <option value="विविध स्पर्धांमध्ये सहभाग घेण्यासाठी">विविध स्पर्धांमध्ये सहभाग घेण्यासाठी</option>
+            <option value="इतर">इतर (manual entry)</option>
+          </select>
+          <input id="bf_stxt3" placeholder="उद्देश येथे टाइप करा..." style="display:none;margin-top:5px;width:100%;box-sizing:border-box">
+        </div>
+      </div>
+      <div class="frow">
+        <div class="fg w150"><label>प्रवेश दिनांक</label><input type="date" id="bf_stxt4"></div>
+        <div class="fg w120"><label>प्रवेशावेळी इयत्ता</label><select id="bf_stxt5"><option value="">-</option><option>5th</option><option>6th</option><option>7th</option><option>8th</option><option>9th</option><option>10th</option></select></div>
+        <div class="fg wf"><label>शेरा / Remarks</label><input id="bf_stxt6" placeholder="Remarks"></div>
+      </div>
+      <div class="frow">
+        <div class="fg wf"><label>पत्ता</label><input id="bf_stxt14" placeholder="Student Address"></div>
+        <div class="fg w150"><label>संपर्क</label><input id="bf_stxt9" placeholder="Mobile"></div>
+      </div>
+
+      <div class="frow" style="align-items:flex-end">
+        <div class="fg w150">
+          <label>Certificate भाषा</label>
+          <select id="bf_lang" style="padding:7px 10px;border-radius:var(--r);border:1.5px solid var(--pb);background:var(--peach);font-family:inherit;font-size:14px;width:100%">
+            <option value="mr" selected>मराठी</option>
+            <option value="en">English</option>
+          </select>
+        </div>
+      </div>
+      <div class="abtns">
+        <button class="btn btn-green cert-save" onclick="saveBFData()">💾 Save & Issue</button>
+        <button class="btn btn-gold" onclick="showBFCert()">📄 बोनाफाईड दाखला पाहा / Print</button>
+        <button class="btn btn-blue master-only" onclick="exportBFWord()">📝 Bonafide Word (.docx)</button>
+        <button class="btn btn-red" onclick="exportBFPDF()">📥 Bonafide PDF</button>
+        <button class="btn btn-gray" onclick="clearForm('bf')">🗑️ Clear</button>
+      </div>
+      <div class="status" id="bf_status"></div>
+      <input type="hidden" id="bf_stxt___gender">
+      <input type="hidden" id="bf_stxt___birthVillage">
+      <input type="hidden" id="bf_stxt___taluka">
+      <input type="hidden" id="bf_stxt___district">
+      <input type="hidden" id="bf_stxt___certNo">
+      <input type="hidden" id="bf_stxt___pen">
+      <input type="hidden" id="bf_stxt___photoUrl">
+    </div>
+  </div>
+</div>
+
+<!-- ==================== ATTENDANCE PAGE ==================== -->
+<div class="page" id="pg-attendance">
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <h2>✅ उपस्थिती प्रमाणपत्र</h2>
+        <p>Attendance Certificate</p>
+      </div>
+    </div>
+    <div class="card-body">
+
+      <div class="searchbox">
+        <label>🔍 विद्यार्थी शोधा (Reg No):</label>
+        <input type="text" id="at_regNo" placeholder="रजिस्टर नंबर" onkeydown="if(event.key==='Enter')searchStudent('at')">
+        <button class="btn btn-orange btn-sm" onclick="searchStudent('at')">🔍 शोधा</button>
+        <button class="btn btn-gray btn-sm" onclick="clearForm('at')">🗑️ Clear</button>
+        <span id="at_rowInfo" style="font-size:11px;color:var(--gold2)"></span>
+      </div>
+
+      <div class="sec-title">विद्यार्थी माहिती (आपोआप येते)</div>
+      <div class="frow">
+        <div class="fg w150"><label>Student ID / Reg No</label><input id="at_stxt1" placeholder="Reg No."></div>
+        <div class="fg wf"><label>विद्यार्थ्याचे संपूर्ण नाव</label><input id="at_stxt11" placeholder="उदा. रामेश्वर सुरेश पाटील"></div>
+        <div class="fg w80"><label>लिंग</label><select id="at_stxt15"><option value="">-</option><option>Male</option><option>Female</option><option>Other</option></select></div>
+      </div>
+      <div class="frow">
+        <div class="fg w150"><label>जन्म दिनांक</label><input type="date" id="at_stxt19"></div>
+        <div class="fg w100"><label>इयत्ता</label><select id="at_stxt7"><option value="">-</option><option>5th</option><option>6th</option><option>7th</option><option>8th</option><option>9th</option><option>10th</option></select></div>
+        <div class="fg w80"><label>तुकडी</label><select id="at_stxt8"><option value="">-</option><option>अ</option><option>ब</option><option>क</option><option>ड</option><option>इ</option><option>फ</option><option>ग</option><option>ह</option><option>आय</option></select></div>
+
+      </div>
+
+      <div class="div"></div>
+      <div class="sec-title">उपस्थिती माहिती / ATTENDANCE DETAILS</div>
+      <div class="frow">
+        <div class="fg w180"><label>शै.वर्ष (Academic Year)</label><select id="at_stxt2" value="2026-27">-</option><option>2027-28</option><option>2028-29</option><option>2029-30</option></select></div>
+        <div class="fg w150"><label>प्रमाणपत्र दिनांक</label><input type="date" id="at_stxt57"></div>
+        <div class="fg wf">
+          <label>उद्देश (Purpose)</label>
+          <select id="at_stxt3_sel" onchange="atPurposeChange()" style="width:100%;padding:7px 10px;border-radius:var(--r);border:1.5px solid var(--pb);background:var(--peach);font-family:inherit;font-size:14px;color:#2a1a0a">
+            <option value="">-- उद्देश निवडा --</option>
+            <option value="शासकीय योजनेचा लाभ घेण्यासाठी">शासकीय योजनेचा लाभ घेण्यासाठी</option>
+            <option value="शिष्यवृत्तीसाठी अर्ज करण्यासाठी">शिष्यवृत्तीसाठी अर्ज करण्यासाठी</option>
+            <option value="इतर">इतर (manual entry)</option>
+          </select>
+          <input id="at_stxt3" placeholder="उद्देश येथे टाइप करा..." style="display:none;margin-top:5px;width:100%;box-sizing:border-box">
+        </div>
+      </div>
+      <div class="frow">
+        <div class="fg w120"><label>एकूण कामकाजाचे दिवस</label><input id="at_stxt16" placeholder="Total Working Days" type="number"></div>
+        <div class="fg w120"><label>उपस्थित दिवस</label><input id="at_stxt17" placeholder="Present Days" type="number"></div>
+        <div class="fg w100"><label>उपस्थिती %</label><input id="at_pct" placeholder="%" readonly style="background:#e8e0d0"></div>
+        <div class="fg w150"><label>कालावधी (From)</label><input type="date" id="at_stxt5"></div>
+        <div class="fg w150"><label>कालावधी (To)</label><input type="date" id="at_stxt6"></div>
+      </div>
+      <div class="frow">
+        <div class="fg wf"><label>शेरा / Remarks</label><input id="at_stxt14" placeholder="Remarks"></div>
+      </div>
+
+      <div class="frow" style="align-items:flex-end">
+        <div class="fg w150">
+          <label>Certificate भाषा</label>
+          <select id="at_lang" style="padding:7px 10px;border-radius:var(--r);border:1.5px solid var(--pb);background:var(--peach);font-family:inherit;font-size:14px;width:100%">
+            <option value="mr" selected>मराठी</option>
+            <option value="en">English</option>
+          </select>
+        </div>
+      </div>
+      <div class="abtns">
+        <button class="btn btn-green cert-save" onclick="saveATData()">💾 Save & Issue</button>
+        <button class="btn btn-gold" onclick="showATCert()">✅ उपस्थिती दाखला पाहा / Print</button>
+        <button class="btn btn-blue master-only" onclick="exportATWord()">📝 Attendance Word (.docx)</button>
+        <button class="btn btn-red" onclick="exportATPDF()">📥 Attendance PDF</button>
+        <button class="btn btn-gray" onclick="clearForm('at')">🗑️ Clear</button>
+      </div>
+      <div class="status" id="at_status"></div>
+      <input type="hidden" id="at_stxt___certNo">
+      <input type="hidden" id="at_stxt___pen">
+      <input type="hidden" id="at_stxt___photoUrl">
+    </div>
+  </div>
+</div>
+
+<!-- ==================== CERTIFICATE MODAL ==================== -->
+<div id="certModal">
+  <div class="modal-overlay">
+    <div class="modal-box">
+      <div class="modal-hdr">
+        <span id="certModalTitle">📄 प्रमाणपत्र / Certificate</span>
+        <button class="cert-close" onclick="closeCert()">✕ बंद करा</button>
+      </div>
+      <div class="cert-actions">
+        <button onclick="window.print()" style="background:#1a7a3a;color:#fff">🖨️ Print</button>
+        <button id="certPdfBtn" onclick="exportCertAsPDF()" style="background:#7a1a1a;color:#fff">📥 PDF Download</button>
+        <button onclick="closeCert()" style="background:#555;color:#fff">✕ बंद करा</button>
+        <span id="certPdfStatus" style="font-size:12px;color:#333;align-self:center;display:none">⏳ PDF तयार होत आहे...</span>
+      </div>
+      <div id="certContent"></div>
+    </div>
+  </div>
+</div>
+<div id="sessionTimeoutToast"></div>
+
+<!-- ==================== SCRIPTS ==================== -->
+<!-- ==================== HISTORY / EXPORT PAGE (V19.8) ==================== -->
+<!-- ==================== STUDENT PROFILE PAGE (V19.13) ==================== -->
+<div id="pg-profile" class="page">
+  <button class="btn btn-gray tch-back-btn" style="display:none;margin-bottom:10px" onclick="showPage('teacher')">⬅ वर्ग शिक्षक कडे परत</button>
+  <div class="sec-title" style="margin-bottom:8px">🪪 Student Profile — फोटोसह संपूर्ण माहिती</div>
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-body">
+      <div class="frow" style="gap:10px;flex-wrap:wrap;align-items:flex-end">
+        <div class="fg" style="min-width:220px;flex:1">
+          <label>Reg No / Student ID / Aadhar टाका</label>
+          <input id="prof_key" placeholder="उदा. REG1234" onkeydown="if(event.key==='Enter')loadStudentProfile()">
+        </div>
+        <div class="fg" style="flex:0 0 auto">
+          <button class="btn btn-gold" onclick="loadStudentProfile()">🔎 Profile पहा</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="profile_empty">👆 वरील बॉक्स मध्ये Reg No / Student ID टाकून Profile पहा, किंवा Search Page वरून थेट "🪪 Profile" बटण दाबा.</div>
+
+  <div id="profile_content" style="display:none">
+    <div class="profile-hero">
+      <div class="profile-photo-wrap" id="prof_photoWrap"><span class="ph-placeholder">👤</span></div>
+      <div class="profile-headline">
+        <h2 id="prof_name">—</h2>
+        <div class="ph-meta" id="prof_meta">—</div>
+        <div class="profile-contact-row" id="prof_contactRow"></div>
+      </div>
+    </div>
+    <div class="profile-grid" id="prof_grid"></div>
+    <div style="margin-top:16px">
+      <button class="btn btn-gold" id="profShareBtn" onclick="shareProfileImage()">📤 विद्यार्थ्याचे Profile फोटो WhatsApp वर पाठवा</button>
+      <div id="profShareStatus" style="font-size:12.5px;margin-top:8px;color:#555"></div>
+    </div>
+  </div>
+</div>
+
+<!-- WhatsApp साठी Profile Card इमेज तयार करण्यासाठी — पडद्यावर दिसत नाही (V19.30) -->
+<div id="shareCardWrap" style="position:fixed;left:-9999px;top:0;z-index:-1">
+  <div id="shareCard" style="width:640px;background:#ffffff;color:#1a1a1a;font-family:'Noto Sans Devanagari','Mukta',sans-serif;padding:24px;box-sizing:border-box">
+    <div style="text-align:center;border-bottom:3px solid #d4902a;padding-bottom:12px;margin-bottom:16px">
+      <div style="font-size:18px;font-weight:700;color:#1a3a6a">Shri Govindrao Seksaria High School, Pachora</div>
+      <div style="font-size:13px;color:#555">विद्यार्थी माहिती (Student Profile)</div>
+    </div>
+    <div style="display:flex;gap:18px;align-items:flex-start;margin-bottom:16px">
+      <div id="shareCardPhoto" style="width:110px;height:135px;border:2px solid #d4902a;border-radius:6px;overflow:hidden;flex:0 0 auto;background:#f0f0f0;display:flex;align-items:center;justify-content:center;font-size:40px;color:#999">👤</div>
+      <div style="flex:1">
+        <div id="shareCardName" style="font-size:22px;font-weight:700;color:#1a3a6a">—</div>
+        <div id="shareCardMeta" style="font-size:14px;color:#555;margin-top:4px">—</div>
+      </div>
+    </div>
+    <table id="shareCardTable" style="width:100%;border-collapse:collapse;font-size:13px"></table>
+    <div style="text-align:center;margin-top:16px;font-size:11px;color:#888;border-top:1px solid #ddd;padding-top:8px">SGS School Management System — या माहितीची पडताळणी करा</div>
+  </div>
+</div>
+
+<div id="pg-history" class="page">
+  <div class="sec-title" style="margin-bottom:8px">📁 LC/BF/AT History — Records Management</div>
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-header"><div>🔎 विद्यार्थ्याचा प्रमाणपत्र इतिहास</div></div>
+    <div class="card-body">
+      <div class="frow" style="gap:10px;flex-wrap:wrap;align-items:flex-end">
+        <div class="fg" style="min-width:200px;flex:1">
+          <label>Student ID / रजि. क्र.</label>
+          <input id="hist_regNo" placeholder="Student ID किंवा रजि. क्र. टाका" onkeydown="if(event.key==='Enter')loadStudentHistory()">
+        </div>
+        <div class="fg" style="flex:0 0 auto">
+          <button class="btn btn-gold" onclick="loadStudentHistory()">🔎 इतिहास पहा</button>
+        </div>
+      </div>
+      <div id="hist_status" style="font-size:13px;color:#555;margin:10px 0 4px;min-height:18px"></div>
+      <div style="overflow-x:auto">
+        <table class="hist-table" id="hist_table" style="display:none">
+          <thead>
+            <tr>
+              <th>Type</th><th>Serial No.</th><th>दिनांक (Date)</th><th>तपशील</th>
+            </tr>
+          </thead>
+          <tbody id="hist_tbody"></tbody>
+        </table>
+      </div>
+      <div id="hist_nodata" style="display:none;text-align:center;padding:20px;color:#888;font-size:13px">😕 या Student ID साठी कोणतेही certificate आढळले नाही.</div>
+    </div>
+  </div>
+
+  <div class="card master-only">
+    <div class="card-header"><div>📤 Bulk Export — सर्व LC/BF/AT (Excel)</div></div>
+    <div class="card-body">
+      <p style="font-size:12.5px;opacity:.8;margin-bottom:10px">Google Sheets मधील सर्व LC, Bonafide व Attendance प्रमाणपत्रांचा एकत्रित Excel Report Download करा.</p>
+      <button class="btn btn-gold" id="bulkExportBtn" onclick="bulkExportCertificates()">📥 Excel Report Download करा</button>
+      <span id="bulkExportStatus" style="font-size:12.5px;margin-left:10px;color:#555"></span>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== USER MANAGEMENT PAGE (V19.9) ==================== -->
+<div id="pg-users" class="page">
+  <div class="sec-title" style="margin-bottom:8px">👥 User Management</div>
+
+  <div id="userMgmtAdminCards">
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-header"><div>➕ नवीन User जोडा / Edit करा</div></div>
+    <div class="card-body">
+      <div class="frow" style="gap:10px;flex-wrap:wrap;align-items:flex-end">
+        <div class="fg w150"><label>Username</label><input id="um_username" placeholder="उदा. user_4"></div>
+        <div class="fg w150"><label>Password</label><input id="um_password" placeholder="Password" type="text"></div>
+        <div class="fg w150">
+          <label>Role</label>
+          <select id="um_role" onchange="toggleUmClassFields()" style="padding:7px 10px;border-radius:var(--r);border:1.5px solid var(--pb);background:var(--peach);font-family:inherit;font-size:14px;width:100%">
+            <option value="super">Super Master</option>
+            <option value="master">Master</option>
+            <option value="deo">DEO</option>
+            <option value="cert" selected>Certificate User</option>
+            <option value="teacher">Class Teacher</option>
+          </select>
+        </div>
+        <div class="fg w150"><label>Label / Display Name</label><input id="um_label" placeholder="उदा. Clerk 2"></div>
+        <div class="fg w120" id="um_classWrap" style="display:none">
+          <label>वर्ग</label>
+          <select id="um_assignedClass" style="padding:7px 10px;border-radius:var(--r);border:1.5px solid var(--pb);background:var(--peach);font-family:inherit;font-size:14px;width:100%">
+            <option value="">-- वर्ग --</option>
+            <option>5th</option><option>6th</option><option>7th</option>
+            <option>8th</option><option>9th</option><option>10th</option>
+          </select>
+        </div>
+        <div class="fg w120" id="um_tukdiWrap" style="display:none">
+          <label>तुकडी</label>
+          <select id="um_assignedTukdi" style="padding:7px 10px;border-radius:var(--r);border:1.5px solid var(--pb);background:var(--peach);font-family:inherit;font-size:14px;width:100%">
+            <option value="">-- तुकडी --</option>
+            <option>अ</option><option>ब</option><option>क</option><option>ड</option>
+            <option>इ</option><option>फ</option><option>ग</option><option>ह</option><option>आय</option>
+          </select>
+        </div>
+        <div class="fg" style="flex:0 0 auto">
+          <button class="btn btn-gold" onclick="saveUser()">💾 Save User</button>
+          <button class="btn btn-gray" onclick="clearUserForm()" style="margin-left:6px">🗑️ Clear</button>
+        </div>
+      </div>
+      <div id="um_status" style="font-size:12.5px;margin-top:8px;color:#555"></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-header"><div>📋 सर्व Users</div></div>
+    <div class="card-body">
+      <div style="overflow-x:auto">
+        <table class="hist-table" id="um_table">
+          <thead><tr><th>Username</th><th>Role</th><th>Label</th><th>वर्ग</th><th>कृती</th></tr></thead>
+          <tbody id="um_tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div>🔑 माझा Password बदला (Change My Password)</div></div>
+    <div class="card-body">
+      <div class="frow" style="gap:10px;flex-wrap:wrap;align-items:flex-end">
+        <div class="fg w150"><label>जुना Password</label><input id="pwd_old" type="password"></div>
+        <div class="fg w150"><label>नवीन Password</label><input id="pwd_new" type="password"></div>
+        <div class="fg" style="flex:0 0 auto"><button class="btn btn-gold" onclick="changeMyPassword()">🔑 Password बदला</button></div>
+      </div>
+      <div id="pwd_status" style="font-size:12.5px;margin-top:8px;color:#555"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== CLASS TEACHER PAGE (V19.32) ==================== -->
+<!-- ==================== STATISTICS REPORT PAGE (V19.19 — Super Master/Master) ==================== -->
+<div id="pg-stats" class="page">
+  <div class="sec-title" style="margin-bottom:4px">📊 सांख्यिकी अहवाल (Statistics Report)</div>
+  <div class="frow" style="gap:10px;margin:10px 0 16px;align-items:center">
+    <button class="btn btn-blue" onclick="mstLoadStatsReport(true)">🔄 Refresh करा</button>
+    <span id="stats_status" style="font-size:12.5px;color:#555"></span>
+  </div>
+
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-header"><div>✅ वर्गनिहाय आजची हजेरी</div></div>
+    <div class="card-body" style="overflow-x:auto">
+      <table class="hist-table">
+        <thead><tr><th>वर्ग</th><th>एकूण विद्यार्थी</th><th>हजर</th><th>गैरहजर</th></tr></thead>
+        <tbody id="stats_attTbody"><tr><td colspan="4">⏳ Load होत आहे...</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-header"><div>💰 वर्गनिहाय जमा फी</div></div>
+    <div class="card-body" style="overflow-x:auto">
+      <table class="hist-table">
+        <thead><tr><th>वर्ग</th><th>एकूण जमा फी (₹)</th></tr></thead>
+        <tbody id="stats_feesTbody"><tr><td colspan="2">⏳ Load होत आहे...</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-header"><div>🏷️ वर्गनिहाय प्रवर्ग (Category) अहवाल</div></div>
+    <div class="card-body" id="stats_categoryBody" style="overflow-x:auto">⏳ Load होत आहे...</div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div>🎂 30 सप्टेंबर 2026 रोजी वयानुरूप विद्यार्थी संख्या (वर्गनिहाय)</div></div>
+    <div class="card-body" id="stats_ageBody" style="overflow-x:auto">⏳ Load होत आहे...</div>
+  </div>
+</div>
+
+<!-- ==================== MAINTENANCE PAGE (V19.20 — Super Master/Master) ==================== -->
+<div id="pg-maintenance" class="page">
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <h2>🔧 मेंटेनन्स — विद्यार्थ्यांचा वर्ग/तुकडी बदल</h2>
+        <p>Reg No टाकून विद्यार्थी शोधा, नंतर वर्ग व तुकडी हवी तशी बदला</p>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="searchbox">
+        <label>🔍 Reg No:</label>
+        <input type="text" id="mnt_regNo" placeholder="रजिस्टर नंबर" onkeydown="if(event.key==='Enter'){event.preventDefault();mntSearchStudent();}">
+        <button class="btn btn-orange btn-sm" onclick="mntSearchStudent()">🔍 शोधा</button>
+      </div>
+      <div id="mnt_status" style="font-size:12.5px;margin:10px 0;color:#555"></div>
+
+      <div id="mnt_result" style="display:none">
+        <div style="font-size:15px;margin-bottom:14px"><b id="mnt_studentName">—</b> &nbsp; <span style="opacity:.7">(Reg No: <span id="mnt_studentRegNo">—</span>)</span></div>
+        <div class="frow" style="gap:24px;margin-bottom:16px">
+          <div><div style="font-size:11px;opacity:.7">सध्याचा वर्ग</div><div style="font-size:17px;font-weight:700" id="mnt_curClass">—</div></div>
+          <div><div style="font-size:11px;opacity:.7">सध्याची तुकडी</div><div style="font-size:17px;font-weight:700" id="mnt_curTukdi">—</div></div>
+        </div>
+        <div class="frow" style="gap:10px;flex-wrap:wrap;align-items:flex-end">
+          <div class="fg w150">
+            <label>नवीन वर्ग</label>
+            <select id="mnt_newClass" style="padding:7px 10px;border-radius:var(--r);border:1.5px solid var(--pb);background:var(--peach);font-family:inherit;font-size:14px;width:100%">
+              <option value="">-- वर्ग --</option>
+              <option>5th</option><option>6th</option><option>7th</option>
+              <option>8th</option><option>9th</option><option>10th</option>
+            </select>
+          </div>
+          <div class="fg w120">
+            <label>नवीन तुकडी</label>
+            <select id="mnt_newTukdi" style="padding:7px 10px;border-radius:var(--r);border:1.5px solid var(--pb);background:var(--peach);font-family:inherit;font-size:14px;width:100%">
+              <option value="">-- तुकडी --</option>
+              <option>अ</option><option>ब</option><option>क</option><option>ड</option>
+              <option>इ</option><option>फ</option><option>ग</option><option>ह</option><option>आय</option>
+            </select>
+          </div>
+          <div class="fg" style="flex:0 0 auto"><button class="btn btn-gold" onclick="mntSaveChange()">💾 बदल जतन करा</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <div class="card-header">
+      <div>
+        <h2>💰 शाळेची एकूण फी ठरवा</h2>
+        <p>येथे ठरवलेल्या रकमेप्रमाणेच "फी दिलेले / फी बाकी असलेले विद्यार्थी" हे रिपोर्ट व वर्ग शिक्षकाचा Fees हिशोब ठरतो</p>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="frow" style="gap:20px;align-items:flex-end;flex-wrap:wrap">
+        <div>
+          <div style="font-size:11px;opacity:.7">सध्या ठरलेली एकूण फी</div>
+          <div style="font-size:20px;font-weight:800;color:var(--gold2)">₹<span id="fee_currentTotal">—</span> <span style="font-size:12px;font-weight:400;opacity:.7">/ प्रत्येक विद्यार्थी</span></div>
+        </div>
+        <div class="fg w150">
+          <label>नवीन एकूण फी (₹)</label>
+          <input type="number" id="fee_newTotal" min="1" placeholder="उदा. 1500">
+        </div>
+        <div class="fg" style="flex:0 0 auto"><button class="btn btn-gold" onclick="feeSaveTotal()">💾 जतन करा</button></div>
+      </div>
+      <div id="fee_status" style="font-size:12.5px;margin-top:10px;color:#555"></div>
+      <div style="font-size:11.5px;margin-top:6px;color:#888">टीप: आधीच नोंदवलेल्या जमा-रकमेच्या नोंदी बदलत नाहीत — फक्त "थकीत फी"ची गणना यापुढे नवीन एकूण फी नुसार होईल.</div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:16px;border:2px solid #c02020">
+    <div class="card-header" style="background:rgba(192,32,32,.15)">
+      <div>
+        <h2>🗑️ विद्यार्थी Delete करा</h2>
+        <p style="color:#c02020">⚠️ ही कृती अपरिवर्तनीय आहे — विद्यार्थी यादीतून पूर्णपणे निघून जाईल (संपूर्ण माहिती DeletedStudents Sheet मध्ये स्वतंत्रपणे जतन राहील)</p>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="searchbox">
+        <label>🔍 Reg No:</label>
+        <input type="text" id="del_regNo" placeholder="रजिस्टर नंबर" onkeydown="if(event.key==='Enter'){event.preventDefault();delSearchStudent();}">
+        <button class="btn btn-orange btn-sm" onclick="delSearchStudent()">🔍 शोधा</button>
+      </div>
+      <div id="del_status" style="font-size:12.5px;margin:10px 0;color:#555"></div>
+      <div id="del_result" style="display:none">
+        <div style="font-size:15px;margin-bottom:10px">
+          <b id="del_studentName">—</b> — इयत्ता <span id="del_studentClass">—</span>,
+          Reg No: <span id="del_studentRegNo">—</span>
+        </div>
+        <p style="font-size:12.5px;color:#c02020">खात्री करण्यासाठी खाली पुन्हा हाच Reg No टाइप करा:</p>
+        <div class="frow" style="gap:10px;align-items:flex-end">
+          <div class="fg w150"><input type="text" id="del_confirmRegNo" placeholder="Reg No पुन्हा टाइप करा" oninput="delCheckConfirm()"></div>
+          <div class="fg" style="flex:0 0 auto"><button class="btn" id="del_confirmBtn" disabled style="background:#c02020;color:#fff" onclick="delConfirmDelete()">🗑️ कायमचे Delete करा</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== वर्ग माहिती PAGE (V19.32 — Super Master/Master) ==================== -->
+<div id="pg-classinfo" class="page">
+  <div class="sec-title" style="margin-bottom:10px">🏫 वर्ग माहिती</div>
+  <div class="frow" style="gap:10px;margin-bottom:14px;align-items:flex-end">
+    <div class="fg w150">
+      <label>वर्ग</label>
+      <select id="ci_class" style="padding:7px 10px;border-radius:var(--r);border:1.5px solid var(--pb);background:var(--peach);font-family:inherit;font-size:14px;width:100%">
+        <option value="">-- वर्ग --</option>
+        <option>5th</option><option>6th</option><option>7th</option>
+        <option>8th</option><option>9th</option><option>10th</option>
+      </select>
+    </div>
+    <div class="fg w120">
+      <label>तुकडी</label>
+      <select id="ci_tukdi" style="padding:7px 10px;border-radius:var(--r);border:1.5px solid var(--pb);background:var(--peach);font-family:inherit;font-size:14px;width:100%">
+        <option value="">-- तुकडी --</option>
+        <option>अ</option><option>ब</option><option>क</option><option>ड</option>
+        <option>इ</option><option>फ</option><option>ग</option><option>ह</option><option>आय</option>
+      </select>
+    </div>
+    <div class="fg" style="flex:0 0 auto"><button class="btn btn-blue" onclick="ciLoadClass()">🔍 पहा</button></div>
+  </div>
+  <div id="ci_status" style="font-size:12.5px;margin-bottom:14px;color:#555"></div>
+
+  <div id="ci_content" style="display:none">
+    <div style="margin-bottom:14px">
+      <button class="tch-tabbtn active" data-ci="students" onclick="ciShowTab('students')">👥 विद्यार्थी यादी</button>
+      <button class="tch-tabbtn" data-ci="diary" onclick="ciShowTab('diary')">📔 Student Diary नोंदी</button>
+    </div>
+
+    <div class="tch-panel active" id="cip-students">
+      <div style="overflow-x:auto">
+        <table class="hist-table">
+          <thead><tr><th>Roll</th><th>नाव</th><th>लिंग</th><th>DOB</th><th>WhatsApp / Alternate Mobile</th><th>कृती</th></tr></thead>
+          <tbody id="ci_studentsTbody"><tr><td colspan="6">वर्ग निवडून "पहा" दाबा.</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="tch-panel" id="cip-diary">
+      <div style="overflow-x:auto">
+        <table class="hist-table">
+          <thead><tr><th>तारीख</th><th>विद्यार्थी</th><th>प्रकार</th><th>तपशील</th><th>नोंदवणारे (वर्ग शिक्षक)</th></tr></thead>
+          <tbody id="ci_diaryTbody"><tr><td colspan="5">वर्ग निवडून "पहा" दाबा.</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== रिपोर्ट PAGE (Super Master / Master — सर्व वर्ग; Class Teacher — फक्त स्वतःचा वर्ग) ==================== -->
+<!-- ==================== हजेरी विश्लेषण (Master / Super) — V19.36 ==================== -->
+<div id="pg-attanalytics" class="page">
+  <div class="sec-title" style="margin-bottom:10px">📈 हजेरी विश्लेषण</div>
+  <div class="card">
+    <div class="card-header"><div><h2>मासिक उपस्थिती व सलग गैरहजेरी</h2><p>कार्यदिवस = त्या वर्गाची हजेरी Save झालेले दिवस. भरायला विसरलेला दिवस मोजला जात नाही.</p></div></div>
+    <div class="card-body">
+      <div class="frow" style="gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px">
+        <div class="fg w180"><label>वर्ग / तुकडी</label><select id="atta_class" style="padding:7px 10px;border-radius:var(--r);border:1.5px solid var(--pb);background:var(--peach);font-family:inherit;width:100%"><option value="">⏳ Load होत आहे...</option></select></div>
+        <div class="fg w150"><label>महिना</label><input id="atta_month" type="month"></div>
+        <div class="fg w150"><label>सलग दिवस (किमान)</label><input id="atta_run" type="number" min="2" max="10" value="3"></div>
+        <div class="fg" style="flex:0 0 auto"><button class="btn btn-blue" onclick="attaLoad()">📊 विश्लेषण पहा</button></div>
+        <div class="fg" style="flex:0 0 auto"><button class="btn btn-green" id="atta_pdfBtn" onclick="attaExportPdf('atta')" disabled>📥 PDF</button></div>
+      </div>
+      <div id="atta_out" style="font-size:13px">वर्ग व महिना निवडून "विश्लेषण पहा" दाबा.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== SUPER ADMIN PAGE (V19.35 — फक्त Super Master) ==================== -->
+<div id="pg-superadmin" class="page">
+  <div class="sec-title" style="margin-bottom:10px">🛡️ Super Admin</div>
+
+  <div class="card" style="margin-bottom:16px;border:2px solid #c02020">
+    <div class="card-header"><div><h2>🔐 सुरक्षा स्थिती</h2><p>Server-side Login व Token — Role बनावट पाठवून होणारा गैरवापर रोखण्यासाठी</p></div></div>
+    <div class="card-body">
+      <div id="sa_secInfo" style="font-size:13px">⏳ Load होत आहे...</div>
+      <div style="font-size:12px;opacity:.75;margin-top:10px">सक्रिय करण्याचे टप्पे: (१) Apps Script Editor मध्ये setSuperCredentials('user_s','नवा-पासवर्ड') Run करा → (२) नवीन Deploy → (३) येथे Login करून "Token ने सुरक्षित" दिसते का तपासा → (४) enableAuthEnforcement() Run करा → (५) script.js मध्ये ALLOW_LEGACY_LOGIN = false करा.</div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-header"><div><h2>💰 शाळा-व्यापी फी थकबाकी यादी</h2><p>सर्वाधिक थकबाकी असलेले विद्यार्थी प्रथम — संपूर्ण शाळेचे; Excel / PDF Export</p></div></div>
+    <div class="card-body">
+      <div class="frow" style="gap:10px;flex-wrap:wrap;margin-bottom:10px">
+        <button class="btn btn-blue" onclick="saLoadPendingFees()">📋 यादी तयार करा</button>
+        <button class="btn btn-green" id="sa_pfXlsBtn" onclick="saExportPendingXlsx()" disabled>📊 Excel</button>
+        <button class="btn btn-green" id="sa_pfPdfBtn" onclick="saExportPendingPdf()" disabled>📥 PDF</button>
+      </div>
+      <div id="sa_pfSummary" style="font-size:13px;margin-bottom:8px"></div>
+      <div id="sa_pfStatus" style="font-size:12.5px;color:#cfd8e8;margin-bottom:8px"></div>
+      <div style="overflow-x:auto;max-height:420px;overflow-y:auto">
+        <table class="hist-table"><thead><tr><th>अ.क्र.</th><th>नाव</th><th>वर्ग</th><th>Roll</th><th>जमा</th><th>बाकी</th><th>मोबाईल</th><th>📲 WhatsApp</th></tr></thead>
+        <tbody id="sa_pfTbody"><tr><td colspan="8">"यादी तयार करा" दाबा.</td></tr></tbody></table>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:16px;border:2px solid #e8a020">
+    <div class="card-header"><div><h2>🎓 वर्ग-बढती (Promotion) — शैक्षणिक वर्ष संपताना</h2>
+      <p>सर्व विद्यार्थ्यांना एकाच वेळी पुढच्या वर्गात हलवा. तुकडी तीच राहते. शैक्षणिक वर्षही बदलते, त्यामुळे नवीन वर्षाची फी ०₹ पासून सुरू होते.</p></div></div>
+    <div class="card-body">
+      <div style="font-size:12px;color:#a06000;margin-bottom:10px">⚠️ 10th ला डिफॉल्ट बढती नाही (LC द्यायचा विषय). बढतीपूर्वी Students ची लपवलेली प्रत आपोआप तयार होते व खालून Undo करता येतो. तुकड्या बदलायच्या असल्यास बढतीनंतर मेंटेनन्स वापरा.</div>
+      <div id="sa_promoRows" style="margin-bottom:12px">⏳ Load होत आहे...</div>
+      <div class="frow" style="gap:10px;flex-wrap:wrap;align-items:flex-end">
+        <div class="fg w150"><label>नवीन शैक्षणिक वर्ष</label><input id="sa_promoYear" placeholder="उदा. 2027-28" maxlength="7"></div>
+        <div class="fg w150"><label>खात्री: PROMOTE टाइप करा</label><input id="sa_promoConfirm" placeholder="PROMOTE"></div>
+        <div class="fg" style="flex:0 0 auto"><button class="btn btn-gold" onclick="promoRun()">🎓 बढती द्या</button></div>
+      </div>
+      <div id="sa_promoStatus" style="font-size:12.5px;margin-top:10px;color:#cfd8e8"></div>
+      <div id="sa_promoBatches" style="margin-top:12px;font-size:12.5px"></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-header"><div><h2>🧹 वर्षअखेर साफसफाई</h2><p>10th चे विद्यार्थी Pass-out Archive मध्ये हलवा व बढतीनंतर Roll No. पुन्हा क्रमांकित करा</p></div></div>
+    <div class="card-body">
+      <div style="font-weight:700;margin-bottom:6px">📦 Pass-out Archive (उदा. 10th)</div>
+      <div class="frow" style="gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:6px">
+        <div class="fg w150"><label>वर्ग</label><select id="sa_arClass" style="padding:7px 10px;border-radius:var(--r);border:1.5px solid var(--pb);background:var(--peach);font-family:inherit;width:100%"></select></div>
+        <div class="fg w150"><label>Archive नाव (वर्ष)</label><input id="sa_arLabel" placeholder="उदा. 2026-27" maxlength="20"></div>
+        <div class="fg w150"><label>खात्री: ARCHIVE टाइप करा</label><input id="sa_arConfirm" placeholder="ARCHIVE"></div>
+        <div class="fg" style="flex:0 0 auto"><button class="btn btn-gold" onclick="saArchiveRun()">📦 Archive करा</button></div>
+      </div>
+      <div id="sa_arBatches" style="font-size:12.5px;margin-bottom:16px"></div>
+      <div style="font-weight:700;margin:12px 0 6px">🔢 Roll No. पुन्हा क्रमांक (प्रत्येक तुकडीत १ पासून)</div>
+      <div id="sa_rnClasses" style="margin-bottom:8px;font-size:13px"></div>
+      <div class="frow" style="gap:10px;flex-wrap:wrap;align-items:flex-end">
+        <div class="fg w180"><label>क्रम</label><select id="sa_rnOrder" style="padding:7px 10px;border-radius:var(--r);border:1.5px solid var(--pb);background:var(--peach);font-family:inherit;width:100%">
+          <option value="name">नावानुसार (अकारविल्हे)</option><option value="boys_first">आधी मुले, मग मुली</option><option value="girls_first">आधी मुली, मग मुले</option></select></div>
+        <div class="fg w150"><label>खात्री: RENUMBER टाइप करा</label><input id="sa_rnConfirm" placeholder="RENUMBER"></div>
+        <div class="fg" style="flex:0 0 auto"><button class="btn btn-gold" onclick="saRenumberRun()">🔢 Roll No. बदला</button></div>
+      </div>
+      <div id="sa_cleanStatus" style="font-size:12.5px;margin-top:10px;color:#cfd8e8"></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-header"><div><h2>💾 आपोआप Backup (Google Drive)</h2><p>Spreadsheet(s) ची प्रत रोज/आठवड्याला आपोआप Drive मध्ये</p></div></div>
+    <div class="card-body">
+      <div id="sa_bkInfo" style="font-size:13px;margin-bottom:12px">⏳ Load होत आहे...</div>
+      <div class="frow" style="gap:10px;flex-wrap:wrap;align-items:flex-end">
+        <div class="fg w180"><label>वेळापत्रक</label>
+          <select id="sa_bkMode" style="padding:7px 10px;border-radius:var(--r);border:1.5px solid var(--pb);background:var(--peach);font-family:inherit;width:100%">
+            <option value="daily">रोज</option><option value="weekly">दर रविवारी</option><option value="off">बंद</option>
+          </select></div>
+        <div class="fg" style="min-width:260px;flex:1"><label>इतर Spreadsheet ID (comma ने वेगळे) — उदा. Transactions Sheet</label><input id="sa_bkExtra" placeholder="ID1,ID2"></div>
+        <div class="fg" style="min-width:220px;flex:1"><label>Backup अपयशाची सूचना — Email</label><input id="sa_bkEmail" type="email" placeholder="रिकामे = खाते-मालकाचा Email"></div>
+        <div class="fg" style="flex:0 0 auto"><button class="btn btn-gold" onclick="saSaveBackupSchedule()">💾 जतन करा</button></div>
+        <div class="fg" style="flex:0 0 auto"><button class="btn btn-blue" onclick="saRunBackupNow()">▶️ आत्ताच Backup घ्या</button></div>
+        <div class="fg" style="flex:0 0 auto"><button class="btn btn-orange" onclick="saArchiveLogNow()">🗄️ जुने Log Archive (९० दिवस+)</button></div>
+      </div>
+      <div id="sa_bkStatus" style="font-size:12.5px;margin-top:10px;color:#cfd8e8"></div>
+    </div>
+  </div>
+</div>
+
+<div id="pg-report" class="page">
+  <div class="sec-title" style="margin-bottom:10px">📑 रिपोर्ट</div>
+
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-header"><div>1️⃣ वर्ग व तुकडी निवडा</div></div>
+    <div class="card-body">
+      <div id="rp_teacherClassNote" style="display:none"></div>
+      <div id="rp_classDivWrap" class="frow" style="gap:32px;flex-wrap:wrap">
+        <div>
+          <div style="font-weight:700;font-size:12.5px;margin-bottom:6px;color:var(--gold2)">वर्ग</div>
+          <label class="rp-chk-row"><input type="checkbox" class="rp-class-all" onchange="rpToggleAll('class',this)"> सर्व</label>
+          <label class="rp-chk-row"><input type="checkbox" class="rp-class-item" value="5th"> 5th</label>
+          <label class="rp-chk-row"><input type="checkbox" class="rp-class-item" value="6th"> 6th</label>
+          <label class="rp-chk-row"><input type="checkbox" class="rp-class-item" value="7th"> 7th</label>
+          <label class="rp-chk-row"><input type="checkbox" class="rp-class-item" value="8th"> 8th</label>
+          <label class="rp-chk-row"><input type="checkbox" class="rp-class-item" value="9th"> 9th</label>
+          <label class="rp-chk-row"><input type="checkbox" class="rp-class-item" value="10th"> 10th</label>
+        </div>
+        <div>
+          <div style="font-weight:700;font-size:12.5px;margin-bottom:6px;color:var(--gold2)">तुकडी</div>
+          <label class="rp-chk-row"><input type="checkbox" class="rp-tukdi-all" onchange="rpToggleAll('tukdi',this)"> सर्व</label>
+          <label class="rp-chk-row"><input type="checkbox" class="rp-tukdi-item" value="अ"> अ</label>
+          <label class="rp-chk-row"><input type="checkbox" class="rp-tukdi-item" value="ब"> ब</label>
+          <label class="rp-chk-row"><input type="checkbox" class="rp-tukdi-item" value="क"> क</label>
+          <label class="rp-chk-row"><input type="checkbox" class="rp-tukdi-item" value="ड"> ड</label>
+          <label class="rp-chk-row"><input type="checkbox" class="rp-tukdi-item" value="इ"> इ</label>
+          <label class="rp-chk-row"><input type="checkbox" class="rp-tukdi-item" value="फ"> फ</label>
+          <label class="rp-chk-row"><input type="checkbox" class="rp-tukdi-item" value="ग"> ग</label>
+          <label class="rp-chk-row"><input type="checkbox" class="rp-tukdi-item" value="ह"> ह</label>
+          <label class="rp-chk-row"><input type="checkbox" class="rp-tukdi-item" value="आय"> आय</label>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-header"><div>2️⃣ Column Field निवडा (व क्रम ठरवा — उजवीकडील आकड्याने कॉलमचा क्रम ठरतो)</div></div>
+    <div class="card-body">
+      <div class="rp-fields-grid">
+        <div class="rp-field-row"><label><input type="checkbox" class="rp-field-chk" data-key="firstName" data-label="Full Name" checked> Full Name</label><input type="number" class="rp-field-order" min="1" max="20" value="1"></div>
+        <div class="rp-field-row"><label><input type="checkbox" class="rp-field-chk" data-key="regNo" data-label="Reg No" checked> Reg No</label><input type="number" class="rp-field-order" min="1" max="20" value="2"></div>
+        <div class="rp-field-row"><label><input type="checkbox" class="rp-field-chk" data-key="pen" data-label="PEN"> PEN</label><input type="number" class="rp-field-order" min="1" max="20" value="3"></div>
+        <div class="rp-field-row"><label><input type="checkbox" class="rp-field-chk" data-key="iyatta" data-label="Class"> Class</label><input type="number" class="rp-field-order" min="1" max="20" value="4"></div>
+        <div class="rp-field-row"><label><input type="checkbox" class="rp-field-chk" data-key="tukdi" data-label="Division"> Division</label><input type="number" class="rp-field-order" min="1" max="20" value="5"></div>
+        <div class="rp-field-row"><label><input type="checkbox" class="rp-field-chk" data-key="studentId" data-label="Student ID"> Student ID</label><input type="number" class="rp-field-order" min="1" max="20" value="6"></div>
+        <div class="rp-field-row"><label><input type="checkbox" class="rp-field-chk" data-key="aadhar" data-label="Aadhar"> Aadhar</label><input type="number" class="rp-field-order" min="1" max="20" value="7"></div>
+        <div class="rp-field-row"><label><input type="checkbox" class="rp-field-chk" data-key="gender" data-label="Gender"> Gender</label><input type="number" class="rp-field-order" min="1" max="20" value="8"></div>
+        <div class="rp-field-row"><label><input type="checkbox" class="rp-field-chk" data-key="caste" data-label="Caste"> Caste</label><input type="number" class="rp-field-order" min="1" max="20" value="9"></div>
+        <div class="rp-field-row"><label><input type="checkbox" class="rp-field-chk" data-key="dob" data-label="DOB"> DOB</label><input type="number" class="rp-field-order" min="1" max="20" value="10"></div>
+        <div class="rp-field-row"><label><input type="checkbox" class="rp-field-chk" data-key="contact" data-label="Contact"> Contact</label><input type="number" class="rp-field-order" min="1" max="20" value="11"></div>
+        <div class="rp-field-row"><label><input type="checkbox" class="rp-field-chk" data-key="address" data-label="Address"> Address</label><input type="number" class="rp-field-order" min="1" max="20" value="12"></div>
+        <div class="rp-field-row"><label><input type="checkbox" class="rp-field-chk" data-key="whatsappMobile" data-label="WhatsApp Mobile No"> WhatsApp Mobile No</label><input type="number" class="rp-field-order" min="1" max="20" value="13"></div>
+        <div class="rp-field-row"><label><input type="checkbox" class="rp-field-chk" data-key="category" data-label="Category"> Category</label><input type="number" class="rp-field-order" min="1" max="20" value="14"></div>
+        <div class="rp-field-row"><label><input type="checkbox" class="rp-field-chk" data-key="minority" data-label="Minority"> Minority</label><input type="number" class="rp-field-order" min="1" max="20" value="15"></div>
+        <div class="rp-field-row"><label><input type="checkbox" class="rp-field-chk" data-key="feePaidFilter" data-label="जमा रक्कम (₹)"> 💰 फी दिलेले विद्यार्थी (+ जमा रक्कम)</label><input type="number" class="rp-field-order" min="1" max="20" value="16"></div>
+        <div class="rp-field-row"><label><input type="checkbox" class="rp-field-chk" data-key="feeDueFilter" data-label="जमा रक्कम (₹)"> ⚠️ फी बाकी असलेले विद्यार्थी (+ जमा रक्कम)</label><input type="number" class="rp-field-order" min="1" max="20" value="17"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-body">
+      <div class="frow" style="gap:14px;flex-wrap:wrap;align-items:flex-end">
+        <div class="fg w220">
+          <label>रिपोर्ट उद्देश / शीर्षक (PDF वर दिसेल)</label>
+          <input type="text" id="rp_purpose" placeholder="उदा. शिष्यवृत्ती अर्जासाठी विद्यार्थी यादी">
+        </div>
+        <div class="fg w180">
+          <label>PDF Page Orientation</label>
+          <select id="rp_orientation">
+            <option value="portrait">📄 Portrait (उभे)</option>
+            <option value="landscape">📃 Landscape (आडवे)</option>
+          </select>
+        </div>
+        <div class="fg w220">
+          <label>क्रम (Order)</label>
+          <select id="rp_sortOrder">
+            <option value="asis">जसे आहे तसे (Reg No क्रमाने)</option>
+            <option value="girlsfirst">मुली प्रथम, मुलं नंतर</option>
+            <option value="boysfirst">मुलं प्रथम, मुली नंतर</option>
+            <option value="name">नावानुसार (अ ते ज्ञ)</option>
+          </select>
+        </div>
+        <div class="fg" style="flex:0 0 auto"><button class="btn btn-blue" onclick="rpGenerate()">📋 यादी तयार करा</button></div>
+        <div class="fg" style="flex:0 0 auto"><button class="btn btn-green" id="rp_pdfBtn" onclick="rpExportPDF()" disabled>📥 PDF Export</button></div>
+      </div>
+      <div id="rp_status" style="font-size:12.5px;margin-top:10px;color:#555"></div>
+      <div style="font-size:11.5px;margin-top:6px;color:#888">टीप: "फी दिलेले"/"फी बाकी असलेले" चेकबॉक्स Column Field यादीत आहेत — तेच फिल्टर व जमा-रक्कम कॉलम दोन्ही ठरवतात.</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div id="rp_resultTitle">रिपोर्ट</div></div>
+    <div class="card-body" style="overflow-x:auto">
+      <table class="hist-table" id="rp_previewTable">
+        <thead><tr id="rp_theadRow"><th>अ.क्र.</th></tr></thead>
+        <tbody id="rp_tbody"><tr><td>वरील पर्याय निवडून "यादी तयार करा" दाबा.</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div id="pg-teacher" class="page">
+  <div class="sec-title" style="margin-bottom:4px">🏫 वर्ग शिक्षक — <span id="tch_classLabel">—</span></div>
+  <div style="font-size:12px;opacity:.75;margin-bottom:14px">फक्त आपल्या वर्गाची माहिती येथे दिसेल.</div>
+
+  <div style="margin-bottom:14px">
+    <button class="tch-tabbtn active" data-tch="dash" onclick="tchShowTab('dash')">📊 डॅशबोर्ड</button>
+    <button class="tch-tabbtn" data-tch="roster" onclick="tchShowTab('roster')">👥 विद्यार्थी माहिती</button>
+    <button class="tch-tabbtn" data-tch="att" onclick="tchShowTab('att')">✅ Attendance</button>
+    <button class="tch-tabbtn" data-tch="diary" onclick="tchShowTab('diary')">📔 Student Diary</button>
+    <button class="tch-tabbtn" data-tch="fees" onclick="tchShowTab('fees')">💰 Fees</button>
+    <button class="tch-tabbtn" data-tch="notices" onclick="tchShowTab('notices')">🔔 सूचना</button>
+    <button class="tch-tabbtn" data-tch="ana" onclick="tchShowTab('ana')">📈 विश्लेषण</button>
+    <button class="tch-tabbtn" data-tch="maint" onclick="tchShowTab('maint')">🔧 मेंटेनन्स</button>
+  </div>
+
+  <!-- 📊 DASHBOARD -->
+  <div class="tch-panel active" id="tchp-dash">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:16px">
+      <div class="tch-stat"><b id="tch_totalStudents">—</b><span>एकूण विद्यार्थी</span></div>
+      <div class="tch-stat"><b id="tch_presentToday">—</b><span>उपस्थित (आज)</span></div>
+      <div class="tch-stat"><b id="tch_absentToday">—</b><span>अनुपस्थित (आज)</span></div>
+      <div class="tch-stat"><b id="tch_birthdayCount">—</b><span>आजचे वाढदिवस</span></div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;margin-bottom:16px">
+      <div class="tch-stat" style="border-top-color:#ff9090"><b id="tch_absentGirls">—</b><span>आज गैरहजर — मुली</span></div>
+      <div class="tch-stat" style="border-top-color:#90c0ff"><b id="tch_absentBoys">—</b><span>आज गैरहजर — मुले</span></div>
+      <div class="tch-stat" style="border-top-color:#ffb84d"><b id="tch_absentTotal2">—</b><span>आज गैरहजर — एकूण</span></div>
+    </div>
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-header"><div>🎂 आजचे वाढदिवस</div></div>
+      <div class="card-body" id="tch_birthdayList" style="font-size:13px">—</div>
+    </div>
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-header"><div>🔔 अलीकडील सूचना</div></div>
+      <div class="card-body" id="tch_dashNotices" style="font-size:13px">—</div>
+    </div>
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-header"><div>🏷️ वर्ग प्रवर्ग (Category) अहवाल</div></div>
+      <div class="card-body" id="tch_categoryBody" style="overflow-x:auto;font-size:13px">⏳ Load होत आहे...</div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div>🎂 30 सप्टेंबर 2026 रोजी वयानुरूप विद्यार्थी संख्या</div></div>
+      <div class="card-body" id="tch_ageBody" style="overflow-x:auto;font-size:13px">⏳ Load होत आहे...</div>
+    </div>
+  </div>
+
+  <!-- 👥 ROSTER / STUDENT PROFILE -->
+  <div class="tch-panel" id="tchp-roster">
+    <div class="frow" style="gap:10px;margin-bottom:10px;align-items:flex-end">
+      <div class="fg" style="min-width:200px;flex:1"><label>शोधा (नाव / Reg No)</label><input id="tch_rosterSearch" placeholder="नाव टाइप करा..." oninput="tchRenderRoster()"></div>
+    </div>
+    <div style="overflow-x:auto">
+      <table class="hist-table">
+        <thead><tr><th>Roll</th><th>नाव</th><th>लिंग</th><th>DOB</th><th>WhatsApp / Alternate Mobile</th><th>कृती</th></tr></thead>
+        <tbody id="tch_rosterTbody"><tr><td colspan="6">⏳ Load होत आहे...</td></tr></tbody>
+      </table>
+    </div>
+    <p style="font-size:11.5px;opacity:.7;margin-top:8px">ℹ️ WhatsApp Mobile No. व Alternate Mobile No. नोंदवण्यासाठी "विद्यार्थी माहिती नोंदणी" page वापरा — ती संपूर्ण Student Profile सोबत जोडलेली राहतील.</p>
+  </div>
+
+  <!-- ✅ ATTENDANCE -->
+  <div class="tch-panel" id="tchp-att">
+    <div class="frow" style="gap:10px;margin-bottom:10px;align-items:flex-end">
+      <div class="fg w150"><label>तारीख</label><input id="tch_attDate" type="date"></div>
+      <div class="fg" style="flex:0 0 auto"><button class="btn btn-blue" onclick="tchLoadAttendanceForDate()">📅 त्या दिवसाची यादी उघडा</button></div>
+    </div>
+    <p style="font-size:12px;opacity:.8;margin-bottom:10px">फक्त <b>अनुपस्थित</b> विद्यार्थ्यांवर ✅ टिक करा — बाकी सर्व आपोआप उपस्थित धरले जातील.</p>
+    <div style="overflow-x:auto">
+      <table class="hist-table">
+        <thead><tr><th>Roll</th><th>नाव</th><th>अनुपस्थित?</th><th>कारण (ऐच्छिक)</th></tr></thead>
+        <tbody id="tch_attTbody"><tr><td colspan="4">⏳ Load होत आहे...</td></tr></tbody>
+      </table>
+    </div>
+    <div class="frow" style="gap:10px;margin-top:12px;align-items:center">
+      <button class="btn btn-gold" onclick="tchSaveAttendance()">💾 Attendance Save करा</button>
+      <span id="tch_attStatus" style="font-size:12.5px;color:#555"></span>
+    </div>
+
+    <div class="card" style="margin-top:20px">
+      <div class="card-header"><div>💬 अनुपस्थित विद्यार्थ्यांना Call / SMS / WhatsApp</div></div>
+      <div class="card-body" id="tch_attContactList" style="font-size:13px">आधी वरील तारखेची यादी उघडा.</div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <div class="card-header"><div>📋 Attendance Report (तारीख निहाय)</div></div>
+      <div class="card-body">
+        <div class="frow" style="gap:10px;align-items:flex-end;margin-bottom:10px">
+          <div class="fg w150"><label>पासून</label><input id="tch_rptFrom" type="date"></div>
+          <div class="fg w150"><label>पर्यंत</label><input id="tch_rptTo" type="date"></div>
+          <div class="fg" style="flex:0 0 auto"><button class="btn btn-blue" onclick="tchLoadReport()">📊 Report पहा</button></div>
+        </div>
+        <div style="overflow-x:auto">
+          <table class="hist-table">
+            <thead><tr><th>तारीख</th><th>Roll/नाव</th><th>कारण</th></tr></thead>
+            <tbody id="tch_rptTbody"><tr><td colspan="3">तारीख निवडा.</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <div class="card-header"><div>📊 Attendance Summary — चालू महिना</div></div>
+      <div class="card-body">
+        <p style="font-size:12px;opacity:.8;margin-bottom:10px">या महिन्यात कमीत कमी १ दिवस अनुपस्थित असलेल्या विद्यार्थ्यांची यादी — अनुपस्थित दिनांक (महिन्यातील दिवस क्रमांक, स्वल्पविरामाने वेगळे).</p>
+        <div style="overflow-x:auto">
+          <table class="hist-table">
+            <thead><tr><th>Roll</th><th>विद्यार्थ्याचे नाव</th><th>अनुपस्थित दिनांक (उदा. 1,4,7)</th></tr></thead>
+            <tbody id="tch_summaryTbody"><tr><td colspan="3">⏳ Load होत आहे...</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 📔 STUDENT DIARY -->
+  <div class="tch-panel" id="tchp-ana">
+    <div class="card">
+      <div class="card-header"><div><h2>📈 माझ्या वर्गाची मासिक उपस्थिती</h2><p>उपस्थिती %, सलग गैरहजर विद्यार्थी — पालकांना WhatsApp व PDF</p></div></div>
+      <div class="card-body">
+        <div class="frow" style="gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px">
+          <div class="fg w150"><label>महिना</label><input id="tchana_month" type="month"></div>
+          <div class="fg w150"><label>सलग दिवस (किमान)</label><input id="tchana_run" type="number" min="2" max="10" value="3"></div>
+          <div class="fg" style="flex:0 0 auto"><button class="btn btn-blue" onclick="tchAnaLoad()">📊 विश्लेषण पहा</button></div>
+          <div class="fg" style="flex:0 0 auto"><button class="btn btn-green" id="tchana_pdfBtn" onclick="attaExportPdf('tchana')" disabled>📥 PDF</button></div>
+        </div>
+        <div id="tchana_out" style="font-size:13px">महिना निवडून "विश्लेषण पहा" दाबा.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tch-panel" id="tchp-diary">
+    <div class="frow" style="gap:10px;margin-bottom:10px;align-items:flex-end">
+      <div class="fg" style="min-width:200px;flex:1">
+        <label>विद्यार्थी निवडा</label>
+        <select id="tch_diaryStudent" style="padding:7px 10px;border-radius:var(--r);border:1.5px solid var(--pb);background:var(--peach);font-family:inherit;font-size:14px;width:100%" onchange="tchLoadDiaryForStudent()"></select>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-header"><div>🚌 Updown माहिती (मूळ गाव / प्रवासाचे माध्यम)</div></div>
+      <div class="card-body">
+        <div class="frow" style="gap:10px;flex-wrap:wrap;align-items:flex-end">
+          <div class="fg w150"><label>मूळ गाव</label><input id="tch_native" placeholder="उदा. वरखेडी"></div>
+          <div class="fg w150">
+            <label>प्रवासाचे माध्यम</label>
+            <select id="tch_travelMode" style="padding:7px 10px;border-radius:var(--r);border:1.5px solid var(--pb);background:var(--peach);font-family:inherit;font-size:14px;width:100%">
+              <option value="">-- निवडा --</option>
+              <option>ST</option><option>रिक्षा</option><option>वैयक्तिक वाहन</option><option>सायकल</option><option>पायी</option>
+            </select>
+          </div>
+          <div class="fg w150"><label>वाहतूक संपर्क क्रमांक</label><input id="tch_transportContact" placeholder="उदा. रिक्षाचालकाचा मोबाइल नं." maxlength="10"></div>
+          <div class="fg" style="flex:0 0 auto"><button class="btn btn-gold" onclick="tchSaveTransport()">💾 Save करा</button></div>
+        </div>
+        <div id="tch_transportStatus" style="font-size:12.5px;margin-top:6px;color:#555"></div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-header"><div>✍️ नवीन Remark जोडा</div></div>
+      <div class="card-body">
+        <div class="frow" style="gap:10px;flex-wrap:wrap;align-items:flex-end">
+          <div class="fg w150">
+            <label>प्रकार</label>
+            <select id="tch_remarkType" style="padding:7px 10px;border-radius:var(--r);border:1.5px solid var(--pb);background:var(--peach);font-family:inherit;font-size:14px;width:100%">
+              <option value="positive">👍 Positive Remark</option>
+              <option value="warning">⚠️ Warning Remark</option>
+              <option value="scholarship">🎓 Scholarship Applied</option>
+              <option value="personal">📝 वैयक्तिक नोंदी</option>
+            </select>
+          </div>
+          <div class="fg" style="min-width:220px;flex:1"><label>तपशील</label><input id="tch_remarkText" placeholder="तपशील लिहा..."></div>
+          <div class="fg" style="flex:0 0 auto"><button class="btn btn-gold" onclick="tchSaveDiaryRemark()">➕ जोडा</button></div>
+        </div>
+        <div id="tch_diaryStatus" style="font-size:12.5px;margin-top:6px;color:#555"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><div>📜 Remark History</div></div>
+      <div class="card-body" id="tch_diaryHistory" style="font-size:13px">आधी विद्यार्थी निवडा.</div>
+    </div>
+  </div>
+
+  <!-- 💰 FEES (Class Teacher entry — टप्प्याटप्प्याने जमा) -->
+  <div class="tch-panel" id="tchp-fees">
+    <div class="tch-stat" style="max-width:320px;margin-bottom:16px;border-top-color:#7ef7a0">
+      <b id="tch_classFeesTotal" style="color:#7ef7a0">₹0</b><span>वर्गाची आजपर्यंत एकूण जमा फी</span>
+    </div>
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-header"><div>💵 Fee जमा नोंद करा</div></div>
+      <div class="card-body">
+        <div class="frow" style="gap:10px;flex-wrap:wrap;align-items:flex-end">
+          <div class="fg" style="min-width:200px;flex:1">
+            <label>विद्यार्थी निवडा</label>
+            <select id="tch_feesStudent" style="padding:7px 10px;border-radius:var(--r);border:1.5px solid var(--pb);background:var(--peach);font-family:inherit;font-size:14px;width:100%" onchange="tchLoadFeesForStudent()"></select>
+          </div>
+          <div class="fg w150"><label>आज जमा रक्कम (₹)</label><input id="tch_feesAmount" type="number" placeholder="उदा. 200"></div>
+          <div class="fg" style="flex:0 0 auto"><button class="btn btn-gold" onclick="tchSaveFees()">➕ जमा नोंद करा</button></div>
+        </div>
+        <div id="tch_feesEntryStatus" style="font-size:12.5px;margin-top:6px;color:#555"></div>
+        <div id="tch_studentFeeStat" style="display:none;margin-top:14px;padding:12px;border-radius:8px;background:var(--navy3);border:1px solid var(--navy2)">
+          <div style="font-size:13px;margin-bottom:4px" id="tch_studentFeeName">—</div>
+          <div style="display:flex;gap:20px;flex-wrap:wrap">
+            <div><b id="tch_studentFeePaid" style="font-size:20px;color:#7ef7a0">₹0</b><div style="font-size:11px;opacity:.8">आजपर्यंत जमा</div></div>
+            <div><b id="tch_studentFeePending" style="font-size:20px;color:#ff9090">₹0</b><div style="font-size:11px;opacity:.8">बाकी (एकूण ₹<span id="tch_totalFeeAmt">1000</span> पैकी)</div></div>
+          </div>
+          <div id="tch_studentFeeHistory" style="margin-top:10px;font-size:12px"></div>
+        </div>
+      </div>
+    </div>
+    <div style="overflow-x:auto">
+      <table class="hist-table">
+        <thead><tr><th>Roll</th><th>नाव</th><th>आजपर्यंत जमा</th><th>बाकी</th></tr></thead>
+        <tbody id="tch_feesTbody"><tr><td colspan="4">⏳ Load होत आहे...</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- 🔔 NOTICES -->
+  <div class="tch-panel" id="tchp-notices">
+    <div id="tch_noticesFull" style="font-size:13px">⏳ Load होत आहे...</div>
+  </div>
+
+  <!-- 🔧 मेंटेनन्स — फक्त तुकडी बदल -->
+  <div class="tch-panel" id="tchp-maint">
+    <p style="font-size:12px;opacity:.8;margin-bottom:12px">ℹ️ आपण फक्त आपल्या वर्गातील विद्यार्थ्यांची <b>तुकडी</b> बदलू शकता — वर्ग बदलता येणार नाही.</p>
+    <div class="searchbox">
+      <label>🔍 Reg No:</label>
+      <input type="text" id="tch_mntRegNo" placeholder="रजिस्टर नंबर" onkeydown="if(event.key==='Enter'){event.preventDefault();tchMntSearch();}">
+      <button class="btn btn-orange btn-sm" onclick="tchMntSearch()">🔍 शोधा</button>
+    </div>
+    <div id="tch_mntStatus" style="font-size:12.5px;margin:10px 0;color:#555"></div>
+    <div id="tch_mntResult" style="display:none">
+      <div style="font-size:15px;margin-bottom:14px"><b id="tch_mntName">—</b> &nbsp; <span style="opacity:.7">(Reg No: <span id="tch_mntRegNoShow">—</span>)</span></div>
+      <div class="frow" style="gap:24px;margin-bottom:16px">
+        <div><div style="font-size:11px;opacity:.7">वर्ग</div><div style="font-size:17px;font-weight:700" id="tch_mntClass">—</div></div>
+        <div><div style="font-size:11px;opacity:.7">सध्याची तुकडी</div><div style="font-size:17px;font-weight:700" id="tch_mntCurTukdi">—</div></div>
+      </div>
+      <div class="frow" style="gap:10px;flex-wrap:wrap;align-items:flex-end">
+        <div class="fg w120">
+          <label>नवीन तुकडी</label>
+          <select id="tch_mntNewTukdi" style="padding:7px 10px;border-radius:var(--r);border:1.5px solid var(--pb);background:var(--peach);font-family:inherit;font-size:14px;width:100%">
+            <option value="">-- तुकडी --</option>
+            <option>अ</option><option>ब</option><option>क</option><option>ड</option>
+            <option>इ</option><option>फ</option><option>ग</option><option>ह</option><option>आय</option>
+          </select>
+        </div>
+        <div class="fg" style="flex:0 0 auto"><button class="btn btn-gold" onclick="tchMntSave()">💾 बदल जतन करा</button></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="pg-search" class="page">
+  <div class="sec-title" style="margin-bottom:8px">🔍 विद्यार्थी शोधा — Search Students</div>
+  <div style="background:#fff8ee;border:1.5px solid var(--gold2);border-radius:var(--r);padding:14px 16px;margin-bottom:12px;font-size:12.5px;color:#5a3a00">
+    ℹ️ खालीलपैकी <b>एक किंवा जास्त</b> माहिती भरा — सर्व भरलेल्या अटींशी जुळणारे विद्यार्थी दिसतील.
+    विद्यार्थ्याचे नाव / वडिलांचे नाव / आडनाव — तिन्ही <b>संपूर्ण नावात</b> शोधले जातात.
+  </div>
+
+  <div class="recent-search-wrap" id="recentSearchWrap" style="display:none">
+    <div class="rs-title">🕘 Recently Searched</div>
+    <div id="recentSearchChips"></div>
+  </div>
+
+  <div class="frow" style="gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px">
+    <div class="fg" style="min-width:150px;flex:1">
+      <label>विद्यार्थ्याचे नाव</label>
+      <input id="srch_name" placeholder="उदा. रामेश्वर" oninput="runSearch()">
+    </div>
+    <div class="fg" style="min-width:150px;flex:1">
+      <label>वडिलांचे नाव</label>
+      <input id="srch_father" placeholder="उदा. सुरेश" oninput="runSearch()">
+    </div>
+    <div class="fg" style="min-width:150px;flex:1">
+      <label>आडनाव (Surname)</label>
+      <input id="srch_surname" placeholder="उदा. पाटील" oninput="runSearch()">
+    </div>
+    <div class="fg" style="min-width:130px;flex:1">
+      <label>जन्म तारीख (DOB)</label>
+      <input id="srch_dob" type="date" oninput="runSearch()">
+    </div>
+    <div class="fg" style="min-width:90px;flex:0 0 auto">
+      <label>वर्ग</label>
+      <select id="srch_class" onchange="runSearch()" style="padding:7px 10px;border-radius:var(--r);border:1.5px solid var(--pb);background:var(--peach);font-family:inherit;font-size:14px;width:100%">
+        <option value="">सर्व</option>
+        <option>5th</option><option>6th</option><option>7th</option>
+        <option>8th</option><option>9th</option><option>10th</option>
+      </select>
+    </div>
+    <div class="fg" style="min-width:90px;flex:0 0 auto">
+      <label>तुकडी</label>
+      <select id="srch_tukdi" onchange="runSearch()" style="padding:7px 10px;border-radius:var(--r);border:1.5px solid var(--pb);background:var(--peach);font-family:inherit;font-size:14px;width:100%">
+        <option value="">सर्व</option>
+        <option>अ</option><option>ब</option><option>क</option><option>ड</option>
+        <option>इ</option><option>फ</option><option>ग</option><option>ह</option><option>आय</option>
+      </select>
+    </div>
+    <div class="fg" style="min-width:150px;flex:1">
+      <label>आधार क्रमांक</label>
+      <input id="srch_aadhar" placeholder="12 अंकी" maxlength="12" oninput="runSearch()">
+    </div>
+    <div class="fg" style="flex:0 0 auto;align-self:flex-end">
+      <button class="btn btn-gold" onclick="runSearch()">🔍 शोधा</button>
+      <button class="btn" onclick="clearSearch()" style="margin-left:6px;background:#f0e8d8;color:#5a3a00">✖ Clear</button>
+    </div>
+  </div>
+
+  <div id="srch_cache_warn" style="display:none;background:#fff3cd;border:1px solid #ffc107;border-radius:6px;padding:10px 14px;margin-bottom:10px;font-size:13px;color:#856404">
+    ⚠️ विद्यार्थी डेटा Load झालेला नाही.
+    <button onclick="loadAllStudentsForSearch()" style="background:var(--gold);color:#fff;border:none;border-radius:4px;padding:4px 12px;cursor:pointer;font-weight:700;margin-left:8px">⚡ Load Students</button>
+  </div>
+
+  <div id="srch_status" style="font-size:13px;color:#555;margin-bottom:8px;min-height:20px"></div>
+
+  <div id="batchPrintBar" class="master-only" style="display:none;background:#fff8ee;border:1.5px solid var(--gold2);border-radius:var(--r);padding:10px 14px;margin-bottom:10px;font-size:12.5px;color:#5a3a00">
+    <span id="batchSelCount">0 विद्यार्थी निवडले</span>
+    <button class="btn btn-gold" style="margin-left:10px;padding:6px 14px" onclick="batchPrintCerts('BF')">📄 Batch Print — Bonafide</button>
+    <button class="btn btn-blue" style="margin-left:6px;padding:6px 14px" onclick="batchPrintCerts('AT')">✅ Batch Print — Attendance</button>
+  </div>
+
+  <div style="overflow-x:auto">
+    <table id="srch_table" style="width:100%;border-collapse:collapse;font-size:13px;display:none">
+      <thead>
+        <tr style="background:var(--navy2);color:var(--gold);text-align:left">
+          <th class="master-only" style="padding:8px 10px;white-space:nowrap"><input type="checkbox" id="srch_selectAll" onchange="toggleSelectAllSearch(this)"></th>
+          <th style="padding:8px 10px;white-space:nowrap">फोटो</th>
+          <th style="padding:8px 10px;white-space:nowrap">रजि. क्र.</th>
+          <th style="padding:8px 10px;white-space:nowrap">Student ID</th>
+          <th style="padding:8px 10px;min-width:160px">संपूर्ण नाव</th>
+          <th style="padding:8px 10px;white-space:nowrap">वर्ग</th>
+          <th style="padding:8px 10px;white-space:nowrap">तुकडी</th>
+          <th style="padding:8px 10px;white-space:nowrap">जन्म तारीख</th>
+          <th style="padding:8px 10px;white-space:nowrap">आधार</th>
+          <th style="padding:8px 10px;white-space:nowrap">कृती</th>
+        </tr>
+      </thead>
+      <tbody id="srch_tbody"></tbody>
+    </table>
+  </div>
+  <div id="srch_nodata" style="display:none;text-align:center;padding:30px;color:#888;font-size:14px">
+    😕 कोणताही विद्यार्थी सापडला नाही.
+  </div>
+</div>
+
+
+
+<!-- ===== APPS SCRIPT (expand to copy) ===== -->
+<details class="master-only" style="display:none !important;max-width:1200px;margin:16px auto;background:rgba(26,42,74,.9);border:1px solid rgba(212,144,42,.4);border-radius:10px;padding:16px;color:#c8d8f0;font-size:12px">
+<summary style="cursor:pointer;color:#e8b05a;font-weight:700;font-size:13px">⚙️ Google Apps Script Code — Click to Expand & Copy</summary>
+<button onclick="var p=document.getElementById('appsScriptCode'),b=this;p.style.display=p.style.display==='none'?'block':'none';b.textContent=p.style.display==='none'?'🔽 Apps Script Code दाखवा':'🔼 Apps Script Code लपवा';" style="background:#1a3a6a;color:#a0d0ff;border:none;border-radius:5px;padding:6px 14px;cursor:pointer;font-size:12px;margin:8px 0 4px;display:block">🔽 Apps Script Code दाखवा</button>
+<pre id="appsScriptCode" style="background:#0d1b35;padding:14px;border-radius:6px;margin-top:4px;overflow-x:auto;font-size:11px;color:#a0d0ff;white-space:pre-wrap;display:none">
+var MAIN_HEADERS = [
+  "Timestamp","Acad Year","Reg No","Student ID","Book No","Aadhar",
+  "Class","Division","PEN","Roll No","Full Name",
+  "Mother Name","Gender","Religion","Caste","Sub-caste","DOB","DOB Words",
+  "Nationality","Mother Tongue","Birth Place",
+  "Previous School","Admission Date","Admission Class",
+  "Contact","Address","Photo URL"
+];
+var LC_HEADERS = [
+  "Timestamp","Serial No","Student ID","Full Name","Gender",
+  "DOB","DOB Words","Class","Religion","Caste","Nationality","Mother Tongue",
+  "Admission Date","Admission Class","Leave Date","Leave Class","Class Start Date",
+  "LC No","LC Date","Conduct","Progress","Stxt75","Stxt76","Remarks",
+  "Medium","Next School","LC Count","Fee Status","Stxt60","Stxt61",
+  "Stxt62","Stxt63","Stxt67","Stxt68","Stxt69","Stxt70","Nationality Type"
+];
+var BF_HEADERS = [
+  "Timestamp","Serial No","Student ID","Full Name",
+  "DOB","DOB Words","Class","Tukdi","Religion","Caste","Nationality",
+  "Acad Year","BF Date","Purpose","Admission Date","Admission Class",
+  "Remarks","Address","Contact"
+];
+var AT_HEADERS = [
+  "Timestamp","Serial No","Student ID","Full Name","Gender",
+  "DOB","Class","Tukdi","Acad Year","AT Date","Purpose",
+  "Total Days","Present Days","Percentage","From Date","To Date","Remarks"
+];
+var PHOTO_FOLDER_ID = "1urIudSUS7U0ClMTjvp__uZ0ZgTQ7GrbU";
+
+function getOrCreateSheet(name, headers) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName(name);
+  if (!sh) {
+    sh = ss.insertSheet(name);
+    sh.appendRow(headers);
+  } else if (sh.getLastRow() === 0) {
+    sh.appendRow(headers);
+  } else {
+    var existing = sh.getRange(1, 1, 1, Math.max(sh.getLastColumn(), headers.length)).getValues()[0];
+    for (var i = 0; i &lt; headers.length; i++) {
+      if (!existing[i]) sh.getRange(1, i + 1).setValue(headers[i]);
+    }
+  }
+  return sh;
+}
+
+function findRowByKey(sh, col, key) {
+  key = (key || "").toString().trim().toLowerCase();
+  if (!key || !sh || sh.getLastRow() &lt; 2) return 0;
+  var vals = sh.getRange(2, col, sh.getLastRow()-1, 1).getValues();
+  for (var i=0; i&lt;vals.length; i++) {
+    if ((vals[i][0] || "").toString().trim().toLowerCase() === key) return i + 2;
+  }
+  return 0;
+}
+
+function writeRow(sh, rowNum, row) {
+  if (rowNum) {
+    sh.getRange(rowNum, 1, 1, row.length).setValues([row]);
+    return {rowIndex: rowNum, mode: "updated"};
+  }
+  sh.appendRow(row);
+  return {rowIndex: sh.getLastRow(), mode: "created"};
+}
+
+function doPost(e) {
+  var p = e.parameter || {};
+  if (p.action === "uploadPhoto") {
+    var photoResult = handlePhotoUpload(p);
+    return ContentService.createTextOutput(JSON.stringify(photoResult))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+  return handleAction(p, ""); // "" = JSON response — serial परत frontend ला येतो
+}
+
+function doGet(e) {
+  var p = e.parameter || {};
+  var cb = p.callback || "";
+  if (!p.action &amp;&amp; (p.regNo || p.studentId || p.firstName)) p.action = "upsert";
+  if (p.action === "verify") {
+    return doVerifyPage(p);
+  }
+  if (p.action === "ping") {
+    try {
+      var ssName = SpreadsheetApp.getActiveSpreadsheet().getName();
+      return wrap(cb, {status:"ok", message:"Connected! Sheet: " + ssName});
+    } catch(ex) {
+      return wrap(cb, {status:"error", message:"Script is deployed but NOT BOUND to a Sheet! Re-deploy from inside the Sheet."});
+    }
+  }
+  if (p.action === "getAll") {
+    return doGetAllAction(p, cb);
+  }
+  if (p.action === "testPhotoFolder") {
+    return wrap(cb, testPhotoFolderAccess());
+  }
+  if (p.action === "photoChunkStart") {
+    return wrap(cb, startPhotoChunkUpload(p));
+  }
+  if (p.action === "photoChunk") {
+    return wrap(cb, savePhotoChunk(p));
+  }
+  if (p.action === "photoChunkFinish") {
+    return wrap(cb, finishPhotoChunkUpload(p));
+  }
+  if (p.action === "getPhotoUrl" &amp;&amp; p.regNo) {
+    return wrap(cb, getPhotoUrlByRegNo(p.regNo));
+  }
+  if (p.action === "search" &amp;&amp; p.q) {
+    return doSearchAction(p, cb);
+  }
+  if (p.action === "getDashboardStats") {
+    return doGetDashboardStats(p, cb);
+  }
+  if (p.action === "getStudentHistory") {
+    return doGetStudentHistory(p, cb);
+  }
+  if (p.action === "getAllCertificates") {
+    return doGetAllCertificates(p, cb);
+  }
+  if (p.action === "getUsers") {
+    return doGetUsers(p, cb);
+  }
+  if (p.action === "saveUser") {
+    return doSaveUser(p, cb);
+  }
+  if (p.action === "deleteUser") {
+    return doDeleteUser(p, cb);
+  }
+  if (p.action === "changePassword") {
+    return doChangePassword(p, cb);
+  }
+  if (p.action === "getAnalyticsData") {
+    return doGetAnalyticsData(p, cb);
+  }
+  if (p.action === "verify") {
+    return doVerifyPage(p);
+  }
+  var a = p.action || "";
+  if (a.indexOf("save") === 0 || a.indexOf("upsert") === 0 ||
+      a.indexOf("update") === 0) {
+    return handleAction(p, cb);
+  }
+  return wrap(cb, {status:"ok", message:"Running!"});
+}
+
+function getNextSerial(sh) {
+  var lastRow = sh.getLastRow();
+  if (lastRow < 2) return 1;
+  var vals = sh.getRange(2, 2, lastRow - 1, 1).getValues();
+  var max = 0;
+  for (var i = 0; i < vals.length; i++) {
+    var n = parseInt(vals[i][0], 10);
+    if (!isNaN(n) && n > max) max = n;
+  }
+  return max + 1;
+}
+
+function handleAction(d, cb) {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    if (!ss) return wrap(cb, {status:"error", message:"Script NOT bound to a Sheet. Open Sheet → Extensions → Apps Script."});
+    var action = d.action || "upsert";
+    var result = {rowIndex:0, mode:"created"};
+
+    if (action === "save" || action === "update" || action === "upsert") {
+      var sh = getOrCreateSheet("Students", MAIN_HEADERS);
+      var row = [new Date().toLocaleString("en-IN"),
+        d.acYear,d.regNo,d.studentId,d.bookNo,d.aadhar,d.iyatta,d.tukdi,
+        d.pen,d.rollNo,d.firstName,d.motherName,d.gender,
+        d.religion,d.caste,d.subcaste,d.dob,d.dobWords,d.nationality,d.motherTongue,
+        d.birthVillage,d.prevSchool,
+        d.admissionDate,d.admissionClass,d.contact,d.address,d.photoUrl];
+      var rowToWrite = 0;
+      if (action === "update" &amp;&amp; d.rowIndex) rowToWrite = parseInt(d.rowIndex,10);
+      if (action === "upsert") rowToWrite = findRowByKey(sh, 3, d.regNo) || findRowByKey(sh, 4, d.studentId);
+      result = writeRow(sh, rowToWrite, row);
+    } else if (action === "save_lc" || action === "update_lc" || action === "upsert_lc") {
+      var sh = getOrCreateSheet("LC", LC_HEADERS);
+      // ✅ सदैव नवीन row — प्रत्येक LC ला स्वतंत्र serial नंबर
+      var rowToWrite = 0;
+      var lcSerial = getNextSerial(sh);
+      var row = [new Date().toLocaleString("en-IN"),
+        lcSerial,d.stxt1,d.firstName,d.gender,d.dob,d.dobWords,
+        d.iyatta,d.religion,d.caste,d.nationality,d.motherTongue,
+        d.admissionDate,d.admissionClass,d.lcLeaveDate,d.lcLeaveClass,d.classStartDate,
+        d.lcNo,d.lcDate,d.conduct,d.progress,d.stxt75,d.stxt76,d.remarks,
+        d.medium,d.nextSchool,d.lcCount,d.feeStatus,
+        d.stxt60,d.stxt61,d.stxt62,d.stxt63,d.stxt67,d.stxt68,d.stxt69,d.stxt70,d.nationalityType];
+      result = writeRow(sh, rowToWrite, row);
+      result.serial = lcSerial;
+    } else if (action === "save_bf" || action === "upsert_bf") {
+      var sh = getOrCreateSheet("Bonafide", BF_HEADERS);
+      // ✅ सदैव नवीन row — प्रत्येक Bonafide ला स्वतंत्र serial नंबर
+      var rowToWrite = 0;
+      var bfSerial = getNextSerial(sh);
+      var row = [new Date().toLocaleString("en-IN"),
+        bfSerial,d.stxt1,d.firstName,d.dob,d.dobWords,
+        d.iyatta,d.tukdi,d.religion,d.caste,d.nationality,
+        d.acYear,d.bfDate,d.purpose,d.admissionDate,d.admissionClass,
+        d.remarks,d.address,d.contact];
+      result = writeRow(sh, rowToWrite, row);
+      result.serial = bfSerial;
+    } else if (action === "save_at" || action === "upsert_at") {
+      var sh = getOrCreateSheet("Attendance", AT_HEADERS);
+      // ✅ सदैव नवीन row — प्रत्येक Attendance certificate ला स्वतंत्र serial नंबर
+      var rowToWrite = 0;
+      var atSerial = getNextSerial(sh);
+      var row = [new Date().toLocaleString("en-IN"),
+        atSerial,d.stxt1,d.firstName,d.gender,d.dob,
+        d.iyatta,d.tukdi,d.acYear,d.atDate,d.purpose,
+        d.totalDays,d.presentDays,d.pct,d.fromDate,d.toDate,d.remarks];
+      result = writeRow(sh, rowToWrite, row);
+      result.serial = atSerial;
+    } else {
+      return wrap(cb, {status:"error", message:"Unknown action: "+action});
+    }
+    logAudit(d.auditUser, d.auditRole, action, result.serial || d.regNo || d.stxt1 || "");
+    return wrap(cb, {status:"ok", rowIndex:result.rowIndex, action:action, mode:result.mode, serial:result.serial||""});
+  } catch(err) {
+    return wrap(cb, {status:"error", message:err.toString()});
+  }
+}
+
+// ===== AUDIT LOG (V19.8) — कोणत्या User ने कधी काय Save केले =====
+function logAudit(user, role, action, refInfo) {
+  try {
+    var sh = getOrCreateSheet("Log", ["Timestamp","User","Role","Action","Reference"]);
+    sh.appendRow([new Date().toLocaleString("en-IN"), user || "unknown", role || "", action || "", refInfo || ""]);
+  } catch(e) {
+    // Logging failure should never block the main save operation
+  }
+}
+
+// ===== DASHBOARD LIVE STATS (V19.8) =====
+function doGetDashboardStats(p, cb) {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var todayStr = fmt(new Date());
+    var now = new Date();
+    var monthKey = now.getFullYear() + "-" + ("0"+(now.getMonth()+1)).slice(-2);
+
+    var stSh = ss.getSheetByName("Students");
+    var totalStudents = 0;
+    var classCounts = {};
+    if (stSh &amp;&amp; stSh.getLastRow() &gt; 1) {
+      var stRows = stSh.getRange(2, 1, stSh.getLastRow()-1, 11).getValues();
+      for (var i=0;i&lt;stRows.length;i++) {
+        if (!stRows[i][2] &amp;&amp; !stRows[i][10]) continue;
+        totalStudents++;
+        var cls = (stRows[i][6]||"").toString().trim();
+        if (cls) classCounts[cls] = (classCounts[cls]||0) + 1;
+      }
+    }
+
+    function countTodayAndMonth(sheetName) {
+      var sh = ss.getSheetByName(sheetName);
+      var today = 0, month = 0;
+      if (sh &amp;&amp; sh.getLastRow() &gt; 1) {
+        var rows = sh.getRange(2, 1, sh.getLastRow()-1, 1).getValues();
+        for (var i=0;i&lt;rows.length;i++) {
+          var ts = rows[i][0];
+          if (!ts) continue;
+          var d = new Date(ts);
+          if (isNaN(d.getTime())) continue;
+          var dKey = fmt(d);
+          var mKey = d.getFullYear() + "-" + ("0"+(d.getMonth()+1)).slice(-2);
+          if (dKey === todayStr) today++;
+          if (mKey === monthKey) month++;
+        }
+      }
+      return {today:today, month:month};
+    }
+
+    var lcCounts = countTodayAndMonth("LC");
+    var bfCounts = countTodayAndMonth("Bonafide");
+    var atCounts = countTodayAndMonth("Attendance");
+    var monthCerts = lcCounts.month + bfCounts.month + atCounts.month;
+
+    return wrap(cb, {
+      status:"ok",
+      totalStudents: totalStudents,
+      todayLC: lcCounts.today,
+      todayBF: bfCounts.today,
+      monthCerts: monthCerts,
+      classCounts: classCounts
+    });
+  } catch(err) {
+    return wrap(cb, {status:"error", message:err.toString()});
+  }
+}
+
+// ===== LC/BF/AT HISTORY FOR ONE STUDENT (V19.8) =====
+function doGetStudentHistory(p, cb) {
+  try {
+    var regNo = (p.regNo || "").toString().trim().toLowerCase();
+    if (!regNo) return wrap(cb, {status:"error", message:"regNo required"});
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var out = [];
+
+    function scan(sheetName, type, detailFn) {
+      var sh = ss.getSheetByName(sheetName);
+      if (!sh || sh.getLastRow() &lt; 2) return;
+      var rows = sh.getRange(2, 1, sh.getLastRow()-1, sh.getLastColumn()).getValues();
+      for (var i=0;i&lt;rows.length;i++) {
+        var r = rows[i];
+        if ((r[2]||"").toString().trim().toLowerCase() !== regNo) continue;
+        out.push({
+          type: type,
+          serial: r[1],
+          date: fmt(r[0]),
+          detail: detailFn(r)
+        });
+      }
+    }
+    scan("LC", "LC", function(r){ return "LC No: " + (r[17]||"—"); });
+    scan("Bonafide", "BF", function(r){ return "Purpose: " + (r[13]||"—"); });
+    scan("Attendance", "AT", function(r){ return "Purpose: " + (r[10]||"—"); });
+
+    out.sort(function(a,b){ return (a.date &lt; b.date) ? 1 : -1; });
+    return wrap(cb, {status:"ok", data: out});
+  } catch(err) {
+    return wrap(cb, {status:"error", message:err.toString()});
+  }
+}
+
+// ===== BULK EXPORT — ALL LC/BF/AT (V19.8) =====
+function doGetAllCertificates(p, cb) {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var out = [];
+
+    function scan(sheetName, type, detailFn) {
+      var sh = ss.getSheetByName(sheetName);
+      if (!sh || sh.getLastRow() &lt; 2) return;
+      var rows = sh.getRange(2, 1, sh.getLastRow()-1, sh.getLastColumn()).getValues();
+      for (var i=0;i&lt;rows.length;i++) {
+        var r = rows[i];
+        if (!r[2]) continue;
+        out.push({
+          type: type,
+          serial: r[1],
+          date: fmt(r[0]),
+          regNo: r[2],
+          firstName: r[3],
+          detail: detailFn(r)
+        });
+      }
+    }
+    scan("LC", "LC", function(r){ return "LC No: " + (r[17]||"—"); });
+    scan("Bonafide", "BF", function(r){ return "Purpose: " + (r[13]||"—"); });
+    scan("Attendance", "AT", function(r){ return "Purpose: " + (r[10]||"—"); });
+
+    return wrap(cb, {status:"ok", data: out});
+  } catch(err) {
+    return wrap(cb, {status:"error", message:err.toString()});
+  }
+}
+
+// =====================================================
+// 👥 USER MANAGEMENT PRO (V19.9)
+// =====================================================
+var USER_HEADERS = ["Username","Password","Role","Label"];
+var DEFAULT_USERS_SEED = [
+  ["user_1","Pass@1234","master","Master User"],
+  ["user_2","Pass@1234","deo","DEO User"],
+  ["user_3","Pass@1234","cert","Certificate User"]
+];
+
+function getUsersSheet() {
+  var sh = getOrCreateSheet("Users", USER_HEADERS);
+  if (sh.getLastRow() &lt; 2) {
+    for (var i=0;i&lt;DEFAULT_USERS_SEED.length;i++) sh.appendRow(DEFAULT_USERS_SEED[i]);
+  }
+  return sh;
+}
+
+function doGetUsers(p, cb) {
+  try {
+    var sh = getUsersSheet();
+    var rows = sh.getRange(2, 1, sh.getLastRow()-1, 4).getValues();
+    var out = [];
+    for (var i=0;i&lt;rows.length;i++) {
+      if (!rows[i][0]) continue;
+      out.push({ rowIndex:i+2, username:rows[i][0], password:rows[i][1], role:rows[i][2], label:rows[i][3] });
+    }
+    return wrap(cb, {status:"ok", data: out});
+  } catch(err) {
+    return wrap(cb, {status:"error", message:err.toString()});
+  }
+}
+
+function doSaveUser(p, cb) {
+  try {
+    // फक्त Super Master role असलेल्या logged-in user कडूनच call यायला हवा — frontend कडून व्हॅलिडेशन,
+    // तसेच backend मध्येही requesterRole तपासतो
+    if (p.requesterRole !== "super") {
+      return wrap(cb, {status:"error", message:"User Management अधिकार फक्त Super Master User ला आहे."});
+    }
+    var sh = getUsersSheet();
+    var username = (p.username||"").toString().trim();
+    if (!username) return wrap(cb, {status:"error", message:"Username आवश्यक आहे."});
+    var rowToWrite = findRowByKey(sh, 1, username);
+    var row = [username, p.password||"", p.role||"cert", p.label||username];
+    if (rowToWrite) {
+      sh.getRange(rowToWrite, 1, 1, 4).setValues([row]);
+    } else {
+      sh.appendRow(row);
+    }
+    logAudit(p.requesterUser, p.requesterRole, "saveUser", username);
+    return wrap(cb, {status:"ok"});
+  } catch(err) {
+    return wrap(cb, {status:"error", message:err.toString()});
+  }
+}
+
+function doDeleteUser(p, cb) {
+  try {
+    if (p.requesterRole !== "super") {
+      return wrap(cb, {status:"error", message:"User Management अधिकार फक्त Super Master User ला आहे."});
+    }
+    var sh = getUsersSheet();
+    var username = (p.username||"").toString().trim();
+    var rowToWrite = findRowByKey(sh, 1, username);
+    if (!rowToWrite) return wrap(cb, {status:"error", message:"User सापडला नाही."});
+    sh.deleteRow(rowToWrite);
+    logAudit(p.requesterUser, p.requesterRole, "deleteUser", username);
+    return wrap(cb, {status:"ok"});
+  } catch(err) {
+    return wrap(cb, {status:"error", message:err.toString()});
+  }
+}
+
+function doChangePassword(p, cb) {
+  try {
+    var sh = getUsersSheet();
+    var username = (p.username||"").toString().trim();
+    var rowToWrite = findRowByKey(sh, 1, username);
+    if (!rowToWrite) return wrap(cb, {status:"error", message:"User सापडला नाही."});
+    var current = sh.getRange(rowToWrite, 2).getValue();
+    if ((current||"").toString() !== (p.oldPassword||"").toString()) {
+      return wrap(cb, {status:"error", message:"जुना Password चुकीचा आहे."});
+    }
+    sh.getRange(rowToWrite, 2).setValue(p.newPassword||"");
+    logAudit(username, p.requesterRole, "changePassword", username);
+    return wrap(cb, {status:"ok"});
+  } catch(err) {
+    return wrap(cb, {status:"error", message:err.toString()});
+  }
+}
+
+// =====================================================
+// ✅ CERTIFICATE VERIFY PAGE — QR कोड scan केल्यावर उघडणारे पान (V19.9)
+// =====================================================
+function doVerifyPage(p) {
+  var type = (p.type||"").toString().toUpperCase();
+  var serial = (p.serial||"").toString().trim();
+  var sheetMap = { LC:"LC", BF:"Bonafide", AT:"Attendance" };
+  var sheetName = sheetMap[type];
+  var found = null;
+  try {
+    if (sheetName &amp;&amp; serial) {
+      var ss = SpreadsheetApp.getActiveSpreadsheet();
+      var sh = ss.getSheetByName(sheetName);
+      if (sh &amp;&amp; sh.getLastRow() &gt; 1) {
+        var rows = sh.getRange(2, 1, sh.getLastRow()-1, sh.getLastColumn()).getValues();
+        for (var i=0;i&lt;rows.length;i++) {
+          if ((rows[i][1]||"").toString() === serial) {
+            found = { serial:rows[i][1], regNo:rows[i][2], firstName:rows[i][3], date:fmt(rows[i][0]) };
+            break;
+          }
+        }
+      }
+    }
+  } catch(e) {}
+
+  var html;
+  if (found) {
+    html = "&lt;div style='font-family:sans-serif;max-width:420px;margin:40px auto;padding:24px;border:2px solid #1a7a3a;border-radius:10px;text-align:center;background:#f4fff4'&gt;"
+      + "&lt;div style='font-size:40px'&gt;✅&lt;/div&gt;"
+      + "&lt;h2 style='color:#1a7a3a'&gt;Certificate Verified&lt;/h2&gt;"
+      + "&lt;p&gt;&lt;b&gt;Type:&lt;/b&gt; " + type + "&lt;/p&gt;"
+      + "&lt;p&gt;&lt;b&gt;Serial No:&lt;/b&gt; " + found.serial + "&lt;/p&gt;"
+      + "&lt;p&gt;&lt;b&gt;Reg No:&lt;/b&gt; " + found.regNo + "&lt;/p&gt;"
+      + "&lt;p&gt;&lt;b&gt;Name:&lt;/b&gt; " + found.firstName + "&lt;/p&gt;"
+      + "&lt;p&gt;&lt;b&gt;Date:&lt;/b&gt; " + found.date + "&lt;/p&gt;"
+      + "&lt;p style='font-size:12px;color:#666;margin-top:16px'&gt;Shri Govindram Seksaria High School, Pachora&lt;/p&gt;"
+      + "&lt;/div&gt;";
+  } else {
+    html = "&lt;div style='font-family:sans-serif;max-width:420px;margin:40px auto;padding:24px;border:2px solid #7a1a1a;border-radius:10px;text-align:center;background:#fff4f4'&gt;"
+      + "&lt;div style='font-size:40px'&gt;❌&lt;/div&gt;"
+      + "&lt;h2 style='color:#7a1a1a'&gt;Not Verified&lt;/h2&gt;"
+      + "&lt;p&gt;सदर Certificate आमच्या records मध्ये आढळले नाही.&lt;/p&gt;"
+      + "&lt;/div&gt;";
+  }
+  return HtmlService.createHtmlOutput(html);
+}
+
+// =====================================================
+// 📊 ANALYTICS &amp; REPORTING (V19.9)
+// =====================================================
+function classifyLcReason(remarks) {
+  var t = (remarks||"").toString().toLowerCase();
+  if (t.indexOf("बदली") !== -1 || t.indexOf("transfer") !== -1) return "Transfer";
+  if (t.indexOf("प्रगती") !== -1 || t.indexOf("progress") !== -1) return "Progress";
+  return "Other";
+}
+
+function doGetAnalyticsData(p, cb) {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var admissionsByYear = {};
+    var genderCounts = {};
+    var religionCounts = {};
+    var casteCounts = {};
+    var lcReasonCounts = { Transfer:0, Progress:0, Other:0 };
+
+    var stSh = ss.getSheetByName("Students");
+    if (stSh &amp;&amp; stSh.getLastRow() &gt; 1) {
+      var rows = stSh.getRange(2, 1, stSh.getLastRow()-1, 26).getValues();
+      for (var i=0;i&lt;rows.length;i++) {
+        var r = rows[i];
+        if (!r[2] &amp;&amp; !r[10]) continue;
+        var admDate = r[22];
+        if (admDate) {
+          var yr = (admDate instanceof Date) ? admDate.getFullYear() : new Date(admDate).getFullYear();
+          if (!isNaN(yr)) admissionsByYear[yr] = (admissionsByYear[yr]||0) + 1;
+        }
+        var gender = (r[12]||"Unknown").toString();
+        genderCounts[gender] = (genderCounts[gender]||0) + 1;
+        var religion = (r[13]||"Unknown").toString().trim();
+        if (religion) religionCounts[religion] = (religionCounts[religion]||0) + 1;
+        var caste = (r[14]||"Unknown").toString().trim();
+        if (caste) casteCounts[caste] = (casteCounts[caste]||0) + 1;
+      }
+    }
+
+    var lcSh = ss.getSheetByName("LC");
+    if (lcSh &amp;&amp; lcSh.getLastRow() &gt; 1) {
+      var lcRows = lcSh.getRange(2, 1, lcSh.getLastRow()-1, 24).getValues();
+      for (var j=0;j&lt;lcRows.length;j++) {
+        if (!lcRows[j][2]) continue;
+        var reason = classifyLcReason(lcRows[j][23]);
+        lcReasonCounts[reason] = (lcReasonCounts[reason]||0) + 1;
+      }
+    }
+
+    return wrap(cb, {
+      status:"ok",
+      admissionsByYear: admissionsByYear,
+      genderCounts: genderCounts,
+      religionCounts: religionCounts,
+      casteCounts: casteCounts,
+      lcReasonCounts: lcReasonCounts
+    });
+  } catch(err) {
+    return wrap(cb, {status:"error", message:err.toString()});
+  }
+}
+
+function wrap(cb, obj) {
+  var json = JSON.stringify(obj);
+  if (cb) {
+    return ContentService.createTextOutput(cb + "(" + json + ");")
+      .setMimeType(ContentService.MimeType.JAVASCRIPT);
+  }
+  return ContentService.createTextOutput(json)
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+function doGetAllAction(p, cb) {
+  try {
+    var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Students");
+    if (!sh || sh.getLastRow() &lt; 2) return wrap(cb, {status:"ok", data:[]});
+    var rows = sh.getRange(2, 1, sh.getLastRow()-1, 27).getValues();
+    var all = [];
+    for (var i = 0; i &lt; rows.length; i++) {
+      var r = rows[i];
+      if (!r[10] &amp;&amp; !r[2]) continue; // रिकामी row वगळा
+      all.push({
+        _rowIndex: i + 2,
+        acYear:r[1], regNo:r[2], studentId:r[3], bookNo:r[4], aadhar:r[5],
+        iyatta:r[6], tukdi:r[7], pen:r[8], rollNo:r[9],
+        firstName:r[10], motherName:r[11], gender:r[12],
+        religion:r[13], caste:r[14], subcaste:r[15], dob:fmt(r[16]), dobWords:r[17],
+        nationality:r[18], motherTongue:r[19], birthVillage:r[20],
+        prevSchool:r[21], admissionDate:fmt(r[22]), admissionClass:r[23],
+        contact:r[24], address:r[25], photoUrl:r[26]
+      });
+    }
+    return wrap(cb, {status:"ok", data:all});
+  } catch(err) {
+    return wrap(cb, {status:"error", message:err.toString()});
+  }
+}
+
+function doSearchAction(p, cb) {
+  try {
+    var q = (p.q || "").toString().trim().toLowerCase();
+    var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Students");
+    if (!sh || sh.getLastRow() &lt; 2) return wrap(cb,{status:"notfound"});
+    var rows = sh.getRange(2,1,sh.getLastRow()-1,27).getValues();
+    for (var i=0;i&lt;rows.length;i++) {
+      var r=rows[i];
+      var cands=[
+        (r[2]||"").toString().trim().toLowerCase(),
+        (r[3]||"").toString().trim().toLowerCase(),
+        (r[5]||"").toString().trim().toLowerCase(),
+        (r[10]||"").toString().trim().toLowerCase()
+      ];
+      if (cands.indexOf(q)!==-1) {
+        return wrap(cb,{status:"found",rowIndex:i+2,data:{
+          acYear:r[1],regNo:r[2],studentId:r[3],bookNo:r[4],aadhar:r[5],
+          iyatta:r[6],tukdi:r[7],pen:r[8],rollNo:r[9],
+          firstName:r[10],motherName:r[11],gender:r[12],
+          religion:r[13],caste:r[14],subcaste:r[15],dob:fmt(r[16]),dobWords:r[17],nationality:r[18],
+          motherTongue:r[19],birthVillage:r[20],
+          prevSchool:r[21],admissionDate:fmt(r[22]),admissionClass:r[23],
+          contact:r[24],address:r[25],photoUrl:r[26]
+        }});
+      }
+    }
+    return wrap(cb,{status:"notfound"});
+  } catch(err) {
+    return wrap(cb,{status:"error",message:err.toString()});
+  }
+}
+function fmt(v){
+  if(!v) return "";
+  if(v instanceof Date){
+    return v.getFullYear()+"-"+("0"+(v.getMonth()+1)).slice(-2)+"-"+("0"+v.getDate()).slice(-2);
+  }
+  return v.toString();
+}
+
+function cleanRegFileName(regNo) {
+  var text = (regNo || "student").toString().trim();
+  var bad = '\\/:*?"&lt;&gt;|#%&amp;{}$!\'@+=~';
+  var out = "";
+  for (var i = 0; i &lt; text.length; i++) {
+    var ch = text.charAt(i);
+    out += bad.indexOf(ch) &gt;= 0 ? "_" : ch;
+  }
+  return out || "student";
+}
+
+function publicDriveUrl(fileId) {
+  return "https://drive.google.com/thumbnail?id=" + fileId + "&amp;sz=w1000";
+}
+
+function testPhotoFolderAccess() {
+  try {
+    var folder = DriveApp.getFolderById(PHOTO_FOLDER_ID);
+    var blob = Utilities.newBlob("ok", "text/plain", "_sgs_upload_test.txt");
+    var file = folder.createFile(blob);
+    file.setTrashed(true);
+    return {status:"ok", folderName:folder.getName(), folderId:PHOTO_FOLDER_ID};
+  } catch(err) {
+    return {status:"error", message:err.toString()};
+  }
+}
+
+function savePhotoData(regNo, photoData, mimeType) {
+  try {
+    regNo = (regNo || "").toString().trim();
+    if (!regNo) return {status:"error", message:"regNo required"};
+    if (!photoData) return {status:"error", message:"photoData required"};
+
+    var folder = DriveApp.getFolderById(PHOTO_FOLDER_ID);
+    var fileName = cleanRegFileName(regNo) + ".jpg";
+    var existing = folder.getFilesByName(fileName);
+    while (existing.hasNext()) {
+      existing.next().setTrashed(true);
+    }
+    var bytes = Utilities.base64Decode(photoData);
+    if (bytes.length &gt; 10240) return {status:"error", message:"Photo size is " + bytes.length + " bytes. Please compress below 10 KB."};
+    var blob = Utilities.newBlob(bytes, mimeType || "image/jpeg", fileName);
+    var file = folder.createFile(blob);
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    var photoUrl = publicDriveUrl(file.getId());
+    updateStudentPhotoUrl(regNo, photoUrl);
+    return {status:"ok", regNo:regNo, photoUrl:photoUrl, fileId:file.getId()};
+  } catch(err) {
+    return {status:"error", message:err.toString()};
+  }
+}
+
+function handlePhotoUpload(p) {
+  return savePhotoData(p.regNo, p.photoData, p.mimeType);
+}
+
+function startPhotoChunkUpload(p) {
+  try {
+    if (!p.uploadId) return {status:"error", message:"uploadId required"};
+    var cache = CacheService.getScriptCache();
+    cache.put("photo_" + p.uploadId + "_meta", JSON.stringify({
+      regNo:p.regNo || "",
+      mimeType:p.mimeType || "image/jpeg",
+      count:parseInt(p.count || "0", 10)
+    }), 600);
+    return {status:"ok", uploadId:p.uploadId};
+  } catch(err) {
+    return {status:"error", message:err.toString()};
+  }
+}
+
+function savePhotoChunk(p) {
+  try {
+    if (!p.uploadId) return {status:"error", message:"uploadId required"};
+    if (p.idx === undefined) return {status:"error", message:"idx required"};
+    if (p.chunk === undefined) return {status:"error", message:"chunk required"};
+    CacheService.getScriptCache().put("photo_" + p.uploadId + "_" + p.idx, p.chunk, 600);
+    return {status:"ok", idx:p.idx};
+  } catch(err) {
+    return {status:"error", message:err.toString()};
+  }
+}
+
+function finishPhotoChunkUpload(p) {
+  try {
+    var uploadId = p.uploadId || "";
+    var count = parseInt(p.count || "0", 10);
+    if (!uploadId) return {status:"error", message:"uploadId required"};
+    if (!count || count &lt; 1) return {status:"error", message:"count required"};
+    var cache = CacheService.getScriptCache();
+    var keys = [];
+    for (var i = 0; i &lt; count; i++) keys.push("photo_" + uploadId + "_" + i);
+    var got = cache.getAll(keys);
+    var parts = [];
+    for (var j = 0; j &lt; count; j++) {
+      var part = got["photo_" + uploadId + "_" + j];
+      if (part === null || part === undefined) return {status:"error", message:"Missing photo chunk " + (j + 1) + "/" + count};
+      parts.push(part);
+    }
+    return savePhotoData(p.regNo, parts.join(""), p.mimeType || "image/jpeg");
+  } catch(err) {
+    return {status:"error", message:err.toString()};
+  }
+}
+
+function updateStudentPhotoUrl(regNo, photoUrl) {
+  var sh = getOrCreateSheet("Students", MAIN_HEADERS);
+  var row = findRowByKey(sh, 3, regNo) || findRowByKey(sh, 4, regNo);
+  if (row) {
+    sh.getRange(row, 27).setValue(photoUrl);
+    SpreadsheetApp.flush();
+  }
+}
+
+function getPhotoUrlByRegNo(regNo) {
+  try {
+    regNo = (regNo || "").toString().trim();
+    if (!regNo) return {status:"error", message:"regNo required"};
+    var sh = getOrCreateSheet("Students", MAIN_HEADERS);
+    var row = findRowByKey(sh, 3, regNo) || findRowByKey(sh, 4, regNo);
+    var folder = DriveApp.getFolderById(PHOTO_FOLDER_ID);
+    var files = folder.getFilesByName(cleanRegFileName(regNo) + ".jpg");
+    if (files.hasNext()) {
+      var file = files.next();
+      var photoUrl = publicDriveUrl(file.getId());
+      updateStudentPhotoUrl(regNo, photoUrl);
+      return {status:"ok", photoUrl:photoUrl};
+    }
+    if (row) {
+      var savedUrl = sh.getRange(row, 33).getValue();
+      if (savedUrl) return {status:"ok", photoUrl:savedUrl};
+    }
+    return {status:"notfound", photoUrl:""};
+  } catch(err) {
+    return {status:"error", message:err.toString()};
+  }
+}
+</pre>
+<button onclick="navigator.clipboard.writeText(document.getElementById('appsScriptCode').textContent);alert('फक्त Apps Script Code copy झाला आहे. Code.gs मध्ये paste करताना </pre>, <button>, <div> असे HTML tags paste करू नका.')" style="margin-top:8px;background:#d4902a;border:none;border-radius:5px;padding:7px 16px;color:#1a2a4a;font-weight:700;cursor:pointer">Only Code.gs Copy</button>
+<div style="margin-top:8px;padding:8px 10px;background:#4a1a1a;border:1px solid #b85a5a;border-radius:6px;color:#ffd0d0;font-size:11px;line-height:1.6">
+  <b>महत्त्वाचे:</b> Code.gs मध्ये फक्त वरच्या dark-blue box मधील JavaScript code paste करा. <b>&lt;/pre&gt;, &lt;button&gt;, &lt;div&gt;, Manifest Copy</b> हा HTML भाग Code.gs मध्ये paste करू नका.
+</div>
+<div style="margin-top:12px;padding:10px;background:#281a0a;border:1px solid #d4902a;border-radius:6px;color:#ffe0a0;font-size:11px;line-height:1.7">
+  <b>DriveApp Permission Fix:</b> Apps Script मध्ये Project Settings → Show "appsscript.json" manifest file सुरू करा आणि खालील scopes manifest मध्ये ठेवा. नंतर Save → Deploy New Version → एकदा Run/Test करून authorization Allow करा.
+</div>
+<pre id="appsScriptManifest" style="background:#0d1b35;padding:12px;border-radius:6px;margin-top:8px;overflow-x:auto;font-size:11px;color:#ffd18a;white-space:pre-wrap">{
+  "timeZone": "Asia/Kolkata",
+  "dependencies": {},
+  "exceptionLogging": "STACKDRIVER",
+  "runtimeVersion": "V8",
+  "oauthScopes": [
+    "https://www.googleapis.com/auth/spreadsheets.currentonly",
+    "https://www.googleapis.com/auth/drive"
+  ]
+}</pre>
+<button onclick="navigator.clipboard.writeText(document.getElementById('appsScriptManifest').textContent)" style="margin-top:8px;background:#1a4a7a;border:none;border-radius:5px;padding:7px 16px;color:#fff;font-weight:700;cursor:pointer">Manifest Copy</button>
+</details>
+
+
+
+<div id="pendingSavesBadge" onclick="pendingFlush(true)" style="display:none"></div>
+<button id="pwaInstallBtn" onclick="pwaInstall()" style="display:none">📲 अॅप म्हणून Install करा</button>
+
+<!-- ===== SAVE NOTIFICATION POPUP ===== -->
+
+<div id="sgsNotifBg" onclick="closeSaveNotif()"></div>
+<div id="sgsNotif">
+  <span class="sni" id="sgsIcon">✅</span>
+  <div class="snt" id="sgsTitle">माहिती Save झाली!</div>
+  <div class="sns" id="sgsSerial"></div>
+  <div class="snm" id="sgsMsg"></div>
+  <button class="snc" onclick="closeSaveNotif()">ठीक आहे</button>
+</div>
+<script src="script.js"></script>
+</body>
+</html>

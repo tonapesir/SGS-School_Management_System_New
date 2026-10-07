@@ -1684,11 +1684,20 @@ function clearForm(pfx) {
 }
 
 // ===== CERTIFICATE MODAL =====
-function openCert(title, html, pageSize) {
+function openCert(title, html, pageSize, kind) {
   var modal = document.getElementById('certModal');
   document.getElementById('certModalTitle').textContent = title;
   document.getElementById('certContent').innerHTML = html;
   modal.dataset.pageSize = pageSize || 'a4';
+  modal.dataset.kind = kind || '';
+  modal.dataset.twoup = '';
+  modal._singleHtml = null;
+  var tb = document.getElementById('certTwoUpBtn');
+  if (tb) { tb.style.display = (kind === 'BF' || kind === 'AT') ? 'inline-block' : 'none'; tb.textContent = '🗂️ A4 वर २ प्रती'; }
+  // मागील वेळी "२ प्रती" निवडलेले असल्यास आपोआप तसेच उघडा (QR तयार झाल्यानंतर)
+  if ((kind === 'BF' || kind === 'AT') && localStorage.getItem('sgs_cert_twoup') === '1') {
+    setTimeout(function() { if (modal.classList.contains('open') && modal.dataset.twoup !== '1') certToggleTwoUp(true); }, 220);
+  }
   // Update modal box width for A4
   var mbox = modal.querySelector('.modal-box');
   if(mbox) mbox.style.width = '210mm';
@@ -1699,6 +1708,8 @@ function closeCert() {
   var modal = document.getElementById('certModal');
   modal.classList.remove('open');
   delete modal.dataset.pageSize;
+  modal.dataset.twoup = '';
+  modal._singleHtml = null;
   document.body.style.overflow = '';
 }
 
@@ -1751,6 +1762,10 @@ function exportCertAsPDF(customFilename) {
   // Always A4 now
   var pdfW = 210;
   var pdfH = 297;
+
+  // V19.37: "A4 वर २ प्रती" मोड — प्रत्येक Sheet (पान) स्वतंत्र capture करून एका PDF मध्ये
+  var sheets = document.querySelectorAll('#certContent .cert-sheet2');
+  if (sheets.length) { exportSheetsAsPDF(sheets, customFilename, btn, status); return; }
 
   var today = new Date().toISOString().slice(0,10);
   var filename = customFilename || (document.getElementById('certModalTitle').textContent||'Cert').replace(/[^\u0900-\u097F\w]/g,'_').substring(0,10) + '_' + today + '.pdf';
@@ -1807,6 +1822,82 @@ function exportCertAsPDF(customFilename) {
     btn.disabled = false;
     btn.textContent = '📥 PDF Download';
     status.style.display = 'none';
+  });
+}
+
+function exportSheetsAsPDF(sheets, customFilename, btn, status) {
+  var pdfW = 210, pdfH = 297;
+  var today = new Date().toISOString().slice(0,10);
+  var filename = (customFilename || ('Certificates_' + today + '.pdf')).replace(/\.pdf$/i, '') + '_2up.pdf';
+  var list = Array.prototype.slice.call(sheets);
+  var doc = null, idx = 0;
+  function reset() { btn.disabled = false; btn.textContent = '📥 PDF Download'; status.style.display = 'none'; }
+  function next() {
+    if (idx >= list.length) { try { doc.save(filename); } catch (e) { alert('❌ PDF export error: ' + e.message); } reset(); return; }
+    btn.textContent = '⏳ ' + (idx + 1) + '/' + list.length;
+    html2canvas(list[idx], { scale: 2.5, useCORS: true, allowTaint: true, backgroundColor: '#ffffff', logging: false,
+      onclone: function(cd) { var cp = cd.querySelectorAll('.cert-page'); for (var i = 0; i < cp.length; i++) cp[i].style.fontFamily = "'Mukta','Noto Serif Devanagari','Noto Sans Devanagari',sans-serif"; }
+    }).then(function(canvas) {
+      var asp = canvas.width / canvas.height, w = pdfW, hh = pdfW / asp;
+      if (hh > pdfH) { hh = pdfH; w = pdfH * asp; }
+      if (!doc) doc = new window.jspdf.jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true });
+      else doc.addPage('a4', 'portrait');
+      doc.addImage(canvas.toDataURL('image/jpeg', 0.95), 'JPEG', (pdfW - w) / 2, 0, w, hh);
+      idx++; next();
+    }).catch(function(err) { alert('❌ Capture error: ' + err.message); reset(); });
+  }
+  next();
+}
+
+// ===== V19.37: A4 च्या एका पानावर २ प्रमाणपत्रे (Bonafide / Attendance) =====
+// एकच दाखला उघडलेला असल्यास त्याच्या २ प्रती (कार्यालय + अर्जदार). Batch उघडलेला असल्यास २-२ विद्यार्थी एका पानावर.
+function certToggleTwoUp(forceOn) {
+  var modal = document.getElementById('certModal');
+  var kind = modal.dataset.kind || '';
+  if (kind !== 'BF' && kind !== 'AT') return;
+  var content = document.getElementById('certContent');
+  var isOn = modal.dataset.twoup === '1';
+  var want = (typeof forceOn === 'boolean') ? forceOn : !isOn;
+  if (want === isOn) return;
+  var btn = document.getElementById('certTwoUpBtn');
+  if (want) {
+    var pages = content.querySelectorAll('.cert-page');
+    if (!pages.length) return;
+    modal._singleHtml = content.innerHTML;
+    var list = [];
+    Array.prototype.forEach.call(pages, function(p) { list.push(p.outerHTML.replace(/page-break-after:\s*always;?/g, '')); });
+    if (list.length === 1) list.push(list[0]);
+    var out = '';
+    for (var i = 0; i < list.length; i += 2) {
+      out += '<div class="cert-sheet2"><div class="cert-half">' + list[i] + '</div><div class="cert-cutline"></div><div class="cert-half">' + (list[i + 1] || '') + '</div></div>';
+    }
+    content.innerHTML = out;
+    modal.dataset.twoup = '1';
+    if (btn) btn.textContent = '📄 १ प्रत (सामान्य)';
+    certFitHalves();
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(certFitHalves);
+  } else {
+    if (modal._singleHtml) content.innerHTML = modal._singleHtml;
+    modal.dataset.twoup = '';
+    if (btn) btn.textContent = '🗂️ A4 वर २ प्रती';
+  }
+  try { localStorage.setItem('sgs_cert_twoup', want ? '1' : '0'); } catch (e) {}
+}
+
+// अर्ध्या पानात मजकूर मावत नसल्यासच (लांब नाव/उद्देश/शेरा) ओळींमधील अंतर व अक्षर थोडे लहान केले जाते.
+var CERT_FIT_STEPS = [[1.9, 11], [1.75, 11], [1.6, 11], [1.6, 10.5], [1.5, 10], [1.45, 9.5], [1.4, 9]];
+function certFitHalves() {
+  var halves = document.querySelectorAll('#certContent .cert-half');
+  Array.prototype.forEach.call(halves, function(half) {
+    var page = half.querySelector('.cert-page');
+    if (!page) return;
+    var fitted = false;
+    for (var i = 0; i < CERT_FIT_STEPS.length; i++) {
+      half.style.setProperty('--cl', CERT_FIT_STEPS[i][0]);
+      half.style.setProperty('--cp', CERT_FIT_STEPS[i][1] + 'pt');
+      if (page.offsetHeight <= half.clientHeight) { fitted = true; break; }
+    }
+    half.setAttribute('data-fit', fitted ? 'ok' : 'tight');
   });
 }
 
@@ -2097,7 +2188,7 @@ function showBFCert() {
   var qrBox = '<div id="certQrBox" style="position:absolute;top:8mm;right:9mm;width:22mm;text-align:center;z-index:6"></div>';
 
   var htmlMr = `
-  <div class="cert-page a4-noborder">
+  <div class="cert-page a4-noborder cert-compact">
     ${!certNo ? '<div class="cert-draft-watermark"><span>DRAFT</span></div>' : ''}
     ${qrBox}
     <div class="cert-outer-border">
@@ -2158,7 +2249,7 @@ function showBFCert() {
   </div>`;
 
   var htmlEn = `
-  <div class="cert-page a4-noborder">
+  <div class="cert-page a4-noborder cert-compact">
     ${!certNo ? '<div class="cert-draft-watermark"><span>DRAFT</span></div>' : ''}
     ${qrBox}
     <div class="cert-outer-border">
@@ -2218,7 +2309,7 @@ function showBFCert() {
     </div>
   </div>`;
 
-  openCert(lang === 'en' ? '📄 Bonafide Certificate' : '📄 बोनाफाईड सर्टिफिकेट', lang === 'en' ? htmlEn : htmlMr, 'a4');
+  openCert(lang === 'en' ? '📄 Bonafide Certificate' : '📄 बोनाफाईड सर्टिफिकेट', lang === 'en' ? htmlEn : htmlMr, 'a4', 'BF');
   var qrDataBF = certNo ? { type:'BF', serial:certNo, regNo:regNo, name:fullName, date:today, url:(getUrl() + '?action=verify&type=BF&serial=' + encodeURIComponent(certNo)) } : null;
   setTimeout(function(){ renderCertQR(qrDataBF); }, 60);
 }
@@ -2257,7 +2348,7 @@ function showATCert() {
   var qrBox = '<div id="certQrBox" style="position:absolute;top:8mm;right:9mm;width:22mm;text-align:center;z-index:6"></div>';
 
   var htmlMr = `
-  <div class="cert-page a4-noborder">
+  <div class="cert-page a4-noborder cert-compact">
     ${!isSaved ? '<div class="cert-draft-watermark"><span>DRAFT</span></div>' : ''}
     ${qrBox}
     <div class="cert-outer-border">
@@ -2313,7 +2404,7 @@ function showATCert() {
   </div>`;
 
   var htmlEn = `
-  <div class="cert-page a4-noborder">
+  <div class="cert-page a4-noborder cert-compact">
     ${!isSaved ? '<div class="cert-draft-watermark"><span>DRAFT</span></div>' : ''}
     ${qrBox}
     <div class="cert-outer-border">
@@ -2368,7 +2459,7 @@ function showATCert() {
     </div>
   </div>`;
 
-  openCert(lang === 'en' ? '✅ Attendance Certificate' : '✅ उपस्थिती दाखला', lang === 'en' ? htmlEn : htmlMr, 'a4');
+  openCert(lang === 'en' ? '✅ Attendance Certificate' : '✅ उपस्थिती दाखला', lang === 'en' ? htmlEn : htmlMr, 'a4', 'AT');
   var qrDataAT = isSaved ? { type:'AT', serial:certNo, regNo:regNo, name:fullName, date:today, url:(getUrl() + '?action=verify&type=AT&serial=' + encodeURIComponent(certNo)) } : null;
   setTimeout(function(){ renderCertQR(qrDataAT); }, 60);
 }
@@ -3036,7 +3127,7 @@ function buildBatchCertHTML(d, type) {
   var dob = d.dob ? fmtDobDisplay(d.dob) : '';
   var regNo = d.regNo || '';
   if (type === 'AT') {
-    return `<div class="cert-page a4-noborder" style="page-break-after:always">
+    return `<div class="cert-page a4-noborder cert-compact" style="page-break-after:always">
       <div class="cert-draft-watermark"><span>DRAFT</span></div>
       <div class="cert-outer-border">
         <div style="text-align:center;font-family:'Noto Sans Devanagari',sans-serif;font-size:7.5pt;color:#555;margin-bottom:1mm">पाचोरा तालुका सहकारी शिक्षण संस्था संचलित,</div>
@@ -3052,7 +3143,7 @@ function buildBatchCertHTML(d, type) {
         <div style="text-align:center"><div style="width:55mm;border-top:1px solid #000;padding-top:1mm;font-size:7.5pt">मुख्याध्यापक/प्राचार्य</div></div></div>
       </div></div>`;
   }
-  return `<div class="cert-page a4-noborder" style="page-break-after:always">
+  return `<div class="cert-page a4-noborder cert-compact" style="page-break-after:always">
     <div class="cert-draft-watermark"><span>DRAFT</span></div>
     <div class="cert-outer-border">
       <div style="text-align:center;font-family:'Noto Sans Devanagari',sans-serif;font-size:7.5pt;color:#555;margin-bottom:1mm">पाचोरा तालुका सहकारी शिक्षण संस्था संचलित,</div>
@@ -3078,7 +3169,7 @@ function batchPrintCerts(type) {
     var d = window._srchResultsIndex && window._srchResultsIndex[JSON.stringify(key)];
     if (d) htmlParts.push(buildBatchCertHTML(d, type));
   });
-  openCert(type === 'AT' ? '✅ Batch Attendance Certificates' : '📄 Batch Bonafide Certificates', htmlParts.join(''), 'a4');
+  openCert(type === 'AT' ? '✅ Batch Attendance Certificates' : '📄 Batch Bonafide Certificates', htmlParts.join(''), 'a4', type === 'AT' ? 'AT' : 'BF');
 }
 
 // ===== RECENTLY SEARCHED (V19.8) =====

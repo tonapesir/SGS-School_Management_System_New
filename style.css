@@ -371,3 +371,24 @@ body.auth-locked #pendingSavesBadge{display:none!important}
 
 #pwaInstallBtn{position:fixed;right:12px;bottom:12px;z-index:9999;background:#1a7a3a;color:#fff;border:0;padding:9px 14px;border-radius:10px;font-size:12.5px;font-weight:700;box-shadow:0 4px 14px rgba(0,0,0,.35);cursor:pointer;font-family:inherit}
 body.auth-locked #pwaInstallBtn{display:none!important}
+
+/* ===== V19.37 — Bonafide / Attendance: ओळींमधील अंतर निम्मे + A4 वर २ प्रती ===== */
+.cert-page.cert-compact p{margin-bottom:1.5mm!important}                       /* परिच्छेदांमधील अंतर: 3mm → 1.5mm */
+.cert-page.cert-compact .cert-footer-line{margin-top:10mm!important}           /* शेवटच्या मजकुरानंतर स्थळ/सही पर्यंत: 20mm → 10mm */
+.cert-page.cert-compact div[style*="background:#f9f6f1"]{margin:1mm 0!important} /* उद्देश / शेरा पट्टी: 2mm → 1mm */
+
+.cert-sheet2{width:210mm;height:296mm;margin:0 auto 6mm;background:#fff;position:relative;overflow:hidden;box-sizing:border-box;page-break-after:always;break-after:page}
+.cert-sheet2:last-child{page-break-after:auto;break-after:auto;margin-bottom:0}
+.cert-half{height:148mm;overflow:hidden;position:relative;box-sizing:border-box}
+.cert-cutline{height:0;border-top:1px dashed #9a9a9a;margin:0}
+.cert-sheet2 .cert-page.a4-noborder{min-height:0!important;height:auto!important;width:210mm;padding:7mm 15mm 2mm 20mm!important;page:auto!important}
+.cert-half .cert-page p{font-size:var(--cp,11pt)!important;line-height:var(--cl,1.9)!important}
+.cert-half .cert-page div[style*="background:#f9f6f1"]{font-size:var(--cp,11pt)!important}
+@media print{
+  /* फक्त "२ प्रती" मोडमध्ये: overlay चा २० px padding काढा, नाहीतर पान २९६mm → ३१७mm होऊन दुसरे पान येते.
+     डावा/उजवा margin एका प्रतीच्या Print सारखाच (५.३mm + १५mm / १०mm) ठेवला आहे. */
+  #certModal[data-twoup="1"] .modal-overlay{padding:0!important;min-height:0!important}
+  #certModal[data-twoup="1"] .modal-box{width:210mm!important;max-width:none!important}
+  .cert-sheet2{margin:0!important}
+  .cert-sheet2 .cert-page.a4-noborder{padding:7mm 15mm 2mm 20mm!important;page:auto!important}
+}

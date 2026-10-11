@@ -54,6 +54,7 @@ function getOrCreateSheet(name, headers) {
   var sh = ss.getSheetByName(name);
   if (!sh) {
     sh = ss.insertSheet(name);
+    trimNewSheet_(sh, headers.length);
     sh.appendRow(headers);
   } else if (sh.getLastRow() === 0) {
     sh.appendRow(headers);
@@ -85,7 +86,7 @@ function writeRow(sh, rowNum, row) {
   return {rowIndex: sh.getLastRow(), mode: "created"};
 }
 
-function doPost(e) {
+function doPostCore_(e) {
   var p = e.parameter || {};
   var authErrP = applyAuth_(p);
   if (authErrP) {
@@ -99,7 +100,7 @@ function doPost(e) {
   return handleAction(p, ""); // "" = JSON response — serial परत frontend ला येतो
 }
 
-function doGet(e) {
+function doGetCore_(e) {
   var p = e.parameter || {};
   var cb = p.callback || "";
   if (!p.action && (p.regNo || p.studentId || p.firstName)) p.action = "upsert";
@@ -133,6 +134,12 @@ function doGet(e) {
   }
   if (p.action === "photoChunkFinish") {
     return wrap(cb, finishPhotoChunkUpload(p));
+  }
+  if (p.action === "getClassTeachers") {
+    return doGetClassTeachers(p, cb);
+  }
+  if (p.action === "getPhotoData") {
+    return doGetPhotoData(p, cb);
   }
   if (p.action === "getPhotoUrl" && p.regNo) {
     return wrap(cb, getPhotoUrlByRegNo(p.regNo));
@@ -223,13 +230,23 @@ function doGet(e) {
   if (p.action === "getAttendanceAnalytics") {
     return doGetAttendanceAnalytics(p, cb);
   }
+  if (p.action === "getSheetSizes") {
+    return doGetSheetSizes(p, cb);
+  }
+  if (p.action === "getEarlyLeave") {
+    return doGetEarlyLeave(p, cb);
+  }
+  if (p.action === "getEarlyLeavePeon") {
+    return doGetEarlyLeavePeon(p, cb);
+  }
   if (p.action === "getSecurityStatus") {
     return doGetSecurityStatus(p, cb);
   }
   if (p.action === "promoteStudents" || p.action === "undoPromotion" ||
       p.action === "runBackup" || p.action === "setBackupSchedule" ||
       p.action === "archivePassedOut" || p.action === "restorePassedOut" ||
-      p.action === "renumberRolls" || p.action === "archiveLogNow") {
+      p.action === "renumberRolls" || p.action === "archiveLogNow" ||
+      p.action === "saveEarlyLeave" || p.action === "markEarlyLeaveOut" || p.action === "shrinkSheets") {
     return handleAction(p, cb);
   }
   var a = p.action || "";
@@ -345,6 +362,12 @@ function handleAction(d, cb) {
       result = doUpdateClassDivision(d);
     } else if (action === "saveTotalFee") {
       result = doSaveTotalFee(d);
+    } else if (action === "shrinkSheets") {
+      result = doShrinkSheets(d);
+    } else if (action === "saveEarlyLeave") {
+      result = doSaveEarlyLeave(d);
+    } else if (action === "markEarlyLeaveOut") {
+      result = doMarkEarlyLeaveOut(d);
     } else if (action === "archivePassedOut") {
       result = doArchivePassedOut(d);
     } else if (action === "restorePassedOut") {
@@ -546,7 +569,7 @@ function doGetUsers(p, cb) {
     var out = [];
     for (var i=0;i<rows.length;i++) {
       if (!rows[i][0]) continue;
-      out.push({ rowIndex:i+2, username:rows[i][0], password:rows[i][1], role:rows[i][2], label:rows[i][3], assignedClass:rows[i][4]||"" });
+      out.push({ rowIndex:i+2, username:rows[i][0], password:rows[i][1], role:normRole_(rows[i][2]), label:rows[i][3], assignedClass:rows[i][4]||"" });
     }
     return wrap(cb, {status:"ok", data: out});
   } catch(err) {
@@ -564,8 +587,12 @@ function doSaveUser(p, cb) {
     var sh = getUsersSheet();
     var username = (p.username||"").toString().trim();
     if (!username) return wrap(cb, {status:"error", message:"Username आवश्यक आहे."});
+    var roleIn = normRole_(p.role || "cert");
+    if (VALID_ROLES.indexOf(roleIn) === -1) {
+      return wrap(cb, {status:"error", message:"Role चुकीचा आहे."});
+    }
     var rowToWrite = findRowByKey(sh, 1, username);
-    var row = [username, p.password||"", p.role||"cert", p.label||username, p.assignedClass||""];
+    var row = [username, p.password||"", roleIn, p.label||username, p.assignedClass||""];
     if (rowToWrite) {
       sh.getRange(rowToWrite, 1, 1, 5).setValues([row]);
     } else {
@@ -751,6 +778,7 @@ function getAttMonthSheet_(name) {
   var sh = ss.getSheetByName(name);
   if (sh) return sh;
   sh = ss.insertSheet(name);
+  trimNewSheet_(sh, DAILY_ATT_HEADERS.length);
   sh.appendRow(DAILY_ATT_HEADERS);
   sh.getRange("B:B").setNumberFormat("@"); // Date कॉलम plain text — Sheets ने तारीख बदलू नये
   sh.setFrozenRows(1);
@@ -807,12 +835,15 @@ function migrateLegacyAttendance_() {
   Object.keys(groups).forEach(function(nm) {
     var sh = getAttMonthSheet_(nm);
     var rows = groups[nm];
+    ensureRows_(sh, sh.getLastRow() + rows.length);
     sh.getRange(sh.getLastRow() + 1, 1, rows.length, 9).setValues(rows);
     moved += rows.length;
   });
   if (unparsed.length) {
-    var up = ss.getSheetByName("DailyAttendance_Unparsed") || ss.insertSheet("DailyAttendance_Unparsed");
+    var up = ss.getSheetByName("DailyAttendance_Unparsed");
+    if (!up) { up = ss.insertSheet("DailyAttendance_Unparsed"); trimNewSheet_(up, 9); }
     if (up.getLastRow() === 0) up.appendRow(DAILY_ATT_HEADERS);
+    ensureRows_(up, up.getLastRow() + unparsed.length);
     up.getRange(up.getLastRow() + 1, 1, unparsed.length, 9).setValues(unparsed);
   }
   var stamp = Utilities.formatDate(new Date(), "Asia/Kolkata", "yyyyMMdd_HHmm");
@@ -854,23 +885,29 @@ function doSaveAttendance(d) {
 
     // त्या दिवसाच्या/वर्गाच्या जुन्या नोंदी वगळून (फक्त या महिन्याच्या छोट्या Sheet मध्ये) बाकीच्या ठेवा
     var last = sh.getLastRow();
-    var keep = [], removed = 0;
+    var keep = [], removed = 0, oldRows = [];
     if (last > 1) {
       var vals = sh.getRange(2, 1, last - 1, 9).getValues();
       for (var i = 0; i < vals.length; i++) {
         var r = vals[i];
-        if (fmt(r[1]) === date && (r[2]||"").toString().trim() === iyatta && (r[3]||"").toString().trim() === tukdi) { removed++; continue; }
+        if (fmt(r[1]) === date && (r[2]||"").toString().trim() === iyatta && (r[3]||"").toString().trim() === tukdi) { removed++; r[1] = fmt(r[1]); oldRows.push(r); continue; }
         r[1] = fmt(r[1]);
         keep.push(r);
       }
     }
     if (removed === 0) {
       // पहिली Save — फक्त शेवटी जोडा (सर्वात जलद)
-      if (newRows.length) sh.getRange(last + 1, 1, newRows.length, 9).setValues(newRows);
+      if (newRows.length) { ensureRows_(sh, last + newRows.length); sh.getRange(last + 1, 1, newRows.length, 9).setValues(newRows); }
     } else {
       var all = keep.concat(newRows);
+      ensureRows_(sh, 1 + all.length);
       sh.getRange(2, 1, last - 1, 9).clearContent();
       if (all.length) sh.getRange(2, 1, all.length, 9).setValues(all);
+      // V19.40: पुन्हा Save मध्ये काढल्या/बदललेल्या (नवीन यादीत नसलेल्या) जुन्या नोंदींचा Backup
+      var newKeys = {};
+      newRows.forEach(function(nr) { newKeys[(nr[4] || "").toString().trim().toLowerCase() + "|" + (nr[7] || "").toString().trim()] = true; });
+      var gone = oldRows.filter(function(orow) { return !newKeys[(orow[4] || "").toString().trim().toLowerCase() + "|" + (orow[7] || "").toString().trim()]; });
+      if (gone.length) backupDeleted_("Attendance", DAILY_ATT_HEADERS, gone, d.markedBy || "", "हजेरी पुन्हा Save — जुनी आवृत्ती");
     }
     return {rowIndex: sh.getLastRow(), mode: removed ? "updated" : "created", count: absentList.length, ref: iyatta+"-"+tukdi+" "+date};
   } catch(err) {
@@ -1113,10 +1150,7 @@ function doDeleteStudent(p, cb) {
     if (!rowToWrite) return wrap(cb, {status:"error", message:"हा Reg No असलेला विद्यार्थी सापडला नाही."});
 
     var rowData = sh.getRange(rowToWrite, 1, 1, 31).getValues()[0];
-    var delHeaders = MAIN_HEADERS.concat(["Deleted By", "Deleted Date"]);
-    var delSh = getOrCreateSheet("DeletedStudents", delHeaders);
-    var newRow = rowData.concat([p.requesterUser || "", new Date().toLocaleString("en-IN")]);
-    delSh.appendRow(newRow);
+    backupDeleted_("Students", MAIN_HEADERS, [rowData], p.requesterUser || "", "विद्यार्थी Delete");   // V19.40: SGS_Deleted_Backup मध्ये (अपयश आल्यास मुख्य फाइलमध्ये)
 
     sh.deleteRow(rowToWrite);
     invalidateRosterCache_();
@@ -2035,11 +2069,8 @@ function doPromoteStudents(d) {
 
     // सुरक्षेसाठी बढतीपूर्वीची Students sheet ची प्रत (लपवलेली) याच Spreadsheet मध्ये ठेवा
     var stamp = Utilities.formatDate(new Date(), "Asia/Kolkata", "yyyyMMdd_HHmm");
-    var bk = sh.copyTo(ss);
     var bkName = "Students_BeforePromotion_" + stamp;
-    bk.setName(bkName);
-    bk.hideSheet();
-    pruneHiddenBackups_("Students_BeforePromotion_", 5);
+    var bk = makeStudentsBackup_(sh, bkName, "Students_BeforePromotion_");   // V19.40: SGS_Deleted_Backup फाइलमध्ये (मुख्य फाइल हलकी)
 
     var base = sh.getRange(2, 1, n, 11).getValues();             // A..K
     var accYearCol = base.map(function(r) { return [r[1]]; });    // B
@@ -2059,12 +2090,13 @@ function doPromoteStudents(d) {
       accYearCol[i][0] = newAcYear;
       perClass[oldCls + " → " + newCls] = (perClass[oldCls + " → " + newCls] || 0) + 1;
     }
-    if (!logRows.length) { ss.deleteSheet(bk); return {status:"error", message:"निवडलेल्या वर्गांमध्ये बढती देण्यासारखे विद्यार्थी सापडले नाहीत."}; }
+    if (!logRows.length) { dropBackup_(bk); return {status:"error", message:"निवडलेल्या वर्गांमध्ये बढती देण्यासारखे विद्यार्थी सापडले नाहीत."}; }
 
     sh.getRange(2, 2, n, 1).setValues(accYearCol);
     sh.getRange(2, 7, n, 2).setValues(classDiv);
 
     var logSh = getOrCreateSheet("PromotionLog", PROMO_LOG_HEADERS);
+    ensureRows_(logSh, logSh.getLastRow() + logRows.length);
     logSh.getRange(logSh.getLastRow() + 1, 1, logRows.length, PROMO_LOG_HEADERS.length).setValues(logRows);
     invalidateRosterCache_();
     return {rowIndex: 0, mode: "updated", count: logRows.length, ref: "promotion " + batchId,
@@ -2215,8 +2247,13 @@ function doGetAttendancePending(p, cb) {
 // व HMAC ने स्वाक्षरी केलेला Token देतो; पुढील प्रत्येक विनंतीत Token तपासून Role server स्वतः ठरवतो.
 // स्थलांतर: (१) setSuperCredentials('user_s','पासवर्ड') (२) नवीन Deploy (३) Login चाचणी (४) enableAuthEnforcement()
 var TOKEN_TTL_MS = 12 * 60 * 60 * 1000;
+var VALID_ROLES = ["super","master","deo","cert","teacher","peon"];
+// Users sheet मध्ये "Peon" / " Teacher " असे मोठ्या अक्षरात किंवा space सह लिहिले तरी लहान अक्षरात बदलून तपासतो.
+function normRole_(r) { return (r || "").toString().trim().toLowerCase(); }
 var AUTH_PUBLIC_ACTIONS = {ping:1, login:1, verify:1};
-var TEACHER_CLASS_ACTIONS = {getClassStudents:1, getTeacherDashboard:1, saveAttendance:1, getAttendance:1, getAttendanceAnalytics:1};
+var TEACHER_CLASS_ACTIONS = {getClassStudents:1, getTeacherDashboard:1, saveAttendance:1, getAttendance:1, getAttendanceAnalytics:1, getEarlyLeave:1, saveEarlyLeave:1};
+// Peon (शिपाई) फक्त हेच करू शकतो: विद्यार्थी शोध/प्रोफाइल (getAll), घरी जाणाऱ्यांची यादी, मार्क-आउट, स्वतःचा Password बदल
+var PEON_ACTIONS = {getAll:1, getEarlyLeavePeon:1, markEarlyLeaveOut:1, changePassword:1, getPhotoData:1, getClassTeachers:1};
 var _authSecretMem = null;
 
 function authSecret_() {
@@ -2269,6 +2306,9 @@ function applyAuth_(p) {
     p.requesterUser = payload.u;
     p.auditUser = payload.u;
     p.auditRole = payload.r;
+    if (payload.r === "peon" && !PEON_ACTIONS[act]) {
+      return {status:"error", code:"forbidden", message:"या User ला हे करण्याचा अधिकार नाही."};
+    }
     if (payload.r === "teacher" && TEACHER_CLASS_ACTIONS[act] && payload.c) {
       var cp = String(payload.c).split("|");
       p.iyatta = (cp[0] || "").trim();
@@ -2298,7 +2338,11 @@ function doLogin(p, cb) {
       var rows = sh.getRange(2, 1, sh.getLastRow() - 1, 5).getValues();
       for (var i = 0; i < rows.length; i++) {
         if ((rows[i][0] || "").toString().trim() === username && (rows[i][1] || "").toString() === password) {
-          user = {role: (rows[i][2] || "").toString().trim(), label: rows[i][3] || username, assignedClass: (rows[i][4] || "").toString()};
+          var rl = normRole_(rows[i][2]);
+          if (VALID_ROLES.indexOf(rl) === -1) {
+            return wrap(cb, {status:"error", code:"badrole", message:"या User चा Role (" + (rows[i][2] || "रिकामा") + ") अमान्य आहे. Users sheet मध्ये Role: super / master / deo / cert / teacher / peon यापैकी एक हवा."});
+          }
+          user = {role: rl, label: rows[i][3] || username, assignedClass: (rows[i][4] || "").toString()};
           break;
         }
       }
@@ -2465,9 +2509,9 @@ function doGetAttendanceAnalytics(p, cb) {
 // =====================================================================
 var ARCHIVE_PREFIX = "PassedOut_";
 
-function pruneHiddenBackups_(prefix, keep) {
+function pruneHiddenBackups_(prefix, keep) { pruneBackupSheets_(SpreadsheetApp.getActiveSpreadsheet(), prefix, keep); }
+function pruneBackupSheets_(ss, prefix, keep) {
   try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
     var list = ss.getSheets().filter(function(sh) { return sh.getName().indexOf(prefix) === 0; });
     list.sort(function(a, b) { return a.getName() < b.getName() ? 1 : (a.getName() > b.getName() ? -1 : 0); });
     for (var i = keep; i < list.length; i++) ss.deleteSheet(list[i]);
@@ -2522,21 +2566,20 @@ function doArchivePassedOut(d) {
     }
     if (!moved.length) return {status:"error", message:"त्या वर्गात विद्यार्थी सापडले नाहीत."};
 
-    var bk = sh.copyTo(ss);
-    bk.setName("Students_BeforeArchive_" + stamp);
-    bk.hideSheet();
-    pruneHiddenBackups_("Students_BeforeArchive_", 5);
+    makeStudentsBackup_(sh, "Students_BeforeArchive_" + stamp, "Students_BeforeArchive_");
 
     var arName = ARCHIVE_PREFIX + label.replace(/\s+/g, "_");
     var ar = ss.getSheetByName(arName);
     if (!ar) {
       ar = ss.insertSheet(arName);
+      trimNewSheet_(ar, sc + 3);
       ar.getRange(1, 1, 1, sc + 3).setValues([header.concat(["ArchivedAt", "BatchId", "ArchivedBy"])]);
       ar.setFrozenRows(1);
     }
     var batchId = "A" + stamp;
     var ts = new Date().toLocaleString("en-IN");
     var outRows = moved.map(function(r) { return r.concat([ts, batchId, d.requesterUser || ""]); });
+    ensureRows_(ar, ar.getLastRow() + outRows.length); ensureCols_(ar, sc + 3);
     ar.getRange(ar.getLastRow() + 1, 1, outRows.length, sc + 3).setValues(outRows);
 
     sh.getRange(2, 1, n, sc).clearContent();
@@ -2586,7 +2629,7 @@ function doRestorePassedOut(d) {
       }
     });
     if (!found) return {status:"error", message:"हा Batch सापडला नाही."};
-    if (back.length) sh.getRange(sh.getLastRow() + 1, 1, back.length, sc).setValues(back);
+    if (back.length) { ensureRows_(sh, sh.getLastRow() + back.length); sh.getRange(sh.getLastRow() + 1, 1, back.length, sc).setValues(back); }
     invalidateRosterCache_();
     return {rowIndex: 0, mode: "updated", count: back.length, ref: "restore " + batchId, extra: {restored: back.length, skipped: skipped}};
   } catch (err) {
@@ -2620,10 +2663,7 @@ function doRenumberRolls(d) {
     var n = sh.getLastRow() - 1;
     var base = sh.getRange(2, 1, n, 13).getValues(); // A..M
     var stamp = Utilities.formatDate(new Date(), "Asia/Kolkata", "yyyyMMdd_HHmm");
-    var bk = sh.copyTo(ss);
-    bk.setName("Students_BeforeRoll_" + stamp);
-    bk.hideSheet();
-    pruneHiddenBackups_("Students_BeforeRoll_", 5);
+    makeStudentsBackup_(sh, "Students_BeforeRoll_" + stamp, "Students_BeforeRoll_");
 
     var groups = {};
     for (var i = 0; i < n; i++) {
@@ -2687,7 +2727,8 @@ function archiveOldLog_(days) {
     });
     if (!old.length) return 0;
     var ar = ss.getSheetByName("Log_Archive");
-    if (!ar) { ar = ss.insertSheet("Log_Archive"); ar.appendRow(["Timestamp","User","Role","Action","Reference"]); }
+    if (!ar) { ar = ss.insertSheet("Log_Archive"); trimNewSheet_(ar, 5); ar.appendRow(["Timestamp","User","Role","Action","Reference"]); }
+    ensureRows_(ar, ar.getLastRow() + old.length);
     // आधी Archive मध्ये लिहा, मग Log मधून काढा — मध्येच अपयश आल्यास नोंदी हरवत नाहीत
     ar.getRange(ar.getLastRow() + 1, 1, old.length, 5).setValues(old.map(function(r) { r[0] = (r[0] instanceof Date) ? r[0].toLocaleString("en-IN") : r[0]; return r; }));
     sh.getRange(2, 1, n, 5).clearContent();
@@ -2705,5 +2746,493 @@ function doArchiveLogNow(d) {
     return {rowIndex: 0, mode: "updated", count: moved, ref: "archiveLog " + days + "d"};
   } catch (err) {
     return {status:"error", message:err.toString()};
+  }
+}
+
+
+// =====================================================================
+// ===== V19.37 — घरी जाणारे विद्यार्थी (Early Leave) =====
+// =====================================================================
+// नोंद: Master/Super = कोणताही वर्ग-तुकडी; वर्ग-शिक्षक = फक्त स्वतःचा वर्ग; Peon = फक्त आजची "परवानगी" यादी पाहून मार्क-आउट.
+// एका विद्यार्थ्याची एका दिवसाची एकच नोंद (date + regNo). हजर विद्यार्थ्यांचीच नोंद; गैरहजर (हजेरी नोंदवहीनुसार) नाकारली जाते.
+var EL_SHEET = "EarlyLeave";
+var EL_HEADERS = ["Timestamp","Date","Class","Division","RegNo","StudentId","FullName","Type","Period","RecordedBy","RecordedRole","Status","MarkedBy","MarkedAt"];
+var EL_TYPES = {permitted:1, unpermitted:1};
+
+function getELSheet_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName(EL_SHEET);
+  if (sh) return sh;
+  sh = ss.insertSheet(EL_SHEET);
+  trimNewSheet_(sh, EL_HEADERS.length);
+  sh.appendRow(EL_HEADERS);
+  sh.getRange("B:B").setNumberFormat("@");
+  sh.setFrozenRows(1);
+  return sh;
+}
+function elDateValid_(d) { return ISO_DATE_RE.test(d || ""); }
+
+function elStudentMap_() {
+  var map = {};
+  getRosterCached_("", "", false).data.forEach(function(st) { map[(st.regNo || "").toString().trim().toLowerCase()] = st; });
+  return map;
+}
+function elRowToObj_(r, stMap) {
+  var st = stMap[(r[4] || "").toString().trim().toLowerCase()] || {};
+  return {date: fmt(r[1]), iyatta: (r[2] || "").toString(), tukdi: (r[3] || "").toString(), regNo: (r[4] || "").toString(), studentId: r[5],
+    fullName: r[6], type: (r[7] || "").toString(), period: parseInt(r[8], 10) || 0, recordedBy: r[9], recordedRole: r[10],
+    status: (r[11] || "").toString(), markedBy: r[12] || "", markedAt: r[13] || "",
+    gender: st.gender || "", rollNo: st.rollNo || "", contact: (st.contact || "").toString(), whatsapp: (st.whatsappMobile || "").toString(),
+    alt: (st.alternateMobile || "").toString(), photoUrl: st.photoUrl || ""};
+}
+function elReadAll_(sh) {
+  var n = sh.getLastRow() - 1;
+  return n > 0 ? sh.getRange(2, 1, n, 14).getValues() : [];
+}
+function elSort_(list) {
+  list.sort(function(a, b) {
+    var c = classSortKey_(a.iyatta) - classSortKey_(b.iyatta);
+    if (c) return c;
+    if (a.tukdi !== b.tukdi) return a.tukdi < b.tukdi ? -1 : 1;
+    if (a.period !== b.period) return a.period - b.period;
+    return (parseInt(a.rollNo, 10) || 0) - (parseInt(b.rollNo, 10) || 0);
+  });
+  return list;
+}
+function elAbsentSet_(date, iyatta, tukdi) {
+  var set = {};
+  readAttendanceRows_(date, date).forEach(function(r) {
+    if (fmt(r[1]) !== date) return;
+    if ((r[2] || "").toString().trim() !== iyatta) return;
+    if (tukdi && (r[3] || "").toString().trim() !== tukdi) return;
+    set[(r[4] || "").toString().trim().toLowerCase()] = true;
+  });
+  return set;
+}
+
+function doGetEarlyLeave(p, cb) {
+  try {
+    var role = p.requesterRole;
+    if (role !== "super" && role !== "master" && role !== "teacher") return wrap(cb, {status:"error", message:"हे पान पाहण्याचा अधिकार नाही."});
+    var date = (p.date || todayStr()).toString().trim();
+    if (!elDateValid_(date)) return wrap(cb, {status:"error", message:"तारीख YYYY-MM-DD स्वरूपात हवी."});
+    var iyatta = (p.iyatta || "").toString().trim();
+    var tukdi = (p.tukdi || "").toString().trim();
+    if (role === "teacher" && !iyatta) return wrap(cb, {status:"error", message:"वर्ग-शिक्षकाला वर्ग नेमलेला नाही."});
+    var sh = getELSheet_();
+    var stMap = elStudentMap_();
+    var out = [];
+    elReadAll_(sh).forEach(function(r) {
+      if (fmt(r[1]) !== date) return;
+      if (iyatta && (r[2] || "").toString().trim() !== iyatta) return;
+      if (tukdi && (r[3] || "").toString().trim() !== tukdi) return;
+      out.push(elRowToObj_(r, stMap));
+    });
+    var absent = [];
+    if (iyatta) absent = Object.keys(elAbsentSet_(date, iyatta, tukdi));
+    return wrap(cb, {status:"ok", date: date, records: elSort_(out), absentRegNos: absent});
+  } catch (err) {
+    return wrap(cb, {status:"error", message:err.toString()});
+  }
+}
+
+function doSaveEarlyLeave(d) {
+  var role = d.requesterRole;
+  if (role !== "super" && role !== "master" && role !== "teacher") return {status:"error", message:"नोंद करण्याचा अधिकार नाही."};
+  var date = (d.date || todayStr()).toString().trim();
+  if (!elDateValid_(date)) return {status:"error", message:"तारीख YYYY-MM-DD स्वरूपात हवी."};
+  if (date > todayStr()) return {status:"error", message:"भविष्यातील तारखेची नोंद करता येत नाही."};
+  var iyatta = (d.iyatta || "").toString().trim();
+  var tukdi = (d.tukdi || "").toString().trim();
+  if (!iyatta || !tukdi) return {status:"error", message:"वर्ग व तुकडी निवडा."};
+  var entries = safeParseJson(d.entriesJson), removes = safeParseJson(d.removeJson);
+  if (!entries.length && !removes.length) return {status:"error", message:"जतन करण्यासाठी काहीही बदल नाही."};
+
+  var lock = LockService.getScriptLock();
+  var locked = false;
+  try {
+    lock.waitLock(25000); locked = true;
+    var roster = {};
+    getRosterCached_(iyatta, tukdi, true).data.forEach(function(st) { roster[(st.regNo || "").toString().trim().toLowerCase()] = st; });
+    var absent = elAbsentSet_(date, iyatta, tukdi);
+    var sh = getELSheet_();
+    var all = elReadAll_(sh);
+    var idxOf = {};
+    for (var i = 0; i < all.length; i++) idxOf[fmt(all[i][1]) + "|" + (all[i][4] || "").toString().trim().toLowerCase()] = i;
+
+    var ts = new Date().toLocaleString("en-IN");
+    var updates = [], appends = [], dels = [], rejected = [];
+    entries.forEach(function(e) {
+      var key = (e.regNo || "").toString().trim().toLowerCase();
+      var st = roster[key];
+      if (!st) { rejected.push({regNo: e.regNo, reason: "विद्यार्थी या वर्ग-तुकडीत नाही"}); return; }
+      if (absent[key]) { rejected.push({regNo: e.regNo, reason: "गैरहजर विद्यार्थ्याची नोंद करता येत नाही"}); return; }
+      var type = (e.type || "").toString();
+      var period = parseInt(e.period, 10);
+      if (!EL_TYPES[type]) { rejected.push({regNo: e.regNo, reason: "प्रकार चुकीचा"}); return; }
+      if (!(period >= 1 && period <= 9)) { rejected.push({regNo: e.regNo, reason: "तासिका क्रमांक १ ते ९ हवा"}); return; }
+      var ix = idxOf[date + "|" + key];
+      if (ix !== undefined) {
+        var row = all[ix];
+        var typeChanged = (row[7] || "").toString() !== type;
+        row[0] = ts; row[7] = type; row[8] = period; row[9] = d.requesterUser || ""; row[10] = role;
+        if (typeChanged) { row[11] = ""; row[12] = ""; row[13] = ""; }
+        updates.push(ix);
+      } else {
+        appends.push([ts, date, iyatta, tukdi, st.regNo, st.studentId || "", st.fullName || "", type, period, d.requesterUser || "", role, "", "", ""]);
+      }
+    });
+    removes.forEach(function(rg) {
+      var ix = idxOf[date + "|" + (rg || "").toString().trim().toLowerCase()];
+      if (ix !== undefined && (all[ix][2] || "").toString().trim() === iyatta && (all[ix][3] || "").toString().trim() === tukdi) dels.push(ix);
+    });
+
+    var delRows = dels.map(function(ix) { return all[ix].slice(0, 14); });
+    if (delRows.length) backupDeleted_("EarlyLeave", EL_HEADERS, delRows, d.requesterUser || "", "शिक्षक/Master ने नोंद काढली");
+    updates.forEach(function(ix) { sh.getRange(ix + 2, 1, 1, 14).setValues([all[ix]]); });
+    if (appends.length) { ensureRows_(sh, sh.getLastRow() + appends.length); sh.getRange(sh.getLastRow() + 1, 1, appends.length, 14).setValues(appends); }
+    dels.sort(function(a, b) { return b - a; }).forEach(function(ix) { sh.deleteRow(ix + 2); });
+
+    var saved = updates.length + appends.length;
+    if (!saved && !dels.length && rejected.length) return {status:"error", message: rejected[0].reason + (rejected.length > 1 ? " (+" + (rejected.length - 1) + " इतर)" : "")};
+    return {rowIndex: 0, mode: "updated", count: saved, ref: iyatta + "-" + tukdi + " " + date, extra: {saved: saved, removed: dels.length, rejected: rejected}};
+  } catch (err) {
+    return {status:"error", message:err.toString()};
+  } finally {
+    if (locked) lock.releaseLock();
+  }
+}
+
+// Peon: आजच्या "परवानगी" दिलेल्या विद्यार्थ्यांची यादी
+function doGetEarlyLeavePeon(p, cb) {
+  try {
+    var role = p.requesterRole;
+    if (role !== "peon" && role !== "super" && role !== "master") return wrap(cb, {status:"error", message:"अधिकार नाही."});
+    var date = todayStr();
+    var stMap = elStudentMap_();
+    var out = [];
+    elReadAll_(getELSheet_()).forEach(function(r) {
+      if (fmt(r[1]) !== date || (r[7] || "").toString() !== "permitted") return;
+      out.push(elRowToObj_(r, stMap));
+    });
+    return wrap(cb, {status:"ok", date: date, records: elSort_(out)});
+  } catch (err) {
+    return wrap(cb, {status:"error", message:err.toString()});
+  }
+}
+
+// Peon: विद्यार्थी गेला / गेला नाही / पूर्ववत
+function doMarkEarlyLeaveOut(d) {
+  var role = d.requesterRole;
+  if (role !== "peon" && role !== "super" && role !== "master") return {status:"error", message:"अधिकार नाही."};
+  var status = (d.status || "").toString();
+  if (["gone", "notgone", ""].indexOf(status) === -1) return {status:"error", message:"स्थिती चुकीची आहे."};
+  var date = (role === "peon") ? todayStr() : (d.date || todayStr()).toString().trim();
+  var key = (d.regNo || "").toString().trim().toLowerCase();
+  if (!key) return {status:"error", message:"RegNo आवश्यक आहे."};
+  var lock = LockService.getScriptLock();
+  var locked = false;
+  try {
+    lock.waitLock(20000); locked = true;
+    var sh = getELSheet_();
+    var all = elReadAll_(sh);
+    for (var i = 0; i < all.length; i++) {
+      var r = all[i];
+      if (fmt(r[1]) !== date || (r[4] || "").toString().trim().toLowerCase() !== key) continue;
+      if ((r[7] || "").toString() !== "permitted") return {status:"error", message:"फक्त परवानगी दिलेल्या विद्यार्थ्याचीच मार्क-आउट नोंद करता येते."};
+      var when = status ? new Date().toLocaleString("en-IN") : "";
+      sh.getRange(i + 2, 12, 1, 3).setValues([[status, status ? (d.requesterUser || "") : "", when]]);
+      return {rowIndex: i + 2, mode: "updated", count: 1, ref: (r[6] || "") + " " + (status || "reset") + " " + date, extra: {status: status}};
+    }
+    return {status:"error", message:"आजची नोंद सापडली नाही (शिक्षकाने ती बदलली/काढली असू शकते) — यादी Refresh करा."};
+  } catch (err) {
+    return {status:"error", message:err.toString()};
+  } finally {
+    if (locked) lock.releaseLock();
+  }
+}
+
+
+// =====================================================================
+// ===== V19.38 — Profile Share Card साठी फोटो (base64) =====
+// Drive thumbnail वर CORS नसल्याने browser (html2canvas) तो Canvas वर घेऊ शकत नाही → server वरून data: URL म्हणून देतो.
+// =====================================================================
+function doGetPhotoData(p, cb) {
+  try {
+    var regNo = (p.regNo || "").toString().trim();
+    if (!regNo) return wrap(cb, {status:"error", message:"regNo required"});
+    var file = null;
+    // १) Photo फोल्डरमधील <regNo>.jpg
+    try {
+      var files = DriveApp.getFolderById(PHOTO_FOLDER_ID).getFilesByName(cleanRegFileName(regNo) + ".jpg");
+      if (files.hasNext()) file = files.next();
+    } catch (e1) {}
+    // २) Students मध्ये साठवलेल्या Photo URL मधील File ID
+    if (!file) {
+      var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Students");
+      var row = sh ? (findRowByKey(sh, 3, regNo) || findRowByKey(sh, 4, regNo)) : 0;
+      var url = row ? (sh.getRange(row, 27).getValue() || "").toString() : "";
+      var m = /[?&]id=([\w-]+)|\/d\/([\w-]+)/.exec(url);
+      if (m) { try { file = DriveApp.getFileById(m[1] || m[2]); } catch (e2) {} }
+    }
+    if (!file) return wrap(cb, {status:"notfound", message:"फोटो सापडला नाही"});
+    var blob = file.getBlob();
+    var bytes = blob.getBytes();
+    if (bytes.length > 700000) {   // मोठा फोटो — लहान Thumbnail वापरा म्हणजे Response हलका राहतो
+      try { blob = file.getThumbnail(); bytes = blob.getBytes(); } catch (e3) {}
+    }
+    var mime = (blob.getContentType() || "image/jpeg").toString();
+    if (mime.indexOf("image/") !== 0) mime = "image/jpeg";
+    return wrap(cb, {status:"ok", dataUrl: "data:" + mime + ";base64," + Utilities.base64Encode(bytes)});
+  } catch (err) {
+    return wrap(cb, {status:"error", message:err.toString()});
+  }
+}
+
+
+// =====================================================================
+// ===== V19.39 — वर्ग शिक्षक यादी (Sheet: "Class_Teacher") =====
+// स्तंभ: A Class (5th-A) | B Class (5 वी) | C Div (अ) | D EMPLOYEE NAME | E कर्मचारी नाव | F MOB NO | G Emp Short Name
+// पाहण्याचा अधिकार: Super Master, Master, Data Operator (deo), Peon
+// =====================================================================
+function doGetClassTeachers(p, cb) {
+  try {
+    var role = p.requesterRole;
+    if (["super", "master", "deo", "peon"].indexOf(role) === -1) return wrap(cb, {status:"error", message:"वर्ग शिक्षक यादी पाहण्याचा अधिकार नाही."});
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sh = ss.getSheetByName("Class_Teacher");
+    if (!sh) {
+      ss.getSheets().forEach(function(x) { if (!sh && x.getName().toString().toLowerCase().replace(/[\s_\-]+/g, "") === "classteacher") sh = x; });
+    }
+    if (!sh) return wrap(cb, {status:"error", message:"\"Class_Teacher\" नावाची Sheet विद्यार्थी-माहितीच्या Google Sheet मध्ये सापडली नाही."});
+    var n = sh.getLastRow() - 1;
+    var out = [];
+    if (n > 0) {
+      var rows = sh.getRange(2, 1, n, 7).getValues();
+      rows.forEach(function(r, idx) {
+        var nameEn = (r[3] || "").toString().trim(), nameMr = (r[4] || "").toString().trim();
+        if (!nameEn && !nameMr) return;
+        var mob = r[5];
+        mob = (typeof mob === "number") ? String(mob) : (mob || "").toString().trim();
+        out.push({classKey: (r[0] || "").toString().trim(), classMr: (r[1] || "").toString().trim(), div: (r[2] || "").toString().trim(),
+          nameEn: nameEn, nameMr: nameMr, mobile: mob, short: (r[6] || "").toString().trim(), _i: idx});
+      });
+      out.sort(function(a, b) {
+        var c = classSortKey_(a.classKey.split("-")[0]) - classSortKey_(b.classKey.split("-")[0]);
+        return c || (a._i - b._i);
+      });
+      out.forEach(function(o) { delete o._i; });
+    }
+    return wrap(cb, {status:"ok", data: out});
+  } catch (err) {
+    return wrap(cb, {status:"error", message:err.toString()});
+  }
+}
+
+
+// =====================================================================
+// ===== V19.40 — टप्पा १: पाया (लहान Sheet, वेळेचे मोजमाप, साठवण-मीटर, Deleted Backup) =====
+// =====================================================================
+
+// ---------- १. लहान आकाराच्या Sheet ----------
+// Google ची १ कोटी cells मर्यादा "वाटप केलेले" सर्व cells मोजते — नवीन रिकामी Sheet सुद्धा १०००×२६ = २६,००० cells घेते.
+var GRID_MIN_ROWS = 300, GRID_COL_MARGIN = 3, GRID_GROW_CHUNK = 500, GRID_MIN_COLS_SHRINK = 15, SHEET_CELL_LIMIT = 10000000;
+
+function trimNewSheet_(sh, nCols, minRows) {
+  try {
+    var rows = minRows || GRID_MIN_ROWS, cols = Math.max((nCols || 1) + GRID_COL_MARGIN, 1);
+    // नवीन Sheet २६ स्तंभांची असते — जास्त स्तंभ हवे असल्यास वाढवा, कमी हवे असल्यास काढा
+    if (sh.getMaxColumns() < cols) sh.insertColumnsAfter(sh.getMaxColumns(), cols - sh.getMaxColumns());
+    else if (sh.getMaxColumns() > cols) sh.deleteColumns(cols + 1, sh.getMaxColumns() - cols);
+    if (sh.getMaxRows() > rows) sh.deleteRows(rows + 1, sh.getMaxRows() - rows);
+  } catch (e) { /* आकार कमी करता आला नाही तरी Sheet चालतेच */ }
+}
+// setValues ने शेवटच्या ओळीनंतर लिहिण्याआधी जागा वाढवा (appendRow स्वतः वाढवते)
+function ensureRows_(sh, needLastRow) {
+  var max = sh.getMaxRows();
+  if (needLastRow > max) sh.insertRowsAfter(max, Math.max(needLastRow - max, GRID_GROW_CHUNK));
+}
+function ensureCols_(sh, needCols) {
+  var max = sh.getMaxColumns();
+  if (needCols > max) sh.insertColumnsAfter(max, needCols - max);
+}
+
+// ---------- २. वेळेचे मोजमाप ----------
+// प्रत्येक विनंतीचा सर्व्हर-वेळ मोजतो. सर्व विनंत्या न नोंदवता ~३४% नमुना + २ सेकंदांहून जास्त (हळू) सर्व विनंत्या नोंदवल्या जातात
+// म्हणजे मोजमापाचाच अतिरिक्त भार कमी राहतो.
+var PERF_SLOW_MS = 2000, PERF_SAMPLE = 0.34, PERF_LOG_MAX = 400;
+function doGet(e) {
+  var t0 = Date.now();
+  var out = doGetCore_(e);
+  perfRecord_((e && e.parameter && e.parameter.action) || "", Date.now() - t0);
+  return out;
+}
+function doPost(e) {
+  var t0 = Date.now();
+  var out = doPostCore_(e);
+  perfRecord_((e && e.parameter && e.parameter.action) || "", Date.now() - t0);
+  return out;
+}
+function perfRecord_(action, ms) {
+  try {
+    if (!action || action === "ping") return;
+    var slow = ms >= PERF_SLOW_MS;
+    if (!slow && Math.random() > PERF_SAMPLE) return;
+    var cache = CacheService.getScriptCache();
+    var raw = cache.get("perf_agg");
+    var agg = raw ? JSON.parse(raw) : {};
+    var a = agg[action] || {n: 0, sum: 0, max: 0, slow: 0};
+    a.n++; a.sum += ms; a.last = ms;
+    if (ms > a.max) a.max = ms;
+    if (slow) a.slow++;
+    agg[action] = a;
+    cache.put("perf_agg", JSON.stringify(agg), 21600);
+    if (slow) {
+      var ss = SpreadsheetApp.getActiveSpreadsheet();
+      var sh = ss.getSheetByName("Perf_Log");
+      if (!sh) { sh = ss.insertSheet("Perf_Log"); trimNewSheet_(sh, 3); sh.appendRow(["Timestamp", "Action", "ServerMs"]); }
+      sh.appendRow([new Date().toLocaleString("en-IN"), action, ms]);
+      if (sh.getLastRow() > PERF_LOG_MAX) sh.deleteRows(2, 100);
+    }
+  } catch (err) { /* मोजमाप अपयशी झाले तरी मूळ विनंती चालतेच */ }
+}
+
+// ---------- ३. Deleted Backup (स्वतंत्र फाइल) ----------
+// "SGS_Deleted_Backup" फाइल Drive मधील "SGS_Data" फोल्डरमध्ये; प्रत्येक नोंद-प्रकारासाठी स्वतंत्र Sheet: Deleted_Students, Deleted_Attendance, Deleted_EarlyLeave, ...
+function getDataFolder_() {
+  var props = PropertiesService.getScriptProperties();
+  var id = props.getProperty("DATA_FOLDER_ID");
+  if (id) { try { return DriveApp.getFolderById(id); } catch (e) {} }
+  var f = DriveApp.createFolder("SGS_Data");
+  props.setProperty("DATA_FOLDER_ID", f.getId());
+  return f;
+}
+function getDeletedBackupSS_() {
+  var props = PropertiesService.getScriptProperties();
+  var id = props.getProperty("DELETED_BACKUP_ID");
+  if (id) { try { return SpreadsheetApp.openById(id); } catch (e) {} }
+  var ss2 = SpreadsheetApp.create("SGS_Deleted_Backup");
+  try { DriveApp.getFileById(ss2.getId()).moveTo(getDataFolder_()); } catch (e2) {}
+  props.setProperty("DELETED_BACKUP_ID", ss2.getId());
+  return ss2;
+}
+// type: "Students" | "Attendance" | "EarlyLeave" | "Fees" | "Diary" | "Transport" | "Scholarship"
+// Backup यशस्वी न झाल्यास मुख्य फाइलमध्येच "Deleted_<type>" मध्ये ठेवतो — नोंद कधीही हरवू नये.
+function backupDeleted_(type, headers, rows, by, reason) {
+  if (!rows || !rows.length) return false;
+  var allHeaders = ["DeletedAt", "DeletedBy", "Reason"].concat(headers);
+  var ts = new Date().toLocaleString("en-IN");
+  var out = rows.map(function(r) { return [ts, by || "", reason || ""].concat(r); });
+  function write(ss) {
+    var name = "Deleted_" + type;
+    var sh = ss.getSheetByName(name);
+    if (!sh) {
+      sh = ss.insertSheet(name);
+      trimNewSheet_(sh, allHeaders.length);
+      sh.getRange(1, 1, 1, allHeaders.length).setValues([allHeaders]);
+      sh.setFrozenRows(1);
+    }
+    ensureRows_(sh, sh.getLastRow() + out.length); ensureCols_(sh, allHeaders.length);
+    sh.getRange(sh.getLastRow() + 1, 1, out.length, allHeaders.length).setValues(out);
+  }
+  try {
+    var bk = getDeletedBackupSS_();
+    write(bk);
+    try { var def = bk.getSheetByName("Sheet1"); if (def && bk.getSheets().length > 1) bk.deleteSheet(def); } catch (e0) {}
+    return true;
+  } catch (e) {
+    try { write(SpreadsheetApp.getActiveSpreadsheet()); } catch (e2) {}
+    return false;
+  }
+}
+// Students ची बदलापूर्वीची प्रत (बढती/Archive/Roll No.) — Backup फाइलमध्ये; ते न जमल्यास मुख्य फाइलमध्ये लपवलेली.
+function makeStudentsBackup_(sh, name, prefix) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  try {
+    var bk = getDeletedBackupSS_();
+    var cp = sh.copyTo(bk);
+    cp.setName(name);
+    pruneBackupSheets_(bk, prefix, 5);
+    return {ss: bk, sheet: cp, external: true};
+  } catch (e) {
+    var cp2 = sh.copyTo(ss);
+    cp2.setName(name);
+    cp2.hideSheet();
+    pruneBackupSheets_(ss, prefix, 3);
+    return {ss: ss, sheet: cp2, external: false};
+  }
+}
+function dropBackup_(b) { try { b.ss.deleteSheet(b.sheet); } catch (e) {} }
+
+// ---------- ४. साठवण-मीटर, कामगिरी, रिकामी जागा कमी करणे (फक्त Super) ----------
+function shrinkTarget_(sh) {
+  return {rows: Math.max(sh.getLastRow() + GRID_MIN_ROWS, GRID_MIN_ROWS), cols: Math.max(sh.getLastColumn() + GRID_COL_MARGIN, GRID_MIN_COLS_SHRINK)};
+}
+function doGetSheetSizes(p, cb) {
+  try {
+    if (p.requesterRole !== "super") return wrap(cb, {status:"error", message:"अधिकार फक्त Super Master ला आहे."});
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var total = 0, savable = 0, list = [];
+    ss.getSheets().forEach(function(sh) {
+      var cells = sh.getMaxRows() * sh.getMaxColumns();
+      var hidden = false; try { hidden = sh.isSheetHidden(); } catch (e) {}
+      var save = 0;
+      if (!hidden) { var t = shrinkTarget_(sh); save = Math.max(0, cells - Math.min(sh.getMaxRows(), t.rows) * Math.min(sh.getMaxColumns(), t.cols)); }
+      total += cells; savable += save;
+      list.push({name: sh.getName(), rows: sh.getLastRow(), cols: sh.getLastColumn(), cells: cells, hidden: hidden, savable: save});
+    });
+    list.sort(function(a, b) { return b.cells - a.cells; });
+
+    var perf = [];
+    try {
+      var agg = JSON.parse(CacheService.getScriptCache().get("perf_agg") || "{}");
+      Object.keys(agg).forEach(function(k) { perf.push({action: k, n: agg[k].n, avg: Math.round(agg[k].sum / agg[k].n), max: agg[k].max, slow: agg[k].slow}); });
+      perf.sort(function(a, b) { return b.avg - a.avg; });
+    } catch (e) {}
+    var slowLog = [];
+    var pl = ss.getSheetByName("Perf_Log");
+    if (pl && pl.getLastRow() > 1) {
+      var n = Math.min(pl.getLastRow() - 1, 25);
+      slowLog = pl.getRange(pl.getLastRow() - n + 1, 1, n, 3).getValues().reverse().map(function(r) { return {time: r[0], action: r[1], ms: r[2]}; });
+    }
+    var backup = {configured: false};
+    var bid = PropertiesService.getScriptProperties().getProperty("DELETED_BACKUP_ID");
+    if (bid) {
+      try {
+        var bk = SpreadsheetApp.openById(bid), counts = {};
+        bk.getSheets().forEach(function(sh) { if (sh.getName().indexOf("Deleted_") === 0) counts[sh.getName().slice(8)] = Math.max(0, sh.getLastRow() - 1); });
+        backup = {configured: true, url: bk.getUrl(), counts: counts};
+      } catch (e) { backup = {configured: true, error: "Backup फाइल उघडता आली नाही"}; }
+    }
+    return wrap(cb, {status:"ok", total: total, limit: SHEET_CELL_LIMIT, savable: savable, sheetCount: list.length, sheets: list.slice(0, 40), perf: perf, slow: slowLog, backup: backup});
+  } catch (err) {
+    return wrap(cb, {status:"error", message:err.toString()});
+  }
+}
+
+function doShrinkSheets(d) {
+  if (d.requesterRole !== "super") return {status:"error", message:"अधिकार फक्त Super Master ला आहे."};
+  if ((d.confirm || "") !== "SHRINK") return {status:"error", message:"खात्रीसाठी SHRINK टाइप करणे आवश्यक आहे."};
+  var lock = LockService.getScriptLock();
+  var locked = false;
+  try {
+    lock.waitLock(30000); locked = true;
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var saved = 0, done = [], failed = [];
+    ss.getSheets().forEach(function(sh) {
+      try {
+        if (sh.isSheetHidden()) return;          // लपवलेल्या (जुन्या डेटाच्या) Sheets ला हात लावत नाही
+        var t = shrinkTarget_(sh), before = sh.getMaxRows() * sh.getMaxColumns();
+        if (sh.getMaxColumns() > t.cols) sh.deleteColumns(t.cols + 1, sh.getMaxColumns() - t.cols);
+        if (sh.getMaxRows() > t.rows) sh.deleteRows(t.rows + 1, sh.getMaxRows() - t.rows);
+        var gain = before - sh.getMaxRows() * sh.getMaxColumns();
+        if (gain > 0) { saved += gain; done.push(sh.getName()); }
+      } catch (e) { failed.push(sh.getName()); }
+    });
+    return {rowIndex: 0, mode: "updated", count: done.length, ref: "shrink " + saved, extra: {saved: saved, sheets: done, failed: failed}};
+  } catch (err) {
+    return {status:"error", message:err.toString()};
+  } finally {
+    if (locked) lock.releaseLock();
   }
 }

@@ -19,8 +19,8 @@ body.role-deo .master-only,
 body.role-cert .master-only,
 body.role-cert .edit-only,
 body.role-cert .user-hidden{display:none!important}
-body.role-deo .navbtn:not([data-page="student"]):not([data-page="search"]):not([data-page="history"]):not([data-page="users"]):not([data-page="profile"]),
-body.role-deo .dcard:not([data-page="student"]):not([data-page="search"]):not([data-page="history"]):not([data-page="users"]):not([data-page="profile"]){display:none!important}
+body.role-deo .navbtn:not([data-page="student"]):not([data-page="search"]):not([data-page="history"]):not([data-page="users"]):not([data-page="profile"]):not([data-page="teacherlist"]),
+body.role-deo .dcard:not([data-page="student"]):not([data-page="search"]):not([data-page="history"]):not([data-page="users"]):not([data-page="profile"]):not([data-page="teacherlist"]){display:none!important}
 /* cert role can save BF/AT */
 body.role-cert .cert-save{display:inline-flex!important}
 body.role-deo .cert-save{display:none!important}
@@ -36,8 +36,8 @@ body.role-master #userMgmtAdminCards{display:none!important}
 /* सर्व Users ला आता Google Sheets URL + Load Students सुविधा उपलब्ध (V19.15) */
 
 /* ===== CLASS TEACHER ROLE (V19.32) — फक्त स्वतःच्या वर्गाचे Teacher पान दिसते ===== */
-body.role-teacher .navbtn:not([data-page="teacher"]),
-body.role-teacher .dcard:not([data-page="teacher"]){display:none!important}
+body.role-teacher .navbtn:not([data-page="teacher"]):not([data-page="earlyleave"]):not([data-page="report"]),
+body.role-teacher .dcard:not([data-page="teacher"]):not([data-page="earlyleave"]):not([data-page="report"]){display:none!important}
 body.role-teacher .master-only,
 body.role-teacher .edit-only{display:none!important}
 body.role-teacher .tch-back-btn{display:inline-block!important}
@@ -392,3 +392,20 @@ body.auth-locked #pwaInstallBtn{display:none!important}
   .cert-sheet2{margin:0!important}
   .cert-sheet2 .cert-page.a4-noborder{padding:7mm 15mm 2mm 20mm!important;page:auto!important}
 }
+
+/* ===== V19.37 — घरी जाणारे विद्यार्थी + Peon भूमिका ===== */
+body.role-peon .navbtn:not([data-page="search"]):not([data-page="profile"]):not([data-page="earlyleave"]):not([data-page="teacherlist"]),
+body.role-peon .dcard{display:none!important}
+body.role-peon .master-only,body.role-peon .edit-only,body.role-peon .super-only,body.role-peon .cert-save{display:none!important}
+body.role-cert .navbtn[data-page="earlyleave"],body.role-cert .dcard[data-page="earlyleave"]{display:none!important}
+body.role-peon .el-staff-box{display:none!important}
+body:not(.role-peon) .el-peon-box{display:none!important}
+
+/* ===== V19.37 — वर्ग शिक्षक: Tab ऐवजी वरच्या Menu मधील स्वतंत्र पाने ===== */
+.tch-nav{display:none}
+body.role-teacher .tch-nav{display:inline-block}
+body.role-teacher .navbtn[data-page="teacher"]:not(.tch-nav){display:none!important}
+body.role-teacher .tch-tabbar{display:none}
+
+/* ===== V19.39 — वर्ग शिक्षक यादी: वर्ग-शिक्षक व Certificate-user ला दिसू नये ===== */
+body.role-cert .navbtn[data-page="teacherlist"],body.role-cert .dcard[data-page="teacherlist"]{display:none!important}

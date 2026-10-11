@@ -32,7 +32,7 @@ window.androidBackPressed = function() {
 
 
 // URL persistence
-var DEFAULT_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbyB9O1Y2qCXw8Fp8dshGxkZD37dGBo1zUA5elcSgmJmk-x2g3pSuxjtxD0qH9WL0wub/exec';
+var DEFAULT_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbxOAwCEvpWRH6a8Nh7FmX-pJOi7fBX6c4AmxcX55Oy2frr6EzUH7zdI99wGyAJ2Qru1/exec';
 
 // =====================================================
 // 🔐 LOGIN + ROLE PERMISSIONS
@@ -45,6 +45,8 @@ var AUTH_USERS = {
   teacher_1: { password: 'Pass@1234', role: 'teacher', label: 'वर्ग शिक्षक', assignedClass: '7th|अ' }
 };
 var currentUser = null;
+var VALID_ROLES = ['super','master','deo','cert','teacher','peon'];
+function normRole(r) { return String(r == null ? '' : r).trim().toLowerCase(); }
 // V19.36: Server-side Login (Token). Server वर setSuperCredentials + enableAuthEnforcement झाल्यावर हे false करा —
 // तेव्हा browser मधील hardcoded/Sheet मधून आलेले Password पूर्णपणे बंद होतात.
 var ALLOW_LEGACY_LOGIN = true;
@@ -60,11 +62,12 @@ function handleAuthExpired() {
   setTimeout(function() { _authExpiredHandled = false; }, 2000);
 }
 var USER_ALLOWED_PAGES = {
-  master: ['dashboard','student','lc','bonafide','attendance','search','history','users','profile','stats','maintenance','classinfo','report','attanalytics'],
-  deo:    ['student','search','history','users','profile'],
+  master: ['dashboard','student','lc','bonafide','attendance','search','history','users','profile','stats','maintenance','classinfo','report','attanalytics','earlyleave','teacherlist'],
+  deo:    ['student','search','history','users','profile','teacherlist'],
   cert:   ['bonafide','attendance','search','history','users','profile'],
-  super:  ['dashboard','student','lc','bonafide','attendance','search','history','users','profile','stats','maintenance','classinfo','report','superadmin','attanalytics'],
-  teacher:['teacher','profile','report']
+  super:  ['dashboard','student','lc','bonafide','attendance','search','history','users','profile','stats','maintenance','classinfo','report','superadmin','attanalytics','earlyleave','teacherlist'],
+  teacher:['teacher','profile','report','earlyleave'],
+  peon:   ['search','profile','earlyleave','teacherlist']   // शिपाई: विद्यार्थी शोध, प्रोफाइल, घरी जाणाऱ्यांची मार्क-आउट यादी
 };
 var CERT_EDITABLE_FIELDS = {
   bf: ['bf_regNo','bf_stxt2','bf_stxt57','bf_stxt3','bf_stxt3_sel','bf_stxt6'],
@@ -75,6 +78,7 @@ function defaultPageForRole(role) {
   if (role === 'deo') return 'student';
   if (role === 'cert') return 'bonafide';
   if (role === 'teacher') return 'teacher';
+  if (role === 'peon') return 'earlyleave';
   return 'dashboard';
 }
 
@@ -94,7 +98,7 @@ function syncRemoteUsers(onDone) {
   window[cb] = function(r) {
     if (r && r.status === 'ok' && r.data) {
       r.data.forEach(function(u) {
-        AUTH_USERS[u.username] = { password: u.password, role: u.role, label: u.label, assignedClass: u.assignedClass || '' };
+        AUTH_USERS[u.username] = { password: u.password, role: normRole(u.role), label: u.label, assignedClass: u.assignedClass || '' };
       });
     }
     finish();
@@ -118,7 +122,8 @@ function initAuth() {
   try {
     var sess = JSON.parse(sessionStorage.getItem(SESSION_KEY) || 'null');
     if (sess && sess.token && sess.exp > Date.now()) {
-      currentUser = { username: sess.username, role: sess.role, label: sess.label, assignedClass: sess.assignedClass || '', token: sess.token, exp: sess.exp };
+      currentUser = { username: sess.username, role: normRole(sess.role), label: sess.label, assignedClass: sess.assignedClass || '', token: sess.token, exp: sess.exp };
+      if (VALID_ROLES.indexOf(currentUser.role) === -1) { currentUser = null; sessionStorage.removeItem(SESSION_KEY); throw new Error('bad role'); }
       applyTeacherClassInfo();
       document.body.classList.remove('auth-locked');
       applyRoleUI();
@@ -141,7 +146,7 @@ function initAuth() {
     showPage(defaultPageForRole(currentUser.role));
   } else {
     document.body.classList.add('auth-locked');
-    document.body.classList.remove('role-master','role-deo','role-cert','role-super','role-teacher');
+    document.body.classList.remove('role-master','role-deo','role-cert','role-super','role-teacher','role-peon');
     setTimeout(function(){
       var u = document.getElementById('loginUsername');
       if (u) u.focus();
@@ -226,6 +231,12 @@ function attemptLogin(ev) {
   return false;
 }
 function completeLogin(username, user, pEl, st, token, exp) {
+  // Role लहान अक्षरात तपासा; अमान्य Role असल्यास Login नाकारा (पूर्वी अनोळखी Role ला सर्व Tab दिसत होते)
+  user = { role: normRole(user.role), label: user.label, assignedClass: user.assignedClass || '' };
+  if (VALID_ROLES.indexOf(user.role) === -1) {
+    if (st) { st.textContent = 'या User चा Role अमान्य आहे. Users sheet मध्ये Role: super / master / deo / cert / teacher / peon (लहान अक्षरात) असा हवा.'; st.className = 'login-status err'; st.style.display = 'block'; }
+    return false;
+  }
   if (token) {
     currentUser = { username: username, role: user.role, label: user.label, assignedClass: user.assignedClass || '', token: token, exp: exp };
     try { sessionStorage.setItem(SESSION_KEY, JSON.stringify(currentUser)); } catch (e) {}
@@ -249,7 +260,7 @@ function logoutUser() {
   currentUser = null;
   closeCert();
   document.body.classList.add('auth-locked');
-  document.body.classList.remove('role-master','role-deo','role-cert','role-super','role-teacher');
+  document.body.classList.remove('role-master','role-deo','role-cert','role-super','role-teacher','role-peon');
   var chip = document.getElementById('authUserChip');
   if (chip) chip.textContent = 'User';
   setTimeout(function(){
@@ -295,6 +306,9 @@ function applyRoleUI() {
   document.body.classList.toggle('role-cert', currentUser.role === 'cert');
   document.body.classList.toggle('role-super', currentUser.role === 'super');
   document.body.classList.toggle('role-teacher', currentUser.role === 'teacher');
+  document.body.classList.toggle('role-peon', currentUser.role === 'peon');
+  // Peon ला विद्यार्थी शोध/प्रोफाइल लगेच वापरता यावे म्हणून विद्यार्थी यादी आपोआप Load करा
+  if (currentUser.role === 'peon') { try { if (!studentCache.loaded && !loadCacheFromStorage()) bulkLoadAll(); } catch (e) {} }
   var chip = document.getElementById('authUserChip');
   if (chip) chip.textContent = currentUser.label + ' (' + currentUser.username + ')';
   applyFormPermissions();
@@ -314,6 +328,8 @@ function applyFormPermissions() {
     if (el.id.indexOf('prof_') === 0) { el.disabled=false; el.classList.remove('locked-input'); return; }
     if (el.id.indexOf('pwd_') === 0) { el.disabled=false; el.classList.remove('locked-input'); return; }
     if (el.id.indexOf('tch_') === 0) { el.disabled=false; el.classList.remove('locked-input'); return; }
+    if (el.id.indexOf('el_') === 0) { el.disabled=false; el.classList.remove('locked-input'); return; }
+    if (el.id.indexOf('tl_') === 0) { el.disabled=false; el.classList.remove('locked-input'); return; }
     if (el.id.indexOf('rp_') === 0) { el.disabled=false; el.classList.remove('locked-input'); return; }
     if (el.id.indexOf('um_') === 0) {
       var canManageUsers = currentUser.role === 'super';
@@ -682,12 +698,20 @@ function numToMarathi(n){
 // Row tracker
 var rowTracker={s:null,lc:null,bf:null,at:null};
 
+// V19.40: ब्राउझरमधून मोजलेला एकूण वेळ (नेटवर्क + Apps Script सुरू होण्याचा वेळ + सर्व्हर) — शेवटच्या १५० विनंत्या
+var clientPerf = [];
+function clientPerfAdd(action, ms, r) {
+  if (!action || action === 'ping') return;
+  clientPerf.push({a: action, ms: ms, ok: !!(r && r.status !== 'timeout' && r.status !== 'error')});
+  if (clientPerf.length > 150) clientPerf.shift();
+}
 function jsonpRequest(params, onResult) {
   var url=getUrl();
   if(!url){ onResult({status:'nourl'}); return; }
   attachToken(params);
   var _origCb = onResult;
-  onResult = function(r){ if (r && r.code === 'auth') handleAuthExpired(); _origCb(r); };
+  var _t0 = Date.now(), _act = params.action || '';
+  onResult = function(r){ clientPerfAdd(_act, Date.now() - _t0, r); if (r && r.code === 'auth') handleAuthExpired(); _origCb(r); };
   // V19.36: प्रत्येक विनंतीला स्वतःचा <script> id — पूर्वी एकच shared id असल्याने एकाच वेळी दोन विनंत्या चालल्यास
   // पहिली विनंती अर्धवट असतानाच काढली जायची (Login/Dashboard एकाच वेळी लोड होताना Login अडकायचा).
   var cbName='_gssCb_'+Date.now()+'_'+Math.floor(Math.random()*1e6);
@@ -814,7 +838,7 @@ function smartSaveRaw(data, onResult) {
 // प्रत्येक Save सोबत reqId जातो — सर्व्हरने आधी स्वीकारलेली Save पुन्हा आल्यास दुबार नोंद होत नाही.
 // =====================================================
 var PENDING_KEY = 'sgs_pending_saves_v1';
-var QUEUEABLE_ACTIONS = ['saveAttendance','saveFees','saveDiary','saveTransport','saveStudentContact','saveNotice'];
+var QUEUEABLE_ACTIONS = ['saveAttendance','saveFees','saveDiary','saveTransport','saveStudentContact','saveNotice','saveEarlyLeave','markEarlyLeaveOut'];
 var _pendingFlushing = false;
 
 function pendingLoad() {
@@ -832,9 +856,15 @@ function isNetworkFailure(r) {
   if (r.status === 'error' && r.message && /fetch error|failed to fetch|network|load failed|timeout|empty response/i.test(r.message)) return true;
   return false;
 }
+function friendlyMsg(m) {
+  if (/unknown action/i.test(m || '')) {
+    return 'Apps Script मध्ये Code.gs ची नवीन आवृत्ती अजून Deploy झालेली नाही (' + m + '). Code.gs paste करा → Deploy → Manage deployments → ✏️ Edit → Version: "New version" → Deploy.';
+  }
+  return m;
+}
 function errTxt(r) {
   if (r && r.status === 'queued') return r.message;
-  return '❌ ' + (r && r.message ? r.message : 'Failed');
+  return '❌ ' + friendlyMsg(r && r.message ? r.message : 'Failed');
 }
 
 function smartSave(data, onResult) {
@@ -3354,6 +3384,8 @@ function shareProfileImage() {
   btn.disabled = true;
   btn.textContent = '⏳ Image तयार होत आहे...';
   if (statusEl) statusEl.textContent = '';
+  var photoNote = '';   // फोटो नसल्यास/न आल्यास अंतिम संदेशासोबत दाखवायची सूचना
+  function setSt(t) { if (statusEl) statusEl.textContent = t + (photoNote ? '  ' + photoNote : ''); }
 
   // ===== hidden Card भरा =====
   document.getElementById('shareCardName').textContent = d.firstName || '—';
@@ -3388,7 +3420,7 @@ function shareProfileImage() {
         try {
           window.AndroidShare.shareImageBase64(base64Data, fileName, waMsg, waNum);
           btn.disabled = false; btn.textContent = '📤 विद्यार्थ्याचे Profile फोटो WhatsApp वर पाठवा';
-          if (statusEl) statusEl.textContent = '✅ WhatsApp उघडत आहे...';
+          setSt('✅ WhatsApp उघडत आहे...');
           return;
         } catch (eAndroid) {
           // Native bridge अयशस्वी झाल्यास खालील सामान्य पद्धतीने पुढे जा
@@ -3402,11 +3434,11 @@ function shareProfileImage() {
           navigator.share({ files: [file], title: 'Student Profile', text: waMsg })
             .then(function(){
               btn.disabled = false; btn.textContent = '📤 विद्यार्थ्याचे Profile फोटो WhatsApp वर पाठवा';
-              if (statusEl) statusEl.textContent = '✅ Share पूर्ण झाले.';
+              setSt('✅ Share पूर्ण झाले.');
             })
             .catch(function(){
               btn.disabled = false; btn.textContent = '📤 विद्यार्थ्याचे Profile फोटो WhatsApp वर पाठवा';
-              if (statusEl) statusEl.textContent = 'ℹ️ Share रद्द झाले.';
+              setSt('ℹ️ Share रद्द झाले.');
             });
         } else {
           // Fallback: फोटो Download करा + WhatsApp मध्ये संदेश तयार उघडा (फोटो manually attach करावा लागेल)
@@ -3418,7 +3450,7 @@ function shareProfileImage() {
           var waLink = (waNum ? 'https://wa.me/' + waNum : 'https://wa.me/') + '?text=' + encodeURIComponent(waMsg + ' (सोबत डाउनलोड झालेला फोटो जोडा)');
           window.open(waLink, '_blank');
           btn.disabled = false; btn.textContent = '📤 विद्यार्थ्याचे Profile फोटो WhatsApp वर पाठवा';
-          if (statusEl) statusEl.textContent = '✅ फोटो Download झाला — आता उघडलेल्या WhatsApp Chat मध्ये तो फोटो जोडून (Attach) Send करा.';
+          setSt('✅ फोटो Download झाला — आता उघडलेल्या WhatsApp Chat मध्ये तो फोटो जोडून (Attach) Send करा.');
         }
       }, 'image/png');
     }).catch(function(err) {
@@ -3427,21 +3459,27 @@ function shareProfileImage() {
     });
   }
 
-  // फोटो Load होण्याची वाट पाहून मगच Canvas घ्या (cross-origin फोटो असल्यास तसाच पुढे जा)
-  if (d.photoUrl) {
-    photoBox.innerHTML = '<img src="' + escAttr(d.photoUrl) + '" crossorigin="anonymous" style="width:100%;height:100%;object-fit:cover" onerror="this.remove()">';
-    var imgEl = photoBox.querySelector('img');
-    if (imgEl && !imgEl.complete) {
-      imgEl.onload = renderAndShare;
-      imgEl.onerror = renderAndShare;
-      setTimeout(renderAndShare, 3000); // खूप वेळ लागल्यास वाट न पाहता पुढे जा
-    } else {
-      renderAndShare();
-    }
-  } else {
+  // V19.38: फोटो server वरून base64 (data: URL) म्हणून आणा — Drive thumbnail वर CORS नसल्याने तो थेट Canvas वर येत नव्हता
+  window._photoDataCache = window._photoDataCache || {};
+  function putPhoto(dataUrl) {
+    photoBox.innerHTML = '<img src="' + dataUrl + '" style="width:100%;height:100%;object-fit:cover">';
+    var im = photoBox.querySelector('img');
+    if (im && !im.complete) { var go = function() { renderAndShare(); }; im.onload = go; im.onerror = go; setTimeout(go, 3000); }
+    else renderAndShare();
+  }
+  function noPhoto(msg) {
     photoBox.innerHTML = '👤';
+    photoNote = msg || '';
     renderAndShare();
   }
+  var rg = String(d.regNo || '');
+  if (rg && window._photoDataCache[rg]) { putPhoto(window._photoDataCache[rg]); return; }
+  if (!d.photoUrl && !rg) { noPhoto(''); return; }
+  jsonpRequest({action: 'getPhotoData', regNo: rg}, function(r) {
+    if (r && r.status === 'ok' && r.dataUrl) { window._photoDataCache[rg] = r.dataUrl; putPhoto(r.dataUrl); }
+    else if (r && r.status === 'notfound') noPhoto('ℹ️ या विद्यार्थ्याचा फोटो उपलब्ध नाही — फोटोशिवाय Profile तयार केले.');
+    else noPhoto('⚠️ फोटो आणता आला नाही (' + friendlyMsg((r && r.message) || 'सर्व्हर प्रतिसाद नाही') + ') — फोटोशिवाय Profile तयार केले.');
+  });
 }
 
 // ===== LC/BF/AT HISTORY (V19.8) =====
@@ -3540,6 +3578,12 @@ showPage = function(name, btn) {
   if (name === 'attanalytics') {
     attaInit();
   }
+  if (name === 'earlyleave') {
+    elInit();
+  }
+  if (name === 'teacherlist') {
+    tlInit();
+  }
   if (name === 'stats') {
     mstLoadStatsReport();
   }
@@ -3555,6 +3599,8 @@ showPage = function(name, btn) {
   }
   if (name === 'teacher') {
     tchInit();
+    var ap = document.querySelector('#pg-teacher .tch-panel.active');
+    if (ap) tchSyncNav(ap.id.replace('tchp-', ''));
   }
 };
 
@@ -4094,6 +4140,30 @@ function mstRenderStatsReport(r) {
   }
 }
 
+// वरच्या Menu मधून Tab उघडणे (वर्ग शिक्षक) — दुसऱ्या पानावरून आल्यास आधी शिक्षक-पान उघडते
+function tchNav(tab, btn) {
+  var pg = document.getElementById('pg-teacher');
+  var onTeacher = pg && pg.classList.contains('active');
+  if (!onTeacher) {
+    showPage('teacher');   // tchInit(): वर्ग-यादी + Dashboard Load करते
+    if (tab === 'dash') tchShowTabPanelOnly('dash'); else tchShowTab(tab);
+  } else {
+    tchShowTab(tab);
+  }
+  tchSyncNav(tab);
+}
+function tchShowTabPanelOnly(tab) {
+  document.querySelectorAll('.tch-tabbtn').forEach(function(b){ b.classList.toggle('active', b.getAttribute('data-tch') === tab); });
+  document.querySelectorAll('.tch-panel').forEach(function(p){ p.classList.toggle('active', p.id === 'tchp-' + tab); });
+}
+function tchSyncNav(tab) {
+  var pg = document.getElementById('pg-teacher');
+  if (!pg || !pg.classList.contains('active')) return;
+  document.querySelectorAll('.navbtn').forEach(function(b){ b.classList.remove('active'); });
+  var b = document.querySelector('.tch-nav[data-tchtab="' + tab + '"]');
+  if (b) b.classList.add('active');
+}
+
 function tchShowTab(tab) {
   document.querySelectorAll('.tch-tabbtn').forEach(function(b){ b.classList.toggle('active', b.getAttribute('data-tch') === tab); });
   document.querySelectorAll('.tch-panel').forEach(function(p){ p.classList.remove('active'); });
@@ -4107,6 +4177,7 @@ function tchShowTab(tab) {
   else if (tab === 'notices') tchLoadNoticesFull();
   else if (tab === 'maint') tchMntReset();
   else if (tab === 'ana') tchAnaInit();
+  tchSyncNav(tab);
 }
 
 function tchInit() {
@@ -5067,6 +5138,7 @@ function mstLoadAttendancePending() {
 // V19.35 — Super Master Admin पान: थकबाकी यादी, वर्ग-बढती, Backup
 // =====================================================================
 function saLoadAll() {
+  saLoadSizes();
   saLoadSecurity();
   saLoadBackupStatus();
   promoLoadPreview();
@@ -5523,4 +5595,344 @@ function pwaInstall() {
   if (!_pwaPrompt) return;
   _pwaPrompt.prompt();
   _pwaPrompt.userChoice.then(function() { _pwaPrompt = null; var b = document.getElementById('pwaInstallBtn'); if (b) b.style.display = 'none'; });
+}
+
+// =====================================================================
+// V19.37 — 🚪 घरी जाणारे विद्यार्थी (वर्ग-शिक्षक / Master / Super: नोंद व यादी; Peon: मार्क-आउट)
+// =====================================================================
+var elState = { date: '', iyatta: '', tukdi: '', all: false, roster: [], saved: {}, absent: {}, draft: {}, records: [], filter: 'all', peon: [], classesLoaded: false, timer: null };
+
+function isoToday() { var d = new Date(); return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); }
+function elIsPeon() { return currentUser && currentUser.role === 'peon'; }
+function elClsLabel(i, t) { return classToMr(i) + (t ? ' ' + t : ''); }
+function telHref(num) {
+  var n = (num || '').toString().replace(/[^0-9]/g, '');
+  if (n.length === 11 && n.charAt(0) === '0') n = n.slice(1);
+  if (n.length === 10) n = '+91' + n; else if (n.length === 12 && n.indexOf('91') === 0) n = '+' + n; else if (n.length < 7) return '';
+  return 'tel:' + n;
+}
+
+// ---- संदेश (मराठी लिंगानुसार रूपे) ----
+function elMessage(r) {
+  var girl = (r.gender === 'Female');
+  var went = girl ? 'गेली' : 'गेला', reach = girl ? 'पोहोचली' : 'पोहोचला', came = girl ? 'आली' : 'आला';
+  var her = girl ? 'तिचे' : 'त्याचे', herDat = girl ? 'तिला' : 'त्याला', he = girl ? 'तिने' : 'त्याने';
+  var d = fmtDate(r.date), who = 'आपला पाल्य ' + r.fullName;
+  var tail = ' — श्री. गो. से. हायस्कूल, पाचोरा';
+  if (r.type === 'permitted') {
+    return who + ' दिनांक ' + d + ' रोजी शाळेतून परवानगी घेऊन तासिका क्रमांक ' + r.period + ' नंतर घरी ' + went + '. याबाबत आपल्या पाल्याची चौकशी करावी. विद्यार्थी वेळेत घरी ' + reach +
+      ' आहे काय याची खात्री करावी. या प्रकारामुळे ' + her + ' शैक्षणिक नुकसान होऊ शकते याबाबत ' + herDat + ' अवगत करावे.' + tail;
+  }
+  return who + ' दिनांक ' + d + ' रोजी तासिका क्रमांक ' + r.period + ' नंतर शाळेतून विना परवानगी घरी ' + went + '. याबाबत विद्यार्थी वेळेत घरी ' + came +
+    ' आहे काय याची चौकशी करावी. विनापरवानगी घरी येण्याचे कारण काय आहे ? याचा खुलासा तात्काळ वर्ग शिक्षकांना करावा. अशा प्रकारामुळे ' + her +
+    ' गंभीर शैक्षणिक नुकसान होऊ शकते. याबाबत ' + herDat + ' समज द्यावा. भविष्यात ' + he + ' विनापरवानगी शाळेतून घरी जाऊ नये अशी सक्त ताकीद द्यावी.' + tail;
+}
+function elContactBtns(r) {
+  var callNum = r.contact || r.whatsapp || r.alt || '';
+  var waNum = r.whatsapp || r.contact || r.alt || '';
+  var call = telHref(callNum), btn = 'display:inline-block;padding:4px 9px;border-radius:5px;font-size:12px;text-decoration:none;margin:2px;color:#fff;';
+  var out = '';
+  out += call ? '<a href="' + call + '" style="' + btn + 'background:#1a6a8a">📞 कॉल</a>' : '<span style="opacity:.5;font-size:12px;margin:2px">📞 नंबर नाही</span>';
+  var alt = (r.alt && r.alt !== callNum) ? telHref(r.alt) : '';
+  if (alt) out += '<a href="' + alt + '" style="' + btn + 'background:#3a6a8a" title="दुसरा नंबर">📞²</a>';
+  if (waNum && telHref(waNum)) out += '<a href="' + waHref(waNum, elMessage(r)) + '" target="_blank" rel="noopener" style="' + btn + 'background:#1a7a3a">📲 WhatsApp</a>';
+  return out;
+}
+function elShowProfile(regNo) {
+  function open() {
+    showPage('profile', document.querySelector('.navbtn[data-page="profile"]'));
+    var kb = document.getElementById('prof_key'); if (kb) kb.value = regNo;
+    loadStudentProfile(regNo);
+  }
+  if (studentCache.loaded || loadCacheFromStorage()) { open(); return; }
+  showCacheToast('⏳ विद्यार्थी माहिती Load होत आहे...', '#1a3a6a', '#cfe3ff');
+  bulkLoadAll();
+  var tries = 0, t = setInterval(function() { tries++; if (studentCache.loaded) { clearInterval(t); open(); } else if (tries > 120) clearInterval(t); }, 500);
+}
+
+// ---- पान सुरू ----
+function elInit() {
+  if (!currentUser) return;
+  if (elState.timer) { clearInterval(elState.timer); elState.timer = null; }
+  if (elIsPeon()) {
+    elPeonLoad();
+    elState.timer = setInterval(function() {
+      var pg = document.getElementById('pg-earlyleave');
+      if (pg && pg.classList.contains('active') && !document.hidden) elPeonLoad(true);
+    }, 45000);
+    return;
+  }
+  var dEl = document.getElementById('el_date');
+  if (dEl) { dEl.max = isoToday(); if (!dEl.value) dEl.value = isoToday(); }
+  var wrap = document.getElementById('el_classWrap'), tinfo = document.getElementById('el_teacherClass');
+  if (currentUser.role === 'teacher') {
+    if (wrap) wrap.style.display = 'none';
+    if (tinfo) { tinfo.style.display = 'block'; tinfo.textContent = '🏫 तुमचा वर्ग: ' + elClsLabel(currentUser.iyatta, currentUser.tukdi); }
+    elLoad();
+    return;
+  }
+  if (wrap) wrap.style.display = '';
+  if (tinfo) tinfo.style.display = 'none';
+  if (elState.classesLoaded) { elLoad(); return; }
+  jsonpRequest({action: 'getClassList'}, function(r) {
+    var sel = document.getElementById('el_class');
+    var html = '<option value="ALL|">📋 सर्व वर्ग (फक्त यादी पहा)</option>';
+    if (r && r.status === 'ok') {
+      var order = ['5th', '6th', '7th', '8th', '9th', '10th'];
+      (r.data || []).slice().sort(function(a, b) {
+        var ia = order.indexOf(a.iyatta), ib = order.indexOf(b.iyatta);
+        return ((ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib)) || (a.tukdi < b.tukdi ? -1 : 1);
+      }).forEach(function(c) { if (c.tukdi) html += '<option value="' + escRpHtml(c.iyatta) + '|' + escRpHtml(c.tukdi) + '">' + escRpHtml(elClsLabel(c.iyatta, c.tukdi)) + '</option>'; });
+      elState.classesLoaded = true;
+    }
+    sel.innerHTML = html;
+    elLoad();
+  });
+}
+function elToday() { var d = document.getElementById('el_date'); d.value = isoToday(); elLoad(); }
+
+function elLoad() {
+  var st = document.getElementById('el_info');
+  var date = document.getElementById('el_date').value || isoToday();
+  if (date > isoToday()) { st.textContent = '⚠️ भविष्यातील तारीख निवडता येत नाही.'; return; }
+  var iy, tk, all = false;
+  if (currentUser.role === 'teacher') { iy = currentUser.iyatta; tk = currentUser.tukdi; }
+  else { var v = (document.getElementById('el_class').value || 'ALL|').split('|'); if (v[0] === 'ALL') all = true; else { iy = v[0]; tk = v[1] || ''; } }
+  elState.date = date; elState.iyatta = iy || ''; elState.tukdi = tk || ''; elState.all = all; elState.draft = {};
+  st.textContent = '⏳ Load होत आहे...';
+  document.getElementById('el_saveStatus').textContent = '';
+  var need = all ? 1 : 2, got = 0, errMsg = '';
+  var recRes = null, rosRes = null;
+  function done() {
+    got++; if (got < need) return;
+    if (errMsg) { st.textContent = '❌ ' + friendlyMsg(errMsg); return; }
+    elState.records = recRes.records || [];
+    elState.saved = {}; elState.records.forEach(function(r) { elState.saved[r.regNo] = r; });
+    elState.absent = {}; (recRes.absentRegNos || []).forEach(function(x) { elState.absent[x] = true; });
+    elState.roster = all ? [] : ((rosRes && rosRes.data) || []);
+    st.textContent = '';
+    elRenderEntry(); elRenderList();
+  }
+  var q = {action: 'getEarlyLeave', date: date, requesterRole: currentUser.role};
+  if (!all) { q.iyatta = iy; q.tukdi = tk; }
+  jsonpRequest(q, function(r) { if (!r || r.status !== 'ok') errMsg = (r && r.message) || 'Load Failed'; else recRes = r; done(); });
+  if (!all) jsonpRequest({action: 'getClassStudents', iyatta: iy, tukdi: tk}, function(r) { if (!r || r.status !== 'ok') errMsg = (r && r.message) || 'वर्ग-यादी Load झाली नाही'; else rosRes = r; done(); });
+}
+
+// ---- नोंद-तक्ता ----
+function elRenderEntry() {
+  var wrap = document.getElementById('el_entryWrap'), sb = document.getElementById('el_saveBtn');
+  if (elState.all) { wrap.innerHTML = '<div style="opacity:.8;font-size:13px">ℹ️ नोंद करण्यासाठी वर्ग व तुकडी निवडा. "सर्व वर्ग" मध्ये फक्त यादी दिसते.</div>'; sb.style.display = 'none'; return; }
+  sb.style.display = '';
+  if (!elState.roster.length) { wrap.innerHTML = '<div style="opacity:.8">या वर्गात विद्यार्थी सापडले नाहीत.</div>'; return; }
+  var tOpt = function(v) { return '<option value="">— नोंद नाही —</option><option value="permitted"' + (v === 'permitted' ? ' selected' : '') + '>✅ परवानगी दिली</option><option value="unpermitted"' + (v === 'unpermitted' ? ' selected' : '') + '>⚠️ विनापरवानगी गेला</option>'; };
+  var pOpt = function(v) { var o = '<option value="">तासिका</option>'; for (var i = 1; i <= 9; i++) o += '<option value="' + i + '"' + (String(v) === String(i) ? ' selected' : '') + '>' + i + '</option>'; return o; };
+  var rows = elState.roster.map(function(s, i) {
+    var reg = String(s.regNo), rec = elState.saved[reg], absent = !!elState.absent[reg.toLowerCase()];
+    var cells;
+    if (absent) cells = '<td colspan="2" style="color:#ff9a9a;font-size:12.5px">🔴 गैरहजर — नोंद करता येत नाही</td>';
+    else cells = '<td><select data-i="' + i + '" class="el-type" onchange="elOnChange(' + i + ')" style="padding:5px;border-radius:5px;font-family:inherit;max-width:190px">' + tOpt(rec ? rec.type : '') + '</select></td>' +
+                 '<td><select data-i="' + i + '" class="el-period" onchange="elOnChange(' + i + ')" style="padding:5px;border-radius:5px;font-family:inherit">' + pOpt(rec ? rec.period : '') + '</select></td>';
+    var stTxt = rec ? ('<span style="color:#7be08a">✔ नोंदवले</span>' + (rec.status === 'gone' ? ' · ✅ गेला' : (rec.status === 'notgone' ? ' · ❌ गेला नाही' : ''))) : '';
+    return '<tr id="el_row_' + i + '" style="' + (absent ? 'opacity:.75' : '') + '"><td>' + escRpHtml(s.rollNo) + '</td><td>' + escRpHtml(s.fullName) + '</td>' + cells +
+      '<td id="el_st_' + i + '" style="font-size:12px">' + stTxt + '</td>' +
+      '<td><button class="btn btn-blue btn-sm" onclick="elShowProfile(' + JSON.stringify(reg).replace(/"/g, '&quot;') + ')" title="विद्यार्थी प्रोफाइल">🪪</button></td></tr>';
+  }).join('');
+  wrap.innerHTML = '<div style="overflow-x:auto;max-height:520px;overflow-y:auto"><table class="hist-table"><thead><tr><th>Roll</th><th>नाव</th><th>प्रकार</th><th>तासिका</th><th>स्थिती</th><th>प्रोफाइल</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+}
+function elOnChange(i) {
+  var s = elState.roster[i]; if (!s) return;
+  var row = document.getElementById('el_row_' + i);
+  var type = row.querySelector('.el-type').value, period = row.querySelector('.el-period').value;
+  elState.draft[String(s.regNo)] = {type: type, period: period};
+  var cell = document.getElementById('el_st_' + i);
+  cell.innerHTML = '<span style="color:#ffd27a">● बदल — Save करा</span>';
+  row.style.background = 'rgba(255,210,122,.08)';
+}
+function elSave() {
+  var st = document.getElementById('el_saveStatus');
+  var date = elState.date;
+  if (date > isoToday()) { st.textContent = '⚠️ भविष्यातील तारखेची नोंद करता येत नाही.'; return; }
+  var entries = [], removes = [], bad = '';
+  elState.roster.forEach(function(s) {
+    var reg = String(s.regNo), d = elState.draft[reg];
+    if (!d) return;
+    if (!d.type) { if (elState.saved[reg]) removes.push(reg); return; }
+    if (!d.period) { if (!bad) bad = s.fullName; return; }
+    entries.push({regNo: reg, type: d.type, period: parseInt(d.period, 10)});
+  });
+  if (bad) { st.textContent = '⚠️ "' + bad + '" साठी तासिका क्रमांक (१ ते ९) निवडा.'; return; }
+  if (!entries.length && !removes.length) { st.textContent = 'ℹ️ Save करण्यासाठी कोणताही बदल नाही.'; return; }
+  st.textContent = '⏳ Save होत आहे...';
+  smartSave({action: 'saveEarlyLeave', date: date, iyatta: elState.iyatta, tukdi: elState.tukdi, entriesJson: JSON.stringify(entries), removeJson: JSON.stringify(removes),
+    requesterUser: currentUser.username, requesterRole: currentUser.role}, function(r) {
+    if (r && r.status === 'ok') {
+      var x = r.extra || {}, msg = '✅ ' + (x.saved || 0) + ' नोंदी Save' + (x.removed ? ', ' + x.removed + ' काढल्या' : '') + '.';
+      if (x.rejected && x.rejected.length) msg += ' ⚠️ ' + x.rejected.length + ' नाकारल्या: ' + x.rejected.map(function(q) { return q.reason; }).join('; ');
+      st.textContent = msg;
+      elLoad();
+      setTimeout(function() { document.getElementById('el_saveStatus').textContent = msg; }, 900);
+    } else st.textContent = errTxt(r);
+  });
+}
+
+// ---- यादी (परवानगी / विनापरवानगी, वर्गनिहाय) ----
+function elSetFilter(f) { elState.filter = f; elRenderList(); }
+function elRenderList() {
+  var box = document.getElementById('el_list');
+  ['all', 'permitted', 'unpermitted'].forEach(function(k) {
+    var b = document.getElementById('el_f_' + k); if (b) b.style.outline = (elState.filter === k) ? '2px solid #e8a020' : 'none';
+  });
+  var list = elState.records.filter(function(r) { return elState.filter === 'all' || r.type === elState.filter; });
+  var np = elState.records.filter(function(r) { return r.type === 'permitted'; }).length, nu = elState.records.length - np;
+  document.getElementById('el_listSummary').innerHTML = 'दिनांक <b>' + escRpHtml(fmtDate(elState.date)) + '</b> — ✅ परवानगी: <b>' + np + '</b> &nbsp;|&nbsp; ⚠️ विनापरवानगी: <b style="color:#ff9a9a">' + nu + '</b>';
+  if (!list.length) { box.innerHTML = '<div style="opacity:.8">या दिवशी कोणतीही नोंद नाही.</div>'; return; }
+  var html = '', last = '';
+  list.forEach(function(r) {
+    var gi = elState.records.indexOf(r);
+    var key = r.iyatta + '|' + r.tukdi;
+    if (key !== last) { html += '<div style="margin:12px 0 4px;font-weight:700;color:#e8a020">🏫 ' + escRpHtml(elClsLabel(r.iyatta, r.tukdi)) + '</div>'; last = key; }
+    var tag = r.type === 'permitted' ? '<span style="color:#7be08a">✅ परवानगी</span>' : '<span style="color:#ff9a9a">⚠️ विनापरवानगी</span>';
+    var pst = '';
+    if (r.type === 'permitted') pst = r.status === 'gone' ? ' · <span style="color:#7be08a">✅ गेला' + (r.markedAt ? ' (' + escRpHtml(String(r.markedAt).split(',').pop().trim()) + ')' : '') + '</span>' : (r.status === 'notgone' ? ' · <span style="color:#ff9a9a">❌ गेला नाही</span>' : ' · <span style="opacity:.7">⏳ शिपायाची नोंद बाकी</span>');
+    html += '<div style="padding:8px 10px;margin-bottom:6px;border-radius:8px;background:rgba(255,255,255,.05)"><div><b>' + escRpHtml(r.fullName) + '</b> <span style="opacity:.7">(Roll ' + escRpHtml(r.rollNo) + ')</span> — ' + tag +
+      ' — तासिका <b>' + r.period + '</b> नंतर' + pst + '</div><div style="margin-top:4px">' + elContactBtns(r) +
+      '<button class="btn btn-blue btn-sm" onclick="elShowProfile(' + JSON.stringify(r.regNo).replace(/"/g, '&quot;') + ')">🪪 प्रोफाइल</button></div></div>';
+  });
+  box.innerHTML = html;
+}
+
+// ---- Peon: आजची परवानगी यादी + मार्क-आउट ----
+function elPeonLoad(silent) {
+  var box = document.getElementById('el_peonList');
+  if (!silent) box.textContent = '⏳ Load होत आहे...';
+  jsonpRequest({action: 'getEarlyLeavePeon', requesterRole: currentUser.role}, function(r) {
+    if (!r || r.status !== 'ok') { if (!silent) box.textContent = '❌ ' + friendlyMsg((r && r.message) || 'Load Failed'); return; }
+    elState.peon = r.records || [];
+    elPeonRender(r.date);
+  });
+}
+function elPeonRender(date) {
+  var box = document.getElementById('el_peonList'), sum = document.getElementById('el_peonSummary');
+  var list = elState.peon.slice().sort(function(a, b) { var pa = a.status ? 1 : 0, pb = b.status ? 1 : 0; return (pa - pb) || (a.period - b.period); });
+  var pending = list.filter(function(r) { return !r.status; }).length;
+  sum.innerHTML = 'दिनांक <b>' + escRpHtml(fmtDate(date || isoToday())) + '</b> — एकूण: <b>' + list.length + '</b> &nbsp;|&nbsp; जायचे बाकी: <b style="color:#ffd27a">' + pending + '</b>';
+  if (!list.length) { box.innerHTML = '<div style="opacity:.8;padding:10px">आज परवानगी मिळालेला कोणताही विद्यार्थी नाही.</div>'; return; }
+  box.innerHTML = list.map(function(r) {
+    var i = elState.peon.indexOf(r);
+    var stTxt = r.status === 'gone' ? '<span style="color:#7be08a">✅ गेला' + (r.markedAt ? ' (' + escRpHtml(String(r.markedAt).split(',').pop().trim()) + ')' : '') + '</span>' :
+                (r.status === 'notgone' ? '<span style="color:#ff9a9a">❌ गेला नाही</span>' : '<span style="color:#ffd27a">⏳ प्रतीक्षा</span>');
+    var bs = 'padding:8px 14px;border:0;border-radius:6px;font-size:14px;font-weight:700;cursor:pointer;color:#fff;margin:3px;font-family:inherit';
+    return '<div style="padding:10px 12px;margin-bottom:8px;border-radius:10px;background:rgba(255,255,255,.06)">' +
+      '<div style="font-size:15px"><b>' + escRpHtml(r.fullName) + '</b> — ' + escRpHtml(elClsLabel(r.iyatta, r.tukdi)) + ' <span style="opacity:.7">(Roll ' + escRpHtml(r.rollNo) + ')</span></div>' +
+      '<div style="margin:3px 0">तासिका <b>' + r.period + '</b> नंतर परवानगी · ' + stTxt + '</div>' +
+      '<div><button style="' + bs + 'background:#1a7a3a" onclick="elMark(' + i + ',\'gone\')">✅ गेला</button>' +
+      '<button style="' + bs + 'background:#a03030" onclick="elMark(' + i + ',\'notgone\')">❌ गेला नाही</button>' +
+      (r.status ? '<button style="' + bs + 'background:#555" onclick="elMark(' + i + ',\'\')">↩️ पूर्ववत</button>' : '') + '</div>' +
+      '<div style="margin-top:4px">' + elContactBtns(r) + '<button class="btn btn-blue btn-sm" onclick="elShowProfile(' + JSON.stringify(r.regNo).replace(/"/g, '&quot;') + ')">🪪 प्रोफाइल</button></div></div>';
+  }).join('');
+}
+function elMark(i, status) {
+  var r = elState.peon[i]; if (!r) return;
+  var msg = document.getElementById('el_peonMsg');
+  msg.textContent = '⏳ नोंद होत आहे...';
+  smartSave({action: 'markEarlyLeaveOut', regNo: r.regNo, status: status, requesterUser: currentUser.username, requesterRole: currentUser.role}, function(x) {
+    if (x && x.status === 'ok') { msg.textContent = '✅ ' + r.fullName + ' — ' + (status === 'gone' ? 'गेला' : (status === 'notgone' ? 'गेला नाही' : 'पूर्ववत')); elPeonLoad(true); }
+    else if (x && x.status === 'queued') { r.status = status; elPeonRender(); msg.textContent = x.message; }
+    else msg.textContent = errTxt(x);
+  });
+}
+
+// =====================================================================
+// V19.39 — 📒 वर्ग शिक्षक यादी (Super / Master / Data Operator / Peon) — कॉल व WhatsApp सह
+// =====================================================================
+var tlState = { data: [], loadedAt: 0 };
+function tlInit() {
+  if (tlState.data.length && (Date.now() - tlState.loadedAt) < 5 * 60 * 1000) { tlRender(); return; }
+  tlLoad();
+}
+function tlLoad() {
+  var box = document.getElementById('tl_list');
+  box.innerHTML = '<div style="padding:10px">⏳ Load होत आहे...</div>';
+  jsonpRequest({action: 'getClassTeachers', requesterRole: currentUser.role}, function(r) {
+    if (!r || r.status !== 'ok') { box.innerHTML = '<div style="padding:10px">❌ ' + escRpHtml(friendlyMsg((r && r.message) || 'Load Failed')) + '</div>'; return; }
+    tlState.data = r.data || [];
+    tlState.loadedAt = Date.now();
+    tlRender();
+  });
+}
+function tlRender() {
+  var box = document.getElementById('tl_list');
+  var q = ((document.getElementById('tl_search') || {}).value || '').trim().toLowerCase();
+  var list = tlState.data.filter(function(t) {
+    if (!q) return true;
+    return [t.classKey, t.classMr, t.div, t.nameEn, t.nameMr, t.short, t.mobile].join(' ').toLowerCase().indexOf(q) !== -1;
+  });
+  document.getElementById('tl_count').textContent = 'एकूण वर्ग शिक्षक: ' + tlState.data.length + (q ? ' — सापडले: ' + list.length : '');
+  if (!list.length) { box.innerHTML = '<div style="padding:10px;opacity:.8">' + (tlState.data.length ? 'शोधाशी जुळणारे वर्ग शिक्षक सापडले नाहीत.' : 'यादी रिकामी आहे.') + '</div>'; return; }
+  var btn = 'display:inline-block;padding:5px 11px;border-radius:6px;font-size:12.5px;text-decoration:none;margin:2px;color:#fff;white-space:nowrap;';
+  var rows = list.map(function(t, i) {
+    var call = telHref(t.mobile);
+    var wa = telHref(t.mobile) ? waHref(t.mobile, 'नमस्कार ' + (t.nameMr || t.nameEn) + ',') : '';
+    var cls = (t.classMr || t.classKey) + (t.div ? ' - ' + t.div : '');
+    return '<tr><td>' + (i + 1) + '</td><td style="white-space:nowrap"><b>' + escRpHtml(cls) + '</b></td>' +
+      '<td><b>' + escRpHtml(t.nameMr || t.nameEn) + '</b><div style="font-size:11.5px;opacity:.7">' + escRpHtml(t.nameEn) + (t.short ? ' · ' + escRpHtml(t.short) : '') + '</div></td>' +
+      '<td style="white-space:nowrap">' + escRpHtml(t.mobile) + '</td>' +
+      '<td>' + (call ? '<a href="' + call + '" style="' + btn + 'background:#1a6a8a">📞 कॉल</a>' : '<span style="opacity:.5;font-size:12px">नंबर नाही</span>') +
+      (wa ? '<a href="' + wa + '" target="_blank" rel="noopener" style="' + btn + 'background:#1a7a3a">📲 WhatsApp</a>' : '') + '</td></tr>';
+  }).join('');
+  box.innerHTML = '<div style="overflow-x:auto"><table class="hist-table"><thead><tr><th>अ.क्र.</th><th>वर्ग</th><th>वर्ग शिक्षक</th><th>मोबाईल</th><th>संपर्क</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+}
+
+// =====================================================================
+// V19.40 — Super Admin: 📊 कामगिरी व साठवण (Sheet आकार, वेळ, Deleted Backup)
+// =====================================================================
+var saSizes = null;
+function fmtIN(n) { return Number(n || 0).toLocaleString('en-IN'); }
+function saLoadSizes() {
+  var st = document.getElementById('sa_szStatus');
+  if (!st) return;
+  st.textContent = '⏳ Load होत आहे...';
+  jsonpRequest({action: 'getSheetSizes', requesterRole: currentUser.role}, function(r) {
+    if (!r || r.status !== 'ok' || !r.sheets || !r.perf || !r.slow) { st.textContent = '❌ ' + friendlyMsg((r && r.message) || 'सर्व्हरचे उत्तर अपूर्ण आहे — नवीन Code.gs Deploy करा.'); return; }
+    saSizes = r; st.textContent = '';
+    var pct = Math.round(r.total * 1000 / r.limit) / 10;
+    var color = r.total < 3000000 ? '#2faa55' : (r.total < 5000000 ? '#e8a020' : '#d04040');
+    document.getElementById('sa_szMeter').innerHTML = '<div style="background:rgba(255,255,255,.12);border-radius:8px;height:16px;overflow:hidden"><div style="height:100%;width:' + Math.max(1, Math.min(100, pct)) + '%;background:' + color + '"></div></div>';
+    var note = r.total >= 5000000 ? ' — ⚠️ ५० लाख ओलांडले: आता जुना डेटा Archive करा.' : (r.total >= 3000000 ? ' — ℹ️ ३० लाख ओलांडले: Archive ची तयारी करा.' : ' — चांगली स्थिती.');
+    document.getElementById('sa_szText').innerHTML = 'वापर: <b>' + pct + '%</b> (' + fmtIN(r.total) + ' / ' + fmtIN(r.limit) + ' cells) · Sheets: ' + r.sheetCount + note;
+    var btn = document.getElementById('sa_szShrinkBtn');
+    btn.disabled = !(r.savable > 0);
+    btn.textContent = r.savable > 0 ? '✂️ रिकामी जागा कमी करा (' + fmtIN(r.savable) + ' cells मोकळे होतील)' : '✅ रिकामी जागा आधीच कमी आहे';
+    document.getElementById('sa_szTable').innerHTML = '<table class="hist-table"><thead><tr><th>Sheet</th><th>ओळी</th><th>स्तंभ</th><th>cells</th></tr></thead><tbody>' +
+      r.sheets.slice(0, 12).map(function(x) { return '<tr><td>' + escRpHtml(x.name) + (x.hidden ? ' <span style="opacity:.6">(लपवलेली)</span>' : '') + '</td><td>' + fmtIN(x.rows) + '</td><td>' + x.cols + '</td><td>' + fmtIN(x.cells) + '</td></tr>'; }).join('') + '</tbody></table>';
+    document.getElementById('sa_perfServer').innerHTML = r.perf.length ? '<table class="hist-table"><thead><tr><th>कृती</th><th>नमुने</th><th>सरासरी</th><th>कमाल</th><th>हळू (>२s)</th></tr></thead><tbody>' +
+      r.perf.slice(0, 10).map(function(x) { return '<tr><td>' + escRpHtml(x.action) + '</td><td>' + x.n + '</td><td>' + fmtIN(x.avg) + ' ms</td><td>' + fmtIN(x.max) + ' ms</td><td style="' + (x.slow ? 'color:#ff9a9a;font-weight:700' : '') + '">' + x.slow + '</td></tr>'; }).join('') + '</tbody></table>' :
+      '<div style="opacity:.75">अजून पुरेशी मोजमापे नाहीत — अॅप वापरल्यावर इथे दिसतील.</div>';
+    document.getElementById('sa_perfSlow').innerHTML = r.slow.length ? r.slow.slice(0, 8).map(function(x) { return '<div style="font-size:12px">🐢 ' + escRpHtml(String(x.time)) + ' — ' + escRpHtml(x.action) + ' — <b>' + fmtIN(x.ms) + ' ms</b></div>'; }).join('') : '<div style="opacity:.75;font-size:12px">हळू (२ सेकंदांहून जास्त) विनंत्या नाहीत. 👍</div>';
+    var b = r.backup || {};
+    document.getElementById('sa_delBackup').innerHTML = !b.configured ? 'अजून कोणतीही नोंद मिटवली गेलेली नाही — पहिली नोंद मिटवल्यावर <b>SGS_Deleted_Backup</b> फाइल Drive मधील SGS_Data फोल्डरमध्ये आपोआप तयार होते.' :
+      (b.error ? '⚠️ ' + escRpHtml(b.error) : '📁 <a href="' + escRpHtml(b.url) + '" target="_blank" rel="noopener" style="color:#7bc0ff">SGS_Deleted_Backup उघडा</a> — ' +
+        (Object.keys(b.counts || {}).length ? Object.keys(b.counts).map(function(k) { return escRpHtml(k) + ': <b>' + b.counts[k] + '</b>'; }).join(' · ') : 'अजून रिकामी'));
+    saRenderClientPerf();
+  });
+}
+function saRenderClientPerf() {
+  var el = document.getElementById('sa_perfClient'); if (!el) return;
+  var g = {};
+  clientPerf.forEach(function(x) { var o = g[x.a] || (g[x.a] = {n: 0, sum: 0, max: 0, fail: 0}); o.n++; o.sum += x.ms; if (x.ms > o.max) o.max = x.ms; if (!x.ok) o.fail++; });
+  var rows = Object.keys(g).map(function(k) { return {a: k, n: g[k].n, avg: Math.round(g[k].sum / g[k].n), max: g[k].max, fail: g[k].fail}; }).sort(function(a, b) { return b.avg - a.avg; });
+  el.innerHTML = rows.length ? '<table class="hist-table"><thead><tr><th>कृती</th><th>वेळा</th><th>सरासरी</th><th>कमाल</th></tr></thead><tbody>' +
+    rows.slice(0, 10).map(function(x) { return '<tr><td>' + escRpHtml(x.a) + '</td><td>' + x.n + '</td><td>' + fmtIN(x.avg) + ' ms</td><td>' + fmtIN(x.max) + ' ms' + (x.fail ? ' <span style="color:#ff9a9a">(' + x.fail + ' अपयश)</span>' : '') + '</td></tr>'; }).join('') + '</tbody></table>' :
+    '<div style="opacity:.75">या सत्रात अजून विनंत्या नाहीत.</div>';
+}
+function saShrink() {
+  if (!saSizes || !(saSizes.savable > 0)) return;
+  if (!confirm('रिकामी (वापरात नसलेली) ओळी-स्तंभांची जागा कमी करायची? (' + fmtIN(saSizes.savable) + ' cells)\n\nडेटा, लपवलेल्या Sheets आणि Formulas यांना हात लावला जात नाही. फक्त शेवटची रिकामी जागा काढली जाते.')) return;
+  var st = document.getElementById('sa_szStatus');
+  st.textContent = '⏳ चालू आहे...';
+  smartSaveRaw({action: 'shrinkSheets', confirm: 'SHRINK', requesterUser: currentUser.username, requesterRole: currentUser.role}, function(r) {
+    if (r && r.status === 'ok') { st.textContent = '✅ ' + fmtIN(r.extra.saved) + ' cells मोकळे झाले (' + r.count + ' Sheets)' + (r.extra.failed && r.extra.failed.length ? ' · ⚠️ जमले नाही: ' + r.extra.failed.join(', ') : '') + '.'; setTimeout(saLoadSizes, 1200); }
+    else st.textContent = '❌ ' + friendlyMsg((r && r.message) || 'Failed');
+  });
 }

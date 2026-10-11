@@ -50,6 +50,15 @@
 <!-- TOP NAV -->
 <div class="topnav">
   <div class="brand">🏫 SGS हायस्कूल पाचोरा v3</div>
+  <!-- V19.37: वर्ग शिक्षकासाठी — प्रत्येक Tab स्वतंत्र पानासारखा वरच्या Menu मध्ये -->
+  <button class="navbtn tch-nav" data-page="teacher" data-tchtab="dash" onclick="tchNav('dash',this)">📊 डॅशबोर्ड</button>
+  <button class="navbtn tch-nav" data-page="teacher" data-tchtab="roster" onclick="tchNav('roster',this)">👥 विद्यार्थी माहिती</button>
+  <button class="navbtn tch-nav" data-page="teacher" data-tchtab="att" onclick="tchNav('att',this)">✅ हजेरी</button>
+  <button class="navbtn tch-nav" data-page="teacher" data-tchtab="diary" onclick="tchNav('diary',this)">📔 विद्यार्थी डायरी</button>
+  <button class="navbtn tch-nav" data-page="teacher" data-tchtab="fees" onclick="tchNav('fees',this)">💰 फी</button>
+  <button class="navbtn tch-nav" data-page="teacher" data-tchtab="notices" onclick="tchNav('notices',this)">🔔 सूचना</button>
+  <button class="navbtn tch-nav" data-page="teacher" data-tchtab="ana" onclick="tchNav('ana',this)">📈 विश्लेषण</button>
+  <button class="navbtn tch-nav" data-page="teacher" data-tchtab="maint" onclick="tchNav('maint',this)">🔧 मेंटेनन्स</button>
   <button class="navbtn active" data-page="dashboard" data-master-only="true" onclick="showPage('dashboard',this)">🏠 मुख्यपृष्ठ</button>
   <button class="navbtn" data-page="student" data-master-only="true" onclick="showPage('student',this)">👤 विद्यार्थी माहिती</button>
   <button class="navbtn" data-page="lc" data-master-only="true" onclick="showPage('lc',this)">📋 LC Issue</button>
@@ -65,6 +74,8 @@
   <button class="navbtn master-only" data-page="report" onclick="showPage('report',this);rpInit();">📑 रिपोर्ट</button>
   <button class="navbtn super-only" data-page="superadmin" onclick="showPage('superadmin',this)">🛡️ Super Admin</button>
   <button class="navbtn master-only" data-page="attanalytics" onclick="showPage('attanalytics',this)">📈 हजेरी विश्लेषण</button>
+  <button class="navbtn" data-page="earlyleave" onclick="showPage('earlyleave',this)">🚪 घरी जाणारे</button>
+  <button class="navbtn" data-page="teacherlist" onclick="showPage('teacherlist',this)">📒 वर्ग शिक्षक यादी</button>
   <button class="navbtn" data-page="teacher" onclick="showPage('teacher',this)">🏫 वर्ग शिक्षक</button>
   <span class="user-chip" id="authUserChip">User</span>
   <button class="logout-btn" onclick="logoutUser()">Logout</button>
@@ -316,6 +327,16 @@
       <div class="icon">📑</div>
       <h3>रिपोर्ट</h3>
       <p>जात/प्रवर्ग/वर्ग/फी/मोबाईल/पत्ता/लिंग निहाय यादी — A4 PDF Export</p>
+    </div>
+    <div class="dcard master-only" data-page="teacherlist" onclick="showPage('teacherlist',this)">
+      <div class="icon">📒</div>
+      <h3>वर्ग शिक्षक यादी</h3>
+      <p>वर्गनिहाय वर्ग शिक्षकांची नावे, मोबाईल नंबर — कॉल व WhatsApp</p>
+    </div>
+    <div class="dcard master-only" data-page="earlyleave" onclick="showPage('earlyleave',this)">
+      <div class="icon">🚪</div>
+      <h3>घरी जाणारे विद्यार्थी</h3>
+      <p>परवानगीने / विनापरवानगी घरी गेलेल्यांची नोंद, यादी व पालकांना कॉल/WhatsApp</p>
     </div>
     <div class="dcard master-only" data-page="attanalytics" onclick="showPage('attanalytics',this)">
       <div class="icon">📈</div>
@@ -879,7 +900,7 @@
 <div id="shareCardWrap" style="position:fixed;left:-9999px;top:0;z-index:-1">
   <div id="shareCard" style="width:640px;background:#ffffff;color:#1a1a1a;font-family:'Noto Sans Devanagari','Mukta',sans-serif;padding:24px;box-sizing:border-box">
     <div style="text-align:center;border-bottom:3px solid #d4902a;padding-bottom:12px;margin-bottom:16px">
-      <div style="font-size:18px;font-weight:700;color:#1a3a6a">Shri Govindrao Seksaria High School, Pachora</div>
+      <div style="font-size:19px;font-weight:700;color:#1a3a6a">श्री.गोविंदराम सेक्सरिया हायस्कूल, पाचोरा</div>
       <div style="font-size:13px;color:#555">विद्यार्थी माहिती (Student Profile)</div>
     </div>
     <div style="display:flex;gap:18px;align-items:flex-start;margin-bottom:16px">
@@ -952,6 +973,7 @@
             <option value="deo">DEO</option>
             <option value="cert" selected>Certificate User</option>
             <option value="teacher">Class Teacher</option>
+            <option value="peon">Peon (शिपाई)</option>
           </select>
         </div>
         <div class="fg w150"><label>Label / Display Name</label><input id="um_label" placeholder="उदा. Clerk 2"></div>
@@ -1196,6 +1218,73 @@
 </div>
 
 <!-- ==================== रिपोर्ट PAGE (Super Master / Master — सर्व वर्ग; Class Teacher — फक्त स्वतःचा वर्ग) ==================== -->
+<!-- ==================== वर्ग शिक्षक यादी — V19.39 ==================== -->
+<div id="pg-teacherlist" class="page">
+  <div class="sec-title" style="margin-bottom:10px">📒 वर्ग शिक्षक यादी</div>
+  <div class="card">
+    <div class="card-header"><div><h2>वर्गनिहाय वर्ग शिक्षक</h2><p>नाव, वर्ग किंवा मोबाईल नंबरने शोधा. मोबाईलसमोरील बटणाने थेट कॉल किंवा WhatsApp करा.</p></div>
+      <button class="btn btn-blue btn-sm" onclick="tlLoad()">🔄 Refresh</button></div>
+    <div class="card-body">
+      <div class="frow" style="gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px">
+        <div class="fg" style="min-width:240px;flex:1"><label>🔍 शोधा</label><input id="tl_search" oninput="tlRender()" placeholder="नाव / वर्ग / मोबाईल..."></div>
+      </div>
+      <div id="tl_count" style="font-size:13px;margin-bottom:8px"></div>
+      <div id="tl_list">⏳ Load होत आहे...</div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== घरी जाणारे विद्यार्थी — V19.37 ==================== -->
+<div id="pg-earlyleave" class="page">
+  <div class="sec-title" style="margin-bottom:10px">🚪 घरी जाणारे विद्यार्थी</div>
+
+  <!-- ===== Peon: आजची परवानगी यादी ===== -->
+  <div class="el-peon-box">
+    <div class="card">
+      <div class="card-header"><div><h2>आज घरी जाण्याची परवानगी मिळालेले विद्यार्थी</h2><p>विद्यार्थी शाळेबाहेर गेला की "✅ गेला", नाही गेला तर "❌ गेला नाही" दाबा.</p></div>
+        <button class="btn btn-blue btn-sm" onclick="elPeonLoad()">🔄 Refresh</button></div>
+      <div class="card-body">
+        <div id="el_peonSummary" style="font-size:13.5px;margin-bottom:10px"></div>
+        <div id="el_peonMsg" style="font-size:12.5px;margin-bottom:8px;color:#cfd8e8"></div>
+        <div id="el_peonList">⏳ Load होत आहे...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== वर्ग-शिक्षक / Master / Super ===== -->
+  <div class="el-staff-box">
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-header"><div><h2>✍️ नोंद करा</h2><p>फक्त हजर विद्यार्थ्यांचीच नोंद होते. तारीख बदलून मागील दिवसाची नोंदही करता येते.</p></div></div>
+      <div class="card-body">
+        <div class="frow" style="gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px">
+          <div class="fg w180" id="el_classWrap"><label>वर्ग / तुकडी</label><select id="el_class" onchange="elLoad()" style="padding:7px 10px;border-radius:var(--r);border:1.5px solid var(--pb);background:var(--peach);font-family:inherit;width:100%"><option value="ALL|">⏳ Load होत आहे...</option></select></div>
+          <div class="fg w150"><label>दिनांक</label><input id="el_date" type="date" onchange="elLoad()"></div>
+          <div class="fg" style="flex:0 0 auto"><button class="btn btn-blue" onclick="elLoad()">🔄 Load</button></div>
+          <div class="fg" style="flex:0 0 auto"><button class="btn btn-gold" onclick="elToday()">📅 आज</button></div>
+        </div>
+        <div id="el_teacherClass" style="display:none;font-weight:700;margin-bottom:8px"></div>
+        <div id="el_info" style="font-size:12.5px;margin-bottom:8px;color:#cfd8e8"></div>
+        <div id="el_entryWrap"></div>
+        <div style="margin-top:10px"><button id="el_saveBtn" class="btn btn-green" onclick="elSave()">💾 नोंदी Save करा</button></div>
+        <div id="el_saveStatus" style="font-size:12.5px;margin-top:8px;color:#cfd8e8"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><div><h2>📋 नोंदींची यादी</h2><p>निवडलेल्या दिनांकाची — वर्गनिहाय; पालकांना कॉल / WhatsApp संदेश</p></div></div>
+      <div class="card-body">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+          <button id="el_f_all" class="btn btn-blue btn-sm" onclick="elSetFilter('all')">सर्व</button>
+          <button id="el_f_permitted" class="btn btn-green btn-sm" onclick="elSetFilter('permitted')">✅ परवानगी</button>
+          <button id="el_f_unpermitted" class="btn btn-orange btn-sm" onclick="elSetFilter('unpermitted')">⚠️ विनापरवानगी</button>
+        </div>
+        <div id="el_listSummary" style="font-size:13px;margin-bottom:6px"></div>
+        <div id="el_list"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- ==================== हजेरी विश्लेषण (Master / Super) — V19.36 ==================== -->
 <div id="pg-attanalytics" class="page">
   <div class="sec-title" style="margin-bottom:10px">📈 हजेरी विश्लेषण</div>
@@ -1256,6 +1345,26 @@
       </div>
       <div id="sa_promoStatus" style="font-size:12.5px;margin-top:10px;color:#cfd8e8"></div>
       <div id="sa_promoBatches" style="margin-top:12px;font-size:12.5px"></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-header"><div><h2>📊 कामगिरी व साठवण</h2><p>Google Sheet चा वापर (१ कोटी cells मर्यादेपैकी), विनंत्यांचा वेळ आणि मिटवलेल्या नोंदींचा Backup</p></div>
+      <button class="btn btn-blue btn-sm" onclick="saLoadSizes()">🔄 Refresh</button></div>
+    <div class="card-body">
+      <div id="sa_szStatus" style="font-size:12.5px;margin-bottom:8px;color:#cfd8e8"></div>
+      <div id="sa_szMeter" style="margin-bottom:6px"></div>
+      <div id="sa_szText" style="font-size:13px;margin-bottom:10px"></div>
+      <div style="margin-bottom:12px"><button id="sa_szShrinkBtn" class="btn btn-gold" onclick="saShrink()" disabled>✂️ रिकामी जागा कमी करा</button></div>
+      <div style="font-weight:700;margin:8px 0 4px">📄 सर्वात मोठ्या Sheets</div>
+      <div id="sa_szTable" style="overflow-x:auto;margin-bottom:14px"></div>
+      <div style="font-weight:700;margin:8px 0 4px">⏱️ सर्व्हर वेळ (नमुन्यांवरून)</div>
+      <div id="sa_perfServer" style="overflow-x:auto;margin-bottom:8px"></div>
+      <div id="sa_perfSlow" style="margin-bottom:14px"></div>
+      <div style="font-weight:700;margin:8px 0 4px">📱 या सत्रात ब्राउझरमधून मोजलेला एकूण वेळ</div>
+      <div id="sa_perfClient" style="overflow-x:auto;margin-bottom:14px"></div>
+      <div style="font-weight:700;margin:8px 0 4px">🗑️ Deleted Backup</div>
+      <div id="sa_delBackup" style="font-size:13px"></div>
     </div>
   </div>
 
@@ -1408,7 +1517,7 @@
   <div class="sec-title" style="margin-bottom:4px">🏫 वर्ग शिक्षक — <span id="tch_classLabel">—</span></div>
   <div style="font-size:12px;opacity:.75;margin-bottom:14px">फक्त आपल्या वर्गाची माहिती येथे दिसेल.</div>
 
-  <div style="margin-bottom:14px">
+  <div class="tch-tabbar" style="margin-bottom:14px">
     <button class="tch-tabbtn active" data-tch="dash" onclick="tchShowTab('dash')">📊 डॅशबोर्ड</button>
     <button class="tch-tabbtn" data-tch="roster" onclick="tchShowTab('roster')">👥 विद्यार्थी माहिती</button>
     <button class="tch-tabbtn" data-tch="att" onclick="tchShowTab('att')">✅ Attendance</button>

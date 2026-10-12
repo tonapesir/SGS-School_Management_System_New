@@ -32,7 +32,7 @@ window.androidBackPressed = function() {
 
 
 // URL persistence
-var DEFAULT_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbz5kE4M8zNXCG2Ieb4Zn03ZdXY8v56xvx2QP_sLabMJ4h4oyw7JPblQ6TcZJ2c8HSvN/exec';
+var DEFAULT_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbz5vUDXGDmY8w3TG2slnJcxOAXCB7Aap7p4e2XIiwlhviciAqznphAIr0L_kP6omYmW/exec';
 
 // =====================================================
 // 🔐 LOGIN + ROLE PERMISSIONS
@@ -3841,7 +3841,7 @@ function feeLoadCurrentTotal() {
   var el = document.getElementById('fee_currentTotal');
   if (!el) return;
   el.textContent = '⏳';
-  jsonpRequest({action:'getFees'}, function(r) {
+  jsonpRequest({action:'getFees', totalOnly:'1'}, function(r) {   // V19.42: फक्त एकूण फी — सर्व्हर कोणतीही Sheet वाचत नाही
     el.textContent = (r && r.status === 'ok' && r.totalFeePerStudent) ? r.totalFeePerStudent : '—';
   });
 }
@@ -3887,11 +3887,24 @@ function ciLoadClass() {
     ciRoster = rStu.data || [];
     ciRenderStudents();
 
+    ciLastClass = {iyatta: iyatta, tukdi: tukdi};
     jsonpRequest({action:'getDiary', iyatta: iyatta, tukdi: tukdi}, function(rDiary) {
       ciRenderDiary(rDiary && rDiary.status === 'ok' ? rDiary.data : []);
       statusEl.textContent = '✅ ' + iyatta + ' - ' + tukdi + ' — ' + ciRoster.length + ' विद्यार्थी';
+      if (rDiary && rDiary.truncated) statusEl.innerHTML += ' &nbsp;·&nbsp; ℹ️ डायरीच्या अलीकडच्या नोंदी दाखवल्या — <a href="#" onclick="ciLoadDiaryFull();return false" style="color:#7bc0ff">पूर्ण वर्ष पहा</a>';
       document.getElementById('ci_content').style.display = 'block';
     });
+  });
+}
+
+var ciLastClass = null;
+function ciLoadDiaryFull() {
+  if (!ciLastClass) return;
+  var statusEl = document.getElementById('ci_status');
+  if (statusEl) statusEl.textContent = '⏳ पूर्ण वर्षाची डायरी Load होत आहे...';
+  jsonpRequest({action:'getDiary', iyatta: ciLastClass.iyatta, tukdi: ciLastClass.tukdi, full:'1'}, function(r) {
+    ciRenderDiary(r && r.status === 'ok' ? r.data : []);
+    if (statusEl) statusEl.textContent = '✅ ' + ciLastClass.iyatta + ' - ' + ciLastClass.tukdi + ' — पूर्ण वर्षाची डायरी (' + ((r && r.data) ? r.data.length : 0) + ' नोंदी)';
   });
 }
 
@@ -4572,16 +4585,23 @@ function tchRenderStudentFeeStat(regNo) {
   document.getElementById('tch_studentFeePending').textContent = '₹' + pending;
   document.getElementById('tch_totalFeeAmt').textContent = tchTotalFeePerStudent;
   var hist = document.getElementById('tch_studentFeeHistory');
-  // इतिहासात प्रत्येक installment ची स्वतंत्र रक्कम दाखवण्यासाठी, cumulative FeePaid मधून क्रमवार फरक काढतो
-  var asc = entries.slice().reverse();
-  var prevPaid = 0;
-  var lines = asc.map(function(f) {
-    var cum = parseFloat(f.feePaid) || 0;
-    var installment = cum - prevPaid;
-    prevPaid = cum;
-    return tchFmtDate(f.date) + ' — ₹' + installment + ' (' + (f.updatedBy||'') + ')';
+  // V19.42: वर्ग-यादीत फक्त ताजी (सारांश) नोंद येते; प्रत्येक installment चा इतिहास त्या विद्यार्थ्यासाठी वेगळा मागवतो
+  hist.textContent = '⏳ जमा इतिहास Load होत आहे...';
+  jsonpRequest({action:'getFees', regNo: regNo, acYear: s.acYear || ''}, function(r) {
+    var sel = document.getElementById('tch_feesStudent');
+    if (sel && String(sel.value) !== String(regNo)) return;   // दरम्यान दुसरा विद्यार्थी निवडला असल्यास जुने उत्तर दाखवू नका
+    var hs = (r && r.status === 'ok') ? (r.data || []) : [];
+    // हे नवीन-ते-जुने येते; प्रत्येक installment ची स्वतंत्र रक्कम दाखवण्यासाठी cumulative FeePaid मधून क्रमवार फरक काढतो
+    var asc = hs.slice().reverse();
+    var prevPaid = 0;
+    var lines = asc.map(function(f) {
+      var cum = parseFloat(f.feePaid) || 0;
+      var installment = cum - prevPaid;
+      prevPaid = cum;
+      return tchFmtDate(f.date) + ' — ₹' + installment + ' (' + (f.updatedBy||'') + ')';
+    });
+    hist.innerHTML = lines.length ? ('<b>जमा इतिहास:</b><br>' + lines.join('<br>')) : 'अद्याप कोणतीही जमा नोंद नाही.';
   });
-  hist.innerHTML = lines.length ? ('<b>जमा इतिहास:</b><br>' + lines.join('<br>')) : 'अद्याप कोणतीही जमा नोंद नाही.';
 }
 
 function tchSaveFees() {
@@ -5925,6 +5945,15 @@ function saRenderClientPerf() {
   el.innerHTML = rows.length ? '<table class="hist-table"><thead><tr><th>कृती</th><th>वेळा</th><th>सरासरी</th><th>कमाल</th></tr></thead><tbody>' +
     rows.slice(0, 10).map(function(x) { return '<tr><td>' + escRpHtml(x.a) + '</td><td>' + x.n + '</td><td>' + fmtIN(x.avg) + ' ms</td><td>' + fmtIN(x.max) + ' ms' + (x.fail ? ' <span style="color:#ff9a9a">(' + x.fail + ' अपयश)</span>' : '') + '</td></tr>'; }).join('') + '</tbody></table>' :
     '<div style="opacity:.75">या सत्रात अजून विनंत्या नाहीत.</div>';
+}
+function saRebuildFees() {
+  var yr = (document.getElementById('sa_feesYear').value || '').trim();
+  var st = document.getElementById('sa_feesStatus');
+  if (yr && !/^\d{4}-\d{2}$/.test(yr)) { st.textContent = '⚠️ वर्ष 2026-27 या स्वरूपात टाका (रिकामे = चालू वर्ष).'; return; }
+  st.textContent = '⏳ चालू आहे...';
+  smartSaveRaw({action:'rebuildFeesSummary', year: yr, requesterUser: currentUser.username, requesterRole: currentUser.role}, function(r) {
+    st.textContent = (r && r.status === 'ok') ? ('✅ ' + r.extra.year + ' चा FeesSummary पुन्हा बांधला — ' + r.extra.students + ' विद्यार्थी.') : ('❌ ' + friendlyMsg((r && r.message) || 'Failed'));
+  });
 }
 function saShrink() {
   if (!saSizes || !(saSizes.savable > 0)) return;

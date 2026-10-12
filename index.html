@@ -1365,6 +1365,13 @@
       <div id="sa_perfClient" style="overflow-x:auto;margin-bottom:14px"></div>
       <div style="font-weight:700;margin:8px 0 4px">🗑️ Deleted Backup</div>
       <div id="sa_delBackup" style="font-size:13px"></div>
+      <div style="font-weight:700;margin:14px 0 4px">💰 FeesSummary (सुरक्षा साधन)</div>
+      <div style="font-size:12px;opacity:.75;margin-bottom:6px">थकबाकी/जमा रकमा FeesSummary_<वर्ष> मधून येतात. आकडे चुकीचे वाटले तर प्रत्येक जमा-नोंदीवरून ती पुन्हा बांधता येते (जमा-नोंदी हीच मूळ माहिती आहे).</div>
+      <div class="frow" style="gap:10px;flex-wrap:wrap;align-items:flex-end">
+        <div class="fg w150"><label>शैक्षणिक वर्ष</label><input id="sa_feesYear" placeholder="रिकामे = चालू वर्ष" maxlength="7"></div>
+        <div class="fg" style="flex:0 0 auto"><button class="btn btn-gold" onclick="saRebuildFees()">🔧 FeesSummary पुन्हा बांधा</button></div>
+      </div>
+      <div id="sa_feesStatus" style="font-size:12.5px;margin-top:8px;color:#cfd8e8"></div>
     </div>
   </div>
 

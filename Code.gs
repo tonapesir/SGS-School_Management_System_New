@@ -246,7 +246,7 @@ function doGetCore_(e) {
       p.action === "runBackup" || p.action === "setBackupSchedule" ||
       p.action === "archivePassedOut" || p.action === "restorePassedOut" ||
       p.action === "renumberRolls" || p.action === "archiveLogNow" ||
-      p.action === "saveEarlyLeave" || p.action === "markEarlyLeaveOut" || p.action === "shrinkSheets") {
+      p.action === "saveEarlyLeave" || p.action === "markEarlyLeaveOut" || p.action === "shrinkSheets" || p.action === "rebuildFeesSummary") {
     return handleAction(p, cb);
   }
   var a = p.action || "";
@@ -362,6 +362,8 @@ function handleAction(d, cb) {
       result = doUpdateClassDivision(d);
     } else if (action === "saveTotalFee") {
       result = doSaveTotalFee(d);
+    } else if (action === "rebuildFeesSummary") {
+      result = doRebuildFeesSummary(d);
     } else if (action === "shrinkSheets") {
       result = doShrinkSheets(d);
     } else if (action === "saveEarlyLeave") {
@@ -980,11 +982,13 @@ function doGetNotices(p, cb) {
   }
 }
 
-// ----- Student Diary (Updown/transport info + Positive/Warning/Scholarship remarks) -----
+// ----- Student Diary (Positive / Warning / Scholarship / वैयक्तिक नोंदी) — V19.42: वार्षिक Sheet "Diary_2026-27" -----
 function doSaveDiary(d) {
   try {
-    var sh = getOrCreateSheet("DiaryRemarks", DIARY_HEADERS);
-    var row = [new Date().toLocaleString("en-IN"), d.date||todayStr(), d.regNo||"", d.studentId||"", d.fullName||"",
+    diaryEnsureMigrated_();
+    var date = (d.date || todayStr()).toString();
+    var sh = diarySheet_(acYearOfDate_(date), true);
+    var row = [new Date().toLocaleString("en-IN"), date, d.regNo||"", d.studentId||"", d.fullName||"",
       d.iyatta||"", d.tukdi||"", d.type||"", d.remark||"", d.enteredBy||""];
     sh.appendRow(row);
     return {rowIndex: sh.getLastRow(), mode:"created", ref: d.fullName||d.regNo||""};
@@ -993,39 +997,82 @@ function doSaveDiary(d) {
   }
 }
 
+var DIARY_TAIL_ROWS = 3000;   // वर्ग-निहाय यादीत फक्त अलीकडच्या इतक्या ओळी वाचल्या जातात ("full=1" असल्यास सर्व)
 function doGetDiary(p, cb) {
   try {
+    diaryEnsureMigrated_();
     var regNo = (p.regNo||"").toString().trim().toLowerCase();
     var iyatta = (p.iyatta||"").toString().trim();
     var tukdi = (p.tukdi||"").toString().trim();
     var type = (p.type||"").toString().trim();
-    var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("DiaryRemarks");
-    var out = [];
-    if (sh && sh.getLastRow() > 1) {
-      var rows = sh.getRange(2,1,sh.getLastRow()-1,10).getValues();
-      for (var i=0;i<rows.length;i++) {
-        var r = rows[i];
-        if (regNo && (r[2]||"").toString().trim().toLowerCase() !== regNo) continue;
-        if (!regNo && iyatta && (r[5]||"").toString().trim() !== iyatta) continue;
-        if (!regNo && tukdi && (r[6]||"").toString().trim() !== tukdi) continue;
-        if (type && (r[7]||"").toString().trim() !== type) continue;
-        out.push({timestamp:r[0], date:fmt(r[1])||r[1], regNo:r[2], studentId:r[3], fullName:r[4], iyatta:r[5], tukdi:r[6], type:r[7], remark:r[8], enteredBy:r[9]});
+    var out = [], truncated = false;
+    function add(r) {
+      if (type && (r[7]||"").toString().trim() !== type) return;
+      out.push({timestamp:r[0], date:fmt(r[1])||r[1], regNo:r[2], studentId:r[3], fullName:r[4], iyatta:r[5], tukdi:r[6], type:r[7], remark:r[8], enteredBy:r[9]});
+    }
+    if (regNo) {
+      // एका विद्यार्थ्याचा इतिहास: सर्व वर्षांच्या Sheets मध्ये (TextFinder ने फक्त त्याच्याच ओळी)
+      listYearSheets_("Diary").forEach(function(sh) {
+        readRowsAt_(sh, findRowsByValue_(sh, 3, regNo), 10).forEach(add);
+      });
+    } else {
+      var year = p.year ? normAcYear_(p.year) : currentAcYear_();
+      var sh2 = diarySheet_(year, false);
+      if (sh2 && sh2.getLastRow() > 1) {
+        var last = sh2.getLastRow();
+        var startRow = (p.full === "1") ? 2 : Math.max(2, last - DIARY_TAIL_ROWS + 1);
+        truncated = startRow > 2;
+        sh2.getRange(startRow, 1, last - startRow + 1, 10).getValues().forEach(function(r) {
+          if (iyatta && (r[5]||"").toString().trim() !== iyatta) return;
+          if (tukdi && (r[6]||"").toString().trim() !== tukdi) return;
+          add(r);
+        });
       }
     }
     out.sort(function(a,b){ return new Date(b.timestamp) - new Date(a.timestamp); });
-    return wrap(cb, {status:"ok", data: out});
+    return wrap(cb, {status:"ok", data: out, truncated: truncated});
   } catch(err) {
     return wrap(cb, {status:"error", message:err.toString()});
   }
 }
 
-// ----- Transport / Updown info (one record per student, upsert) -----
+// ----- Transport / Updown info (प्रत्येक विद्यार्थ्याची एक नोंद, upsert) — V19.42: वार्षिक Sheet "Transport_2026-27"; नवीन वर्षात मागील वर्षाची प्रत -----
+function transportSheetForRead_(year) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName("Transport_" + year);
+  if (sh) return sh;
+  var all = listYearSheets_("Transport");                       // चालू वर्षाची Sheet नसेल तर सर्वात अलीकडची आधीच्या वर्षाची (फक्त वाचण्यासाठी)
+  for (var i = 0; i < all.length; i++) if (all[i].getName() < "Transport_" + year) return all[i];
+  return null;
+}
+function transportSheetForWrite_(year) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName("Transport_" + year);
+  if (sh) return sh;
+  var prev = null, all = listYearSheets_("Transport");
+  for (var i = 0; i < all.length; i++) if (all[i].getName() < "Transport_" + year) { prev = all[i]; break; }
+  sh = getYearSheet_("Transport", year, TRANSPORT_HEADERS, true);
+  if (prev && prev.getLastRow() > 1) {                            // वर्षारंभी मागील वर्षाची प्रत
+    var rows = prev.getRange(2, 1, prev.getLastRow() - 1, 10).getValues();
+    ensureRows_(sh, 1 + rows.length);
+    sh.getRange(2, 1, rows.length, 10).setValues(rows);
+  }
+  return sh;
+}
 function doSaveTransport(d) {
   try {
-    var sh = getOrCreateSheet("StudentTransport", TRANSPORT_HEADERS);
+    transportEnsureMigrated_();
+    var year = normAcYear_(d.acYear);
+    var sh = transportSheetForWrite_(year);
     var rowToWrite = findRowByKey(sh, 2, d.regNo);
     var row = [new Date().toLocaleString("en-IN"), d.regNo||"", d.studentId||"", d.fullName||"",
       d.iyatta||"", d.tukdi||"", d.nativeVillage||"", d.travelMode||"", d.transportContact||"", d.updatedBy||""];
+    if (rowToWrite) {   // बदल होत असल्यास जुनी आवृत्ती Deleted_Transport मध्ये
+      var old = sh.getRange(rowToWrite, 1, 1, 10).getValues()[0];
+      if ([6, 7, 8].some(function(ix) { return (old[ix] || "").toString().trim() !== (row[ix] || "").toString().trim(); })) {
+        backupDeleted_("Transport", TRANSPORT_HEADERS, [old], d.updatedBy || "", "प्रवास नोंद बदल — जुनी आवृत्ती");
+      }
+    }
     var res = writeRow(sh, rowToWrite, row);
     res.ref = d.fullName||d.regNo||"";
     return res;
@@ -1036,19 +1083,25 @@ function doSaveTransport(d) {
 
 function doGetTransport(p, cb) {
   try {
+    transportEnsureMigrated_();
     var regNo = (p.regNo||"").toString().trim().toLowerCase();
     var iyatta = (p.iyatta||"").toString().trim();
     var tukdi = (p.tukdi||"").toString().trim();
-    var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("StudentTransport");
+    var sh = transportSheetForRead_(p.year ? normAcYear_(p.year) : currentAcYear_());
     var out = [];
     if (sh && sh.getLastRow() > 1) {
+      var classSet = null;
+      if (!regNo && (iyatta || tukdi)) {      // वर्ग-बढती/तुकडी बदलानंतरही अचूक: विद्यार्थ्यांची सध्याची वर्ग-यादी वापरा
+        classSet = {};
+        getRosterCached_(iyatta, tukdi, false).data.forEach(function(st) { classSet[(st.regNo || "").toString().trim().toLowerCase()] = st; });
+      }
       var rows = sh.getRange(2,1,sh.getLastRow()-1,10).getValues();
       for (var i=0;i<rows.length;i++) {
-        var r = rows[i];
-        if (regNo && (r[1]||"").toString().trim().toLowerCase() !== regNo) continue;
-        if (!regNo && iyatta && (r[4]||"").toString().trim() !== iyatta) continue;
-        if (!regNo && tukdi && (r[5]||"").toString().trim() !== tukdi) continue;
-        out.push({regNo:r[1], studentId:r[2], fullName:r[3], iyatta:r[4], tukdi:r[5], nativeVillage:r[6], travelMode:r[7], transportContact:r[8], updatedBy:r[9]});
+        var r = rows[i], key = (r[1]||"").toString().trim().toLowerCase();
+        if (regNo && key !== regNo) continue;
+        if (classSet && !classSet[key]) continue;
+        var cur = classSet ? classSet[key] : null;
+        out.push({regNo:r[1], studentId:r[2], fullName:r[3], iyatta: cur ? cur.iyatta : r[4], tukdi: cur ? cur.tukdi : r[5], nativeVillage:r[6], travelMode:r[7], transportContact:r[8], updatedBy:r[9]});
       }
     }
     return wrap(cb, {status:"ok", data: out});
@@ -1074,36 +1127,26 @@ function doSaveFees(d) {
     }
     var amount = parseFloat(d.amountPaid)||0;
     if (amount <= 0) return {status:"error", message:"जमा रक्कम बरोबर टाका."};
+    feesEnsureMigrated_();
     var feeLock = LockService.getScriptLock();
     feeLock.waitLock(20000);
     try {
-    var sh = getOrCreateSheet("Fees", FEES_HEADERS);
-    var regNoKey = (d.regNo||"").toString().trim().toLowerCase();
-    var acYearKey = (d.acYear||"").toString().trim();
-
-    // या विद्यार्थ्याने (त्याच शैक्षणिक वर्षात) आधी किती जमा केले आहे ते शोधा
-    // (cumulative FeePaid, sheet मध्ये सर्वात शेवटची त्याची नोंद) — वर्ग-बढतीनंतर नवीन वर्षाची फी 0 पासून सुरू होते (V19.35)
-    var prevPaid = 0;
-    if (sh.getLastRow() > 1) {
-      var lastRow = sh.getLastRow();
-      var vals = sh.getRange(2, 1, lastRow - 1, 11).getValues();
-      for (var i = vals.length - 1; i >= 0; i--) {
-        if ((vals[i][1]||"").toString().trim().toLowerCase() === regNoKey &&
-            (!acYearKey || (vals[i][6]||"").toString().trim() === acYearKey)) {
-          prevPaid = parseFloat(vals[i][8]) || 0; // column 9 = FeePaid (cumulative)
-          break;
-        }
-      }
-    }
-
-    var totalFee = getTotalFeePerStudent();
-    var feePaid = prevPaid + amount;
-    var pendingFee = Math.max(0, totalFee - feePaid);
-    var now = new Date();
-    var row = [now.toLocaleString("en-IN"), d.regNo||"", d.studentId||"", d.fullName||"",
-      d.iyatta||"", d.tukdi||"", d.acYear||"", totalFee, feePaid, pendingFee, d.enteredBy||""];
-    sh.appendRow(row);
-    return {rowIndex: sh.getLastRow(), mode:"created", ref: d.fullName||d.regNo||""};
+      // V19.42: वार्षिक "Fees_<वर्ष>" (प्रत्येक जमा नोंद) + "FeesSummary_<वर्ष>" (प्रत्येक विद्यार्थ्याची एक ओळ) — जमा रक्कम सारांशातून मिळते, मोठी Sheet वाचावी लागत नाही
+      var year = normAcYear_(d.acYear);
+      var ev = feesEventSheet_(year, true);
+      var sum = feesSummaryEnsure_(year) || feesSummarySheet_(year, true);
+      var sumRow = findRowByKey(sum, 1, (d.regNo||"").toString().trim());
+      var prev = sumRow ? sum.getRange(sumRow, 1, 1, 11).getValues()[0] : null;
+      var prevPaid = prev ? (parseFloat(prev[6]) || 0) : 0;
+      var totalFee = getTotalFeePerStudent();
+      var feePaid = prevPaid + amount;
+      var pendingFee = Math.max(0, totalFee - feePaid);
+      var nowStr = new Date().toLocaleString("en-IN");
+      ev.appendRow([nowStr, d.regNo||"", d.studentId||"", d.fullName||"", d.iyatta||"", d.tukdi||"", year, totalFee, feePaid, pendingFee, d.enteredBy||""]);
+      var sRow = [d.regNo||"", d.studentId||"", d.fullName||"", d.iyatta||"", d.tukdi||"", year, feePaid, nowStr, amount,
+        (prev ? (parseInt(prev[9], 10) || 0) : 0) + 1, d.enteredBy||""];
+      if (sumRow) sum.getRange(sumRow, 1, 1, 11).setValues([sRow]); else sum.appendRow(sRow);
+      return {rowIndex: ev.getLastRow(), mode:"created", ref: d.fullName||d.regNo||""};
     } finally { feeLock.releaseLock(); }
   } catch(err) {
     return {status:"error", message:err.toString()};
@@ -1112,25 +1155,41 @@ function doSaveFees(d) {
 
 function doGetFees(p, cb) {
   try {
+    feesEnsureMigrated_();
+    var total = getTotalFeePerStudent();
+    if (p.totalOnly === "1") return wrap(cb, {status:"ok", data: [], totalFeePerStudent: total});   // फक्त "एकूण फी" हवी असल्यास काहीही वाचत नाही
     var regNo = (p.regNo||"").toString().trim().toLowerCase();
     var iyatta = (p.iyatta||"").toString().trim();
     var tukdi = (p.tukdi||"").toString().trim();
-    var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Fees");
+    var year = normAcYear_(p.acYear);
     var out = [];
-    if (sh && sh.getLastRow() > 1) {
-      var rows = sh.getRange(2,1,sh.getLastRow()-1,11).getValues();
-      for (var i=0;i<rows.length;i++) {
-        var r = rows[i];
-        if (regNo && (r[1]||"").toString().trim().toLowerCase() !== regNo) continue;
-        if (!regNo && iyatta && (r[4]||"").toString().trim() !== iyatta) continue;
-        if (!regNo && tukdi && (r[5]||"").toString().trim() !== tukdi) continue;
-        out.push({date:fmt(r[0])||r[0], regNo:r[1], studentId:r[2], fullName:r[3], iyatta:r[4], tukdi:r[5],
-          acYear:r[6], totalFee:r[7], feePaid:r[8], pendingFee:r[9], updatedBy:r[10]});
+    if (regNo) {
+      // एका विद्यार्थ्याचा जमा-इतिहास (प्रत्येक installment) — फक्त त्याच्या ओळी वाचल्या जातात
+      var ev = feesEventSheet_(year, false);
+      if (ev) {
+        readRowsAt_(ev, findRowsByValue_(ev, 2, regNo), 11).forEach(function(r) {
+          out.push({date:fmt(r[0])||r[0], regNo:r[1], studentId:r[2], fullName:r[3], iyatta:r[4], tukdi:r[5],
+            acYear:r[6], totalFee:r[7], feePaid:r[8], pendingFee:r[9], updatedBy:r[10]});
+        });
       }
+      out.reverse();   // नवीन-ते-जुने
+    } else {
+      // वर्ग / संपूर्ण शाळा: प्रत्येक विद्यार्थ्याची सर्वात अलीकडची (cumulative) नोंद — सारांश Sheet मधून
+      var classSet = null;
+      if (iyatta || tukdi) {
+        classSet = {};
+        getRosterCached_(iyatta, tukdi, false).data.forEach(function(st) { classSet[(st.regNo || "").toString().trim().toLowerCase()] = st; });
+      }
+      feesSummaryRows_(year).forEach(function(r) {
+        var key = (r[0]||"").toString().trim().toLowerCase();
+        if (classSet && !classSet[key]) return;
+        var cur = classSet ? classSet[key] : null;
+        var paid = parseFloat(r[6]) || 0;
+        out.push({date:(r[7]||"").toString(), regNo:r[0], studentId:r[1], fullName:r[2], iyatta: cur ? cur.iyatta : r[3], tukdi: cur ? cur.tukdi : r[4],
+          acYear:r[5], totalFee:total, feePaid:paid, pendingFee:Math.max(0, total - paid), updatedBy:r[10]});
+      });
     }
-    // नवीन-ते-जुने क्रमाने — entries[0] म्हणजे प्रत्येक विद्यार्थ्याची सर्वात अलीकडची (latest cumulative) नोंद
-    out.sort(function(a,b){ return (a.date < b.date) ? 1 : -1; });
-    return wrap(cb, {status:"ok", data: out, totalFeePerStudent: getTotalFeePerStudent()});
+    return wrap(cb, {status:"ok", data: out, totalFeePerStudent: total});
   } catch(err) {
     return wrap(cb, {status:"error", message:err.toString()});
   }
@@ -1265,23 +1324,11 @@ function doGetStatsReport(p, cb) {
 
     // Fees sheet मध्ये आता प्रत्येक installment ला cumulative FeePaid असतो, त्यामुळे सरळ बेरीज न करता
     // प्रत्येक विद्यार्थ्याची फक्त सर्वात अलीकडची (शेवटची) नोंद घ्यावी लागते, मगच वर्गनिहाय बेरीज करायची
-    var feeSh = ss.getSheetByName("Fees");
-    if (feeSh && feeSh.getLastRow() > 1) {
-      var feeRows = feeSh.getRange(2, 1, feeSh.getLastRow()-1, 11).getValues();
-      var latestByReg = {};
-      for (var k=0;k<feeRows.length;k++) {
-        var fr = feeRows[k];
-        var rg = (fr[1]||"").toString().trim().toLowerCase();
-        if (!rg) continue;
-        // rows नेहमी वेळेनुसार appended असतात, त्यामुळे शेवटी सापडलेली नोंद = सर्वात अलीकडची
-        latestByReg[rg] = { iyatta:(fr[4]||"").toString().trim(), tukdi:(fr[5]||"").toString().trim(), feePaid: parseFloat(fr[8])||0 };
-      }
-      for (var rgKey in latestByReg) {
-        var e = latestByReg[rgKey];
-        var key3 = e.iyatta + "|" + e.tukdi;
-        if (classMap[key3]) classMap[key3].fees += e.feePaid;
-      }
-    }
+    feesEnsureMigrated_();
+    feesSummaryRows_(currentAcYear_()).forEach(function(fr) {      // V19.42: चालू वर्षाच्या FeesSummary मधून (प्रत्येक विद्यार्थ्याची एक ओळ)
+      var key3 = (fr[3]||"").toString().trim() + "|" + (fr[4]||"").toString().trim();
+      if (classMap[key3]) classMap[key3].fees += parseFloat(fr[6]) || 0;
+    });
 
     var classes = Object.keys(classMap).map(function(k){ return classMap[k]; });
     classes.sort(function(a,b){
@@ -1951,33 +1998,19 @@ function doGetPendingFeesAll(p, cb) {
     var totalFee = getTotalFeePerStudent();
     var students = getRosterCached_("", "", p.nocache === "1").data;
 
-    // प्रत्येक विद्यार्थ्याची (शैक्षणिक वर्षानुसार) सर्वात अलीकडची cumulative नोंद
+    // V19.42: चालू (किंवा निवडलेल्या) वर्षाच्या FeesSummary मधून — प्रत्येक विद्यार्थ्याची एक ओळ
+    feesEnsureMigrated_();
     var feeMap = {};
-    var feeSh = ss.getSheetByName("Fees");
-    if (feeSh && feeSh.getLastRow() > 1) {
-      var fRows = feeSh.getRange(2, 1, feeSh.getLastRow() - 1, 11).getValues();
-      for (var i = 0; i < fRows.length; i++) {
-        var fr = fRows[i];
-        var rg = (fr[1] || "").toString().trim().toLowerCase();
-        if (!rg) continue;
-        var yr = (fr[6] || "").toString().trim();
-        var rec = {paid: parseFloat(fr[8]) || 0, date: fmt(fr[0]) || (fr[0] || "").toString(), acYear: yr};
-        var e = feeMap[rg] || (feeMap[rg] = {byYear: {}, latest: null});
-        e.byYear[yr] = rec;
-        e.latest = rec;
-      }
-    }
+    feesSummaryRows_(normAcYear_(p.acYear)).forEach(function(fr) {
+      var rg = (fr[0] || "").toString().trim().toLowerCase();
+      if (rg) feeMap[rg] = {paid: parseFloat(fr[6]) || 0, date: (fr[7] || "").toString()};
+    });
 
     var out = [], collectedAll = 0, pendingTotal = 0;
     for (var k = 0; k < students.length; k++) {
       var st = students[k];
       var key = (st.regNo || "").toString().trim().toLowerCase();
-      var fe = feeMap[key];
-      var chosen = null;
-      if (fe) {
-        var sy = (st.acYear || "").toString().trim();
-        chosen = sy ? (fe.byYear[sy] || fe.byYear[""] || null) : fe.latest;
-      }
+      var chosen = feeMap[key] || null;
       var paid = chosen ? chosen.paid : 0;
       collectedAll += paid;
       var pending = Math.max(0, totalFee - paid);
@@ -2755,20 +2788,66 @@ function doArchiveLogNow(d) {
 // =====================================================================
 // नोंद: Master/Super = कोणताही वर्ग-तुकडी; वर्ग-शिक्षक = फक्त स्वतःचा वर्ग; Peon = फक्त आजची "परवानगी" यादी पाहून मार्क-आउट.
 // एका विद्यार्थ्याची एका दिवसाची एकच नोंद (date + regNo). हजर विद्यार्थ्यांचीच नोंद; गैरहजर (हजेरी नोंदवहीनुसार) नाकारली जाते.
-var EL_SHEET = "EarlyLeave";
+var EL_LEGACY_SHEET = "EarlyLeave";   // जुनी एकच Sheet — आता आठवडानिहाय "EL_<सोमवारची तारीख>" Sheets (V19.41)
 var EL_HEADERS = ["Timestamp","Date","Class","Division","RegNo","StudentId","FullName","Type","Period","RecordedBy","RecordedRole","Status","MarkedBy","MarkedAt"];
 var EL_TYPES = {permitted:1, unpermitted:1};
 
-function getELSheet_() {
+// ---- V19.41: आठवडानिहाय Sheet (सोमवार ते रविवार) — "EL_2026-10-05" (सोमवारची तारीख) ----
+function elWeekStart_(date) {
+  var m = ISO_DATE_RE.exec(date);
+  var t = Date.UTC(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10));
+  var back = (new Date(t).getUTCDay() + 6) % 7;          // सोमवार=0 … रविवार=6
+  var d = new Date(t - back * 86400000);
+  function p2(n) { return ("0" + n).slice(-2); }
+  return d.getUTCFullYear() + "-" + p2(d.getUTCMonth() + 1) + "-" + p2(d.getUTCDate());
+}
+function elWeekSheetName_(date) { return "EL_" + elWeekStart_(date); }
+function getELWeekSheet_(date, create) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sh = ss.getSheetByName(EL_SHEET);
-  if (sh) return sh;
-  sh = ss.insertSheet(EL_SHEET);
+  var sh = ss.getSheetByName(elWeekSheetName_(date));
+  if (sh || !create) return sh;
+  sh = ss.insertSheet(elWeekSheetName_(date));
   trimNewSheet_(sh, EL_HEADERS.length);
   sh.appendRow(EL_HEADERS);
   sh.getRange("B:B").setNumberFormat("@");
   sh.setFrozenRows(1);
   return sh;
+}
+// जुनी "EarlyLeave" Sheet एकदाच आठवडानिहाय Sheets मध्ये वाटून (जुनी Sheet "EarlyLeave_OLD_..." नावाने लपवली जाते — काहीही हरवत नाही).
+// Lock स्वतः घेतो — म्हणून हे function दुसऱ्या Lock च्या आत बोलावू नये.
+function elEnsureMigrated_() {
+  var props = PropertiesService.getScriptProperties();
+  if (props.getProperty("EL_WEEKLY_MIGRATED") === "1") return;
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    if (props.getProperty("EL_WEEKLY_MIGRATED") === "1") return;
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var old = ss.getSheetByName(EL_LEGACY_SHEET);
+    if (old) {
+      var n = old.getLastRow() - 1;
+      if (n > 0) {
+        var groups = {};
+        old.getRange(2, 1, n, 14).getValues().forEach(function(r) {
+          var d = fmt(r[1]);
+          if (!elDateValid_(d)) return;
+          r[1] = d;
+          var wk = elWeekStart_(d);
+          (groups[wk] = groups[wk] || []).push(r);
+        });
+        Object.keys(groups).forEach(function(wk) {
+          var sh = getELWeekSheet_(wk, true), rows = groups[wk];
+          ensureRows_(sh, sh.getLastRow() + rows.length);
+          sh.getRange(sh.getLastRow() + 1, 1, rows.length, 14).setValues(rows);
+        });
+      }
+      old.setName("EarlyLeave_OLD_" + Utilities.formatDate(new Date(), "Asia/Kolkata", "yyyyMMdd_HHmm"));
+      try { old.hideSheet(); } catch (e) {}
+    }
+    props.setProperty("EL_WEEKLY_MIGRATED", "1");
+  } finally {
+    lock.releaseLock();
+  }
 }
 function elDateValid_(d) { return ISO_DATE_RE.test(d || ""); }
 
@@ -2819,10 +2898,11 @@ function doGetEarlyLeave(p, cb) {
     var iyatta = (p.iyatta || "").toString().trim();
     var tukdi = (p.tukdi || "").toString().trim();
     if (role === "teacher" && !iyatta) return wrap(cb, {status:"error", message:"वर्ग-शिक्षकाला वर्ग नेमलेला नाही."});
-    var sh = getELSheet_();
+    elEnsureMigrated_();
+    var sh = getELWeekSheet_(date, false);      // फक्त त्या आठवड्याची Sheet (सोमवार–रविवार) वाचली जाते
     var stMap = elStudentMap_();
     var out = [];
-    elReadAll_(sh).forEach(function(r) {
+    (sh ? elReadAll_(sh) : []).forEach(function(r) {
       if (fmt(r[1]) !== date) return;
       if (iyatta && (r[2] || "").toString().trim() !== iyatta) return;
       if (tukdi && (r[3] || "").toString().trim() !== tukdi) return;
@@ -2848,6 +2928,7 @@ function doSaveEarlyLeave(d) {
   var entries = safeParseJson(d.entriesJson), removes = safeParseJson(d.removeJson);
   if (!entries.length && !removes.length) return {status:"error", message:"जतन करण्यासाठी काहीही बदल नाही."};
 
+  elEnsureMigrated_();
   var lock = LockService.getScriptLock();
   var locked = false;
   try {
@@ -2855,7 +2936,7 @@ function doSaveEarlyLeave(d) {
     var roster = {};
     getRosterCached_(iyatta, tukdi, true).data.forEach(function(st) { roster[(st.regNo || "").toString().trim().toLowerCase()] = st; });
     var absent = elAbsentSet_(date, iyatta, tukdi);
-    var sh = getELSheet_();
+    var sh = getELWeekSheet_(date, true);
     var all = elReadAll_(sh);
     var idxOf = {};
     for (var i = 0; i < all.length; i++) idxOf[fmt(all[i][1]) + "|" + (all[i][4] || "").toString().trim().toLowerCase()] = i;
@@ -2909,9 +2990,11 @@ function doGetEarlyLeavePeon(p, cb) {
     var role = p.requesterRole;
     if (role !== "peon" && role !== "super" && role !== "master") return wrap(cb, {status:"error", message:"अधिकार नाही."});
     var date = todayStr();
+    elEnsureMigrated_();
     var stMap = elStudentMap_();
     var out = [];
-    elReadAll_(getELSheet_()).forEach(function(r) {
+    var elSh = getELWeekSheet_(date, false);    // आजच्या आठवड्याची Sheet (~३०० ओळी)
+    (elSh ? elReadAll_(elSh) : []).forEach(function(r) {
       if (fmt(r[1]) !== date || (r[7] || "").toString() !== "permitted") return;
       out.push(elRowToObj_(r, stMap));
     });
@@ -2930,11 +3013,13 @@ function doMarkEarlyLeaveOut(d) {
   var date = (role === "peon") ? todayStr() : (d.date || todayStr()).toString().trim();
   var key = (d.regNo || "").toString().trim().toLowerCase();
   if (!key) return {status:"error", message:"RegNo आवश्यक आहे."};
+  elEnsureMigrated_();
   var lock = LockService.getScriptLock();
   var locked = false;
   try {
     lock.waitLock(20000); locked = true;
-    var sh = getELSheet_();
+    var sh = getELWeekSheet_(date, false);
+    if (!sh) return {status:"error", message:"त्या दिवसाची नोंद सापडली नाही (शिक्षकाने ती बदलली/काढली असू शकते) — यादी Refresh करा."};
     var all = elReadAll_(sh);
     for (var i = 0; i < all.length; i++) {
       var r = all[i];
@@ -3235,4 +3320,181 @@ function doShrinkSheets(d) {
   } finally {
     if (locked) lock.releaseLock();
   }
+}
+
+
+// =====================================================================
+// ===== V19.42 — टप्पा ३: वार्षिक Sheets (Fees + FeesSummary, Diary, Transport) =====
+// =====================================================================
+// शैक्षणिक वर्ष जून–मे: 2026-06-15 → "2026-27"; 2027-03-10 → "2026-27"
+function acYearOfDate_(dateStr) {
+  var m = ISO_DATE_RE.exec((dateStr || "").toString());
+  if (!m) return currentAcYear_();
+  var y = parseInt(m[1], 10), mo = parseInt(m[2], 10);
+  var start = mo >= 6 ? y : y - 1;
+  return start + "-" + String(start + 1).slice(-2);
+}
+function currentAcYear_() {
+  try {
+    var v = PropertiesService.getScriptProperties().getProperty("CURRENT_AC_YEAR");
+    if (v && /^\d{4}-\d{2}$/.test(v)) return v;
+  } catch (e) {}
+  return acYearOfDate_(todayStr());
+}
+function normAcYear_(v) {
+  v = (v || "").toString().trim();
+  if (/^\d{4}-\d{2}$/.test(v)) return v;
+  var m = /^(\d{4})-(\d{4})$/.exec(v);
+  return m ? (m[1] + "-" + m[2].slice(2)) : currentAcYear_();
+}
+
+function getYearSheet_(base, year, headers, create, textCol) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var name = base + "_" + year;
+  var sh = ss.getSheetByName(name);
+  if (sh || !create) return sh;
+  sh = ss.insertSheet(name);
+  trimNewSheet_(sh, headers.length);
+  sh.appendRow(headers);
+  if (textCol) sh.getRange(1, textCol, 1, 1).setNumberFormat("@");
+  sh.setFrozenRows(1);
+  return sh;
+}
+function listYearSheets_(base) {
+  var re = new RegExp("^" + base + "_\\d{4}-\\d{2}$");
+  var list = SpreadsheetApp.getActiveSpreadsheet().getSheets().filter(function(sh) { return re.test(sh.getName()); });
+  list.sort(function(a, b) { return a.getName() < b.getName() ? 1 : (a.getName() > b.getName() ? -1 : 0); });   // नवीन वर्ष आधी
+  return list;
+}
+
+// एका स्तंभातील मूल्य (उदा. RegNo) असलेल्या ओळींचे क्रमांक — TextFinder ने (मोठी Sheet वाचल्याशिवाय); न चालल्यास स्तंभ वाचतो
+function findRowsByValue_(sh, col, key) {
+  key = (key || "").toString().trim();
+  if (!key || !sh || sh.getLastRow() < 2) return [];
+  var n = sh.getLastRow() - 1;
+  try {
+    var found = sh.getRange(2, col, n, 1).createTextFinder(key).matchEntireCell(true).findAll();
+    return found.map(function(r) { return r.getRow(); }).sort(function(a, b) { return a - b; });
+  } catch (e) {
+    var vals = sh.getRange(2, col, n, 1).getValues(), out = [], lk = key.toLowerCase();
+    for (var i = 0; i < vals.length; i++) if ((vals[i][0] || "").toString().trim().toLowerCase() === lk) out.push(i + 2);
+    return out;
+  }
+}
+function readRowsAt_(sh, rows, ncols) {
+  if (!rows.length) return [];
+  if (rows.length <= 25) return rows.map(function(r) { return sh.getRange(r, 1, 1, ncols).getValues()[0]; });
+  var lo = rows[0], hi = rows[rows.length - 1];
+  var block = sh.getRange(lo, 1, hi - lo + 1, ncols).getValues();
+  return rows.map(function(r) { return block[r - lo]; });
+}
+
+// ---------- जुन्या एकाच Sheet चे वार्षिक Sheets मध्ये एकदाचे स्थलांतर ----------
+// जुनी Sheet रिकामी असेल तर काढली जाते; नोंदी असतील तर "<नाव>_OLD_<वेळ>" नावाने लपवली जाते (काहीही हरवत नाही). Lock स्वतः घेतो — दुसऱ्या Lock आत बोलावू नये.
+function migrateLegacyToYearly_(spec) {
+  var props = PropertiesService.getScriptProperties();
+  if (props.getProperty(spec.flag) === "1") return;
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    if (props.getProperty(spec.flag) === "1") return;
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var old = ss.getSheetByName(spec.legacy);
+    if (old) {
+      var n = old.getLastRow() - 1;
+      if (n > 0) {
+        var groups = {};
+        old.getRange(2, 1, n, spec.ncols).getValues().forEach(function(r) {
+          if (!r.some(function(v) { return v !== "" && v !== null; })) return;
+          var y = spec.yearOf(r);
+          (groups[y] = groups[y] || []).push(r);
+        });
+        Object.keys(groups).forEach(function(y) {
+          var sh = spec.target(y), rows = groups[y];
+          ensureRows_(sh, sh.getLastRow() + rows.length);
+          sh.getRange(sh.getLastRow() + 1, 1, rows.length, spec.ncols).setValues(rows);
+        });
+        if (spec.after) spec.after(Object.keys(groups));
+        old.setName(spec.legacy + "_OLD_" + Utilities.formatDate(new Date(), "Asia/Kolkata", "yyyyMMdd_HHmm"));
+        try { old.hideSheet(); } catch (e) {}
+      } else {
+        try { if (ss.getSheets().length > 1) ss.deleteSheet(old); } catch (e) {}
+      }
+    }
+    props.setProperty(spec.flag, "1");
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// ---------- Fees ----------
+var FEES_SUMMARY_HEADERS = ["RegNo","StudentId","FullName","Class","Division","AcYear","FeePaid","LastPaidAt","LastAmount","Installments","UpdatedBy"];
+function feesEventSheet_(year, create) { return getYearSheet_("Fees", year, FEES_HEADERS, create); }
+function feesSummarySheet_(year, create) { return getYearSheet_("FeesSummary", year, FEES_SUMMARY_HEADERS, create); }
+function feesEnsureMigrated_() {
+  migrateLegacyToYearly_({legacy: "Fees", flag: "FEES_YEARLY_MIGRATED", ncols: 11,
+    yearOf: function(r) { return normAcYear_(r[6]); },
+    target: function(y) { return feesEventSheet_(y, true); },
+    after: function(years) { years.forEach(rebuildFeesSummary_); }});
+}
+// सारांश Sheet मिळवा; ती नसेल पण जमा-नोंदी असतील तर त्यावरून आपोआप पुन्हा बांधा
+function feesSummaryEnsure_(year) {
+  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("FeesSummary_" + year);
+  if (sh) return sh;
+  var ev = feesEventSheet_(year, false);
+  if (ev && ev.getLastRow() > 1) { rebuildFeesSummary_(year); return SpreadsheetApp.getActiveSpreadsheet().getSheetByName("FeesSummary_" + year); }
+  return null;
+}
+function feesSummaryRows_(year) {
+  var sh = feesSummaryEnsure_(year);
+  if (!sh || sh.getLastRow() < 2) return [];
+  return sh.getRange(2, 1, sh.getLastRow() - 1, 11).getValues();
+}
+function rebuildFeesSummary_(year) {
+  var ev = feesEventSheet_(year, false);
+  var sum = feesSummarySheet_(year, true);
+  var latest = {}, order = [];
+  if (ev && ev.getLastRow() > 1) {
+    ev.getRange(2, 1, ev.getLastRow() - 1, 11).getValues().forEach(function(r) {
+      var rg = (r[1] || "").toString().trim().toLowerCase();
+      if (!rg) return;
+      var paid = parseFloat(r[8]) || 0, e = latest[rg];
+      if (!e) { e = latest[rg] = {n: 0, prev: 0}; order.push(rg); }
+      e.row = r; e.n++; e.last = paid - e.prev; e.prev = paid;
+    });
+  }
+  var out = order.map(function(rg) { var e = latest[rg], r = e.row; return [r[1], r[2], r[3], r[4], r[5], year, e.prev, r[0], e.last, e.n, r[10]]; });
+  if (sum.getLastRow() > 1) sum.getRange(2, 1, sum.getLastRow() - 1, 11).clearContent();
+  if (out.length) { ensureRows_(sum, 1 + out.length); sum.getRange(2, 1, out.length, 11).setValues(out); }
+  return out.length;
+}
+// Super Admin: सारांश चुकीचा वाटल्यास जमा-नोंदींवरून पुन्हा बांधा (जमा-नोंदी हीच मूळ माहिती आहे)
+function doRebuildFeesSummary(d) {
+  if (d.requesterRole !== "super") return {status:"error", message:"अधिकार फक्त Super Master ला आहे."};
+  var year = normAcYear_(d.year);
+  var lock = LockService.getScriptLock();
+  var locked = false;
+  try {
+    feesEnsureMigrated_();
+    lock.waitLock(30000); locked = true;
+    var n = rebuildFeesSummary_(year);
+    return {rowIndex: 0, mode: "updated", count: n, ref: "feesSummary " + year, extra: {year: year, students: n}};
+  } catch (err) {
+    return {status:"error", message:err.toString()};
+  } finally {
+    if (locked) lock.releaseLock();
+  }
+}
+
+// ---------- Diary / Transport ----------
+function diarySheet_(year, create) { return getYearSheet_("Diary", year, DIARY_HEADERS, create, 2); }
+function diaryEnsureMigrated_() {
+  migrateLegacyToYearly_({legacy: "DiaryRemarks", flag: "DIARY_YEARLY_MIGRATED", ncols: 10,
+    yearOf: function(r) { return acYearOfDate_(fmt(r[1])); },
+    target: function(y) { return diarySheet_(y, true); }});
+}
+function transportEnsureMigrated_() {
+  migrateLegacyToYearly_({legacy: "StudentTransport", flag: "TRANSPORT_YEARLY_MIGRATED", ncols: 10,
+    yearOf: function() { return currentAcYear_(); },
+    target: function(y) { return getYearSheet_("Transport", y, TRANSPORT_HEADERS, true); }});
 }

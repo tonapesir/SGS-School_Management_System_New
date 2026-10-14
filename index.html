@@ -788,7 +788,7 @@
       <div class="div"></div>
       <div class="sec-title">उपस्थिती माहिती / ATTENDANCE DETAILS</div>
       <div class="frow">
-        <div class="fg w180"><label>शै.वर्ष (Academic Year)</label><select id="at_stxt2" value="2026-27">-</option><option>2027-28</option><option>2028-29</option><option>2029-30</option></select></div>
+        <div class="fg w180"><label>शै.वर्ष (Academic Year)</label><select id="at_stxt2"><option>2025-26</option><option selected>2026-27</option><option>2027-28</option><option>2028-29</option></select></div>
         <div class="fg w150"><label>प्रमाणपत्र दिनांक</label><input type="date" id="at_stxt57"></div>
         <div class="fg wf">
           <label>उद्देश (Purpose)</label>
@@ -977,6 +977,7 @@
           </select>
         </div>
         <div class="fg w150"><label>Label / Display Name</label><input id="um_label" placeholder="उदा. Clerk 2"></div>
+        <div class="fg w150"><label>मोबाईल क्रमांक (WhatsApp)</label><input id="um_mobile" placeholder="10 अंकी" maxlength="14" inputmode="tel"></div>
         <div class="fg w120" id="um_classWrap" style="display:none">
           <label>वर्ग</label>
           <select id="um_assignedClass" style="padding:7px 10px;border-radius:var(--r);border:1.5px solid var(--pb);background:var(--peach);font-family:inherit;font-size:14px;width:100%">
@@ -1007,7 +1008,7 @@
     <div class="card-body">
       <div style="overflow-x:auto">
         <table class="hist-table" id="um_table">
-          <thead><tr><th>Username</th><th>Role</th><th>Label</th><th>वर्ग</th><th>कृती</th></tr></thead>
+          <thead><tr><th>Username</th><th>Role</th><th>Label</th><th>वर्ग</th><th>मोबाईल</th><th>कृती</th></tr></thead>
           <tbody id="um_tbody"></tbody>
         </table>
       </div>
@@ -1288,12 +1289,20 @@
 <!-- ==================== हजेरी विश्लेषण (Master / Super) — V19.36 ==================== -->
 <div id="pg-attanalytics" class="page">
   <div class="sec-title" style="margin-bottom:10px">📈 हजेरी विश्लेषण</div>
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-header"><div><h2>📊 वर्गनिहाय सारांश</h2><p>निवडलेल्या महिन्याची सर्व वर्गांची उपस्थिती एका नजरेत — आजची हजेरी भरली की नाही सुद्धा.</p></div>
+      <button class="btn btn-blue btn-sm" onclick="attaOverview()">🔄 Refresh</button></div>
+    <div class="card-body">
+      <div id="atta_ovStatus" style="font-size:12.5px;margin-bottom:8px;color:#cfd8e8"></div>
+      <div id="atta_ovTable" style="overflow-x:auto"></div>
+    </div>
+  </div>
   <div class="card">
     <div class="card-header"><div><h2>मासिक उपस्थिती व सलग गैरहजेरी</h2><p>कार्यदिवस = त्या वर्गाची हजेरी Save झालेले दिवस. भरायला विसरलेला दिवस मोजला जात नाही.</p></div></div>
     <div class="card-body">
       <div class="frow" style="gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px">
         <div class="fg w180"><label>वर्ग / तुकडी</label><select id="atta_class" style="padding:7px 10px;border-radius:var(--r);border:1.5px solid var(--pb);background:var(--peach);font-family:inherit;width:100%"><option value="">⏳ Load होत आहे...</option></select></div>
-        <div class="fg w150"><label>महिना</label><input id="atta_month" type="month"></div>
+        <div class="fg w150"><label>महिना</label><input id="atta_month" type="month" onchange="attaOverview()"></div>
         <div class="fg w150"><label>सलग दिवस (किमान)</label><input id="atta_run" type="number" min="2" max="10" value="3"></div>
         <div class="fg" style="flex:0 0 auto"><button class="btn btn-blue" onclick="attaLoad()">📊 विश्लेषण पहा</button></div>
         <div class="fg" style="flex:0 0 auto"><button class="btn btn-green" id="atta_pdfBtn" onclick="attaExportPdf('atta')" disabled>📥 PDF</button></div>

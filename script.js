@@ -32,7 +32,7 @@ window.androidBackPressed = function() {
 
 
 // URL persistence
-var DEFAULT_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbz5vUDXGDmY8w3TG2slnJcxOAXCB7Aap7p4e2XIiwlhviciAqznphAIr0L_kP6omYmW/exec';
+var DEFAULT_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbwwWYIrNbvCHPVerxUxe7L-2Y8emZjKlmYpxOjFqssKxfGfif9HToQRIKTttTiXac1k/exec';
 
 // =====================================================
 // 🔐 LOGIN + ROLE PERMISSIONS
@@ -3615,7 +3615,7 @@ function loadUsersTable() {
   var url = getUrl();
   var tbody = document.getElementById('um_tbody');
   if (!url || !tbody) return;
-  tbody.innerHTML = '<tr><td colspan="5">⏳ Load होत आहे...</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="6">⏳ Load होत आहे...</td></tr>';
   var cb = 'umCb_' + Date.now();
   window[cb] = function(r) {
     delete window[cb];
@@ -3623,12 +3623,12 @@ function loadUsersTable() {
       window._allUsers = r.data;
       tbody.innerHTML = r.data.map(function(u) {
         var clsLabel = (u.assignedClass||'').replace('|','-');
-        return '<tr><td>' + u.username + '</td><td>' + u.role + '</td><td>' + (u.label||'') + '</td><td>' + clsLabel + '</td>'
+        return '<tr><td>' + u.username + '</td><td>' + u.role + '</td><td>' + (u.label||'') + '</td><td>' + clsLabel + '</td><td>' + (u.mobile||'') + '</td>'
           + '<td><button class="btn btn-blue" style="padding:4px 10px;font-size:11px" onclick="editUser(\'' + u.username + '\')">✏️ Edit</button> '
           + '<button class="btn btn-red" style="padding:4px 10px;font-size:11px" onclick="deleteUser(\'' + u.username + '\')">🗑️ Delete</button></td></tr>';
       }).join('');
     } else {
-      tbody.innerHTML = '<tr><td colspan="5">❌ Load Failed</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="6">❌ Load Failed</td></tr>';
     }
   };
   var s = document.createElement('script');
@@ -3642,13 +3642,14 @@ function editUser(username) {
   document.getElementById('um_password').value = u.password;
   document.getElementById('um_role').value = u.role;
   document.getElementById('um_label').value = u.label || '';
+  document.getElementById('um_mobile').value = u.mobile || '';
   var parts = (u.assignedClass||'').split('|');
   document.getElementById('um_assignedClass').value = parts[0] || '';
   document.getElementById('um_assignedTukdi').value = parts[1] || '';
   toggleUmClassFields();
 }
 function clearUserForm() {
-  ['um_username','um_password','um_label'].forEach(function(id){ document.getElementById(id).value = ''; });
+  ['um_username','um_password','um_label','um_mobile'].forEach(function(id){ document.getElementById(id).value = ''; });
   document.getElementById('um_role').value = 'cert';
   document.getElementById('um_assignedClass').value = '';
   document.getElementById('um_assignedTukdi').value = '';
@@ -3670,7 +3671,8 @@ function saveUser() {
     assignedClass = cls + '|' + tuk;
   }
   if (!username || !password) { document.getElementById('um_status').textContent = '⚠️ Username व Password आवश्यक आहेत.'; return; }
-  var data = { action:'saveUser', username:username, password:password, role:role, label:label, assignedClass:assignedClass,
+  var mobile = (document.getElementById('um_mobile').value || '').trim();
+  var data = { action:'saveUser', username:username, password:password, role:role, label:label, assignedClass:assignedClass, mobile: mobile,
     requesterUser: currentUser.username, requesterRole: currentUser.role };
   document.getElementById('um_status').textContent = '⏳ Saving...';
   smartSave(data, function(r) {
@@ -5134,8 +5136,11 @@ function mstLoadAttendancePending() {
     if (r.pending.length) {
       html += r.pending.map(function(t) {
         var m = 'नमस्कार ' + t.label + ', ' + t.iyatta + ' ' + t.tukdi + ' ची आजची हजेरी अजून भरलेली नाही. कृपया लवकर भरावी. — श्री. गो. से. हायस्कूल, पाचोरा';
+        // V19.43: शिक्षकाच्या Users Sheet मधील मोबाईल क्रमांकावर थेट WhatsApp; नंबर नसेल तरच संपर्क निवडावा लागतो
+        var hasNo = !!telHref(t.mobile || '');
         return '<div style="margin-bottom:5px">⏳ <b>' + escRpHtml(t.iyatta + ' ' + t.tukdi) + '</b> — ' + escRpHtml(t.label) + ' <span style="opacity:.6">(' + escRpHtml(t.username) + ')</span> ' +
-          '<a href="' + waHref('', m) + '" target="_blank" rel="noopener" style="color:#7be08a;text-decoration:none">📲 आठवण</a></div>';
+          '<a href="' + waHref(hasNo ? t.mobile : '', m) + '" target="_blank" rel="noopener" style="color:#7be08a;text-decoration:none">📲 आठवण</a>' +
+          (hasNo ? ' <span style="opacity:.6;font-size:11.5px">' + escRpHtml(t.mobile) + '</span>' : ' <span style="opacity:.6;font-size:11.5px" title="Users Sheet मध्ये मोबाईल नाही">(नंबर नाही — संपर्क निवडा)</span>') + '</div>';
       }).join('');
       var all = 'नमस्कार, आजची हजेरी अजून भरलेली नाही अशा वर्गांचे शिक्षक: ' + r.pending.map(function(t){ return t.iyatta + ' ' + t.tukdi + ' (' + t.label + ')'; }).join(', ') + '. कृपया हजेरी भरावी. — श्री. गो. से. हायस्कूल, पाचोरा';
       html += '<div style="margin-top:8px"><a href="' + waHref('', all) + '" target="_blank" rel="noopener" style="color:#7be08a">📲 एकत्र संदेश (शिक्षक Group साठी)</a></div>';
@@ -5439,6 +5444,7 @@ function attaMonthDefault(id) {
 }
 function attaInit() {
   attaMonthDefault('atta_month');
+  attaOverview();
   var sel = document.getElementById('atta_class');
   if (!sel || sel.getAttribute('data-loaded') === '1') return;
   jsonpRequest({action: 'getClassList'}, function(r) {
@@ -5964,4 +5970,52 @@ function saShrink() {
     if (r && r.status === 'ok') { st.textContent = '✅ ' + fmtIN(r.extra.saved) + ' cells मोकळे झाले (' + r.count + ' Sheets)' + (r.extra.failed && r.extra.failed.length ? ' · ⚠️ जमले नाही: ' + r.extra.failed.join(', ') : '') + '.'; setTimeout(saLoadSizes, 1200); }
     else st.textContent = '❌ ' + friendlyMsg((r && r.message) || 'Failed');
   });
+}
+
+// V19.43: उपस्थिती प्रमाणपत्र — शै.वर्ष (2025-26 … 2028-29): पान उघडताना चालू शैक्षणिक वर्ष (जून–मे) निवडलेले असते
+function clientAcYear() {
+  var d = new Date(), y = d.getFullYear(), start = d.getMonth() >= 5 ? y : y - 1;
+  return start + '-' + String(start + 1).slice(-2);
+}
+function atInitYear() {
+  var sel = document.getElementById('at_stxt2');
+  if (!sel) return;
+  var cur = clientAcYear();
+  for (var i = 0; i < sel.options.length; i++) { if (sel.options[i].value === cur || sel.options[i].text === cur) { sel.selectedIndex = i; break; } }
+}
+if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded', atInitYear);
+
+// =====================================================================
+// V19.43 — हजेरी विश्लेषण पानावर "वर्गनिहाय सारांश" (Master / Super)
+// =====================================================================
+var attaOvData = null;
+function attaOverview() {
+  var st = document.getElementById('atta_ovStatus');
+  if (!st) return;
+  attaMonthDefault('atta_month');
+  var month = document.getElementById('atta_month').value;
+  st.textContent = '⏳ Load होत आहे...';
+  jsonpRequest({action: 'getAttendanceOverview', month: month, requesterRole: currentUser.role}, function(r) {
+    if (!r || r.status !== 'ok' || !r.rows) { st.textContent = '❌ ' + friendlyMsg((r && r.message) || 'सर्व्हरचे उत्तर अपूर्ण आहे — नवीन Code.gs Deploy करा.'); return; }
+    attaOvData = r;
+    st.textContent = r.hasMarks ? '' : 'ℹ️ या महिन्यात अजून कोणत्याही वर्गाची हजेरी भरलेली नाही.';
+    var tot = 0, totDays = 0, sumPct = 0, cnt = 0;
+    var rows = r.rows.map(function(x) {
+      var col = x.avgPct == null ? '' : (x.avgPct < 75 ? 'color:#ff9a9a;font-weight:700' : (x.avgPct < 90 ? 'color:#ffd27a' : 'color:#7be08a'));
+      if (x.avgPct != null) { sumPct += x.avgPct; cnt++; }
+      var today = x.todayMarked ? '<span style="color:#7be08a">✅ भरली (' + x.todayAbsent + ' गैरहजर)</span>' : '<span style="opacity:.6">⏳ बाकी</span>';
+      return '<tr style="cursor:pointer" onclick="attaPick(\'' + escRpHtml(x.iyatta) + '|' + escRpHtml(x.tukdi) + '\')"><td><b>' + escRpHtml(classToMr(x.iyatta) + ' ' + x.tukdi) + '</b></td><td>' + x.students +
+        '</td><td>' + x.days + '</td><td style="' + col + '">' + (x.avgPct == null ? '—' : x.avgPct + '%') + '</td><td>' + x.absentDays + '</td><td>' + today + '</td></tr>';
+    }).join('');
+    document.getElementById('atta_ovTable').innerHTML = '<table class="hist-table"><thead><tr><th>वर्ग</th><th>विद्यार्थी</th><th>हजेरी भरलेले दिवस</th><th>सरासरी उपस्थिती</th><th>एकूण गैरहजर-दिवस</th><th>आजची हजेरी</th></tr></thead><tbody>' + rows + '</tbody></table>' +
+      '<div style="font-size:12px;opacity:.7;margin-top:6px">ओळीवर दाबा = त्या वर्गाचे सविस्तर विश्लेषण (खाली). सरासरी उपस्थिती (शाळा): <b>' + (cnt ? Math.round(sumPct * 10 / cnt) / 10 + '%' : '—') + '</b></div>';
+  });
+}
+function attaPick(val) {
+  var sel = document.getElementById('atta_class');
+  var found = false;
+  for (var i = 0; i < sel.options.length; i++) { if (sel.options[i].value === val) { sel.selectedIndex = i; found = true; break; } }
+  if (!found) { setTimeout(function() { attaPick(val); }, 400); return; }
+  attaLoad();
+  var out = document.getElementById('atta_out'); if (out && out.scrollIntoView) out.scrollIntoView({behavior: 'smooth', block: 'start'});
 }

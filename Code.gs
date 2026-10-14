@@ -230,6 +230,9 @@ function doGetCore_(e) {
   if (p.action === "getAttendanceAnalytics") {
     return doGetAttendanceAnalytics(p, cb);
   }
+  if (p.action === "getAttendanceOverview") {
+    return doGetAttendanceOverview(p, cb);
+  }
   if (p.action === "getSheetSizes") {
     return doGetSheetSizes(p, cb);
   }
@@ -546,7 +549,7 @@ function doGetAllCertificates(p, cb) {
 // =====================================================
 // 👥 USER MANAGEMENT PRO (V19.9)
 // =====================================================
-var USER_HEADERS = ["Username","Password","Role","Label","AssignedClass"];
+var USER_HEADERS = ["Username","Password","Role","Label","AssignedClass","Mobile No."];
 var DEFAULT_USERS_SEED = [
   ["user_1","Pass@1234","master","Master User",""],
   ["user_2","Pass@1234","deo","DEO User",""],
@@ -567,11 +570,12 @@ function doGetUsers(p, cb) {
       return wrap(cb, {status:"error", message:"User यादी पाहण्याचा अधिकार फक्त Super Master ला आहे."});
     }
     var sh = getUsersSheet();
-    var rows = sh.getRange(2, 1, sh.getLastRow()-1, 5).getValues();
+    ensureCols_(sh, 6);
+    var rows = sh.getRange(2, 1, sh.getLastRow()-1, 6).getValues();
     var out = [];
     for (var i=0;i<rows.length;i++) {
       if (!rows[i][0]) continue;
-      out.push({ rowIndex:i+2, username:rows[i][0], password:rows[i][1], role:normRole_(rows[i][2]), label:rows[i][3], assignedClass:rows[i][4]||"" });
+      out.push({ rowIndex:i+2, username:rows[i][0], password:rows[i][1], role:normRole_(rows[i][2]), label:rows[i][3], assignedClass:rows[i][4]||"", mobile:phoneDigits_(rows[i][5]) })
     }
     return wrap(cb, {status:"ok", data: out});
   } catch(err) {
@@ -593,10 +597,17 @@ function doSaveUser(p, cb) {
     if (VALID_ROLES.indexOf(roleIn) === -1) {
       return wrap(cb, {status:"error", message:"Role चुकीचा आहे."});
     }
+    ensureCols_(sh, 6);
     var rowToWrite = findRowByKey(sh, 1, username);
-    var row = [username, p.password||"", roleIn, p.label||username, p.assignedClass||""];
+    // मोबाईल: पाठवला नसेल तर जुना तसाच राहतो; रिकामा पाठवला तर काढला जातो
+    var mobile = rowToWrite ? sh.getRange(rowToWrite, 6).getValue() : "";
+    if (p.mobile !== undefined) {
+      mobile = phoneDigits_(p.mobile);
+      if (mobile && (mobile.length < 10 || mobile.length > 12)) return wrap(cb, {status:"error", message:"मोबाईल क्रमांक १० अंकी असावा."});
+    }
+    var row = [username, p.password||"", roleIn, p.label||username, p.assignedClass||"", mobile];
     if (rowToWrite) {
-      sh.getRange(rowToWrite, 1, 1, 5).setValues([row]);
+      sh.getRange(rowToWrite, 1, 1, 6).setValues([row]);
     } else {
       sh.appendRow(row);
     }
@@ -911,6 +922,7 @@ function doSaveAttendance(d) {
       var gone = oldRows.filter(function(orow) { return !newKeys[(orow[4] || "").toString().trim().toLowerCase() + "|" + (orow[7] || "").toString().trim()]; });
       if (gone.length) backupDeleted_("Attendance", DAILY_ATT_HEADERS, gone, d.markedBy || "", "हजेरी पुन्हा Save — जुनी आवृत्ती");
     }
+    try { attMarksUpsert_(date, iyatta, tukdi, absentList.length, d.markedBy || ""); } catch (eM) { attBump_(); }   // V19.43: कोणत्या वर्गाची हजेरी कधी भरली — Log वाचावी लागू नये म्हणून
     return {rowIndex: sh.getLastRow(), mode: removed ? "updated" : "created", count: absentList.length, ref: iyatta+"-"+tukdi+" "+date};
   } catch(err) {
     return {status:"error", message:err.toString()};
@@ -926,7 +938,7 @@ function doGetAttendance(p, cb) {
     var date = (p.date||"").toString().trim();
     var dateFrom = (p.dateFrom||"").toString().trim();
     var dateTo = (p.dateTo||"").toString().trim();
-    var rows = readAttendanceRows_(date || dateFrom, date || dateTo);
+    var rows = (date && !dateFrom && !dateTo) ? readAttendanceDateRows_(date) : readAttendanceRows_(date || dateFrom, date || dateTo);
     var out = [];
     for (var i=0;i<rows.length;i++) {
       var r = rows[i];
@@ -1314,7 +1326,7 @@ function doGetStatsReport(p, cb) {
       }
     }
 
-    var attRows = readAttendanceRows_(today, today);
+    var attRows = readAttendanceDateRows_(today);
     for (var j=0;j<attRows.length;j++) {
       var ar = attRows[j];
       if (fmt(ar[1]) !== today) continue;
@@ -1545,6 +1557,9 @@ function doGetTeacherDashboard(p, cb) {
     var iyatta = (p.iyatta||"").toString().trim();
     var tukdi = (p.tukdi||"").toString().trim();
     var date = (p.date||todayStr()).toString().trim();
+    // V19.43: थोड्या वेळासाठी Cache (हजेरी Save / विद्यार्थी बदल झाल्यास आपोआप रद्द)
+    var ckey = "tdash_" + encodeURIComponent(iyatta + "|" + tukdi) + "_" + date + "_" + attVer_() + "_" + rosterVer_();
+    if (p.nocache !== "1") { var hit = cacheGetBig_(ckey); if (hit) { hit.cached = true; return wrap(cb, hit); } }
     var ss = SpreadsheetApp.getActiveSpreadsheet();
 
     var roster = getRosterCached_(iyatta, tukdi, p.nocache === "1").data;
@@ -1559,7 +1574,7 @@ function doGetTeacherDashboard(p, cb) {
     }
 
     var absentList = [];
-    var attRows = readAttendanceRows_(date, date);
+    var attRows = readAttendanceDateRows_(date);
     for (var j=0;j<attRows.length;j++) {
       var ar = attRows[j];
       if (fmt(ar[1]) !== date) continue;
@@ -1571,7 +1586,9 @@ function doGetTeacherDashboard(p, cb) {
     var notices = [];
     var noticeSh = ss.getSheetByName("Notices");
     if (noticeSh && noticeSh.getLastRow() > 1) {
-      var nRows = noticeSh.getRange(2,1,noticeSh.getLastRow()-1,6).getValues();
+      var nLast = noticeSh.getLastRow();
+      var nStart = Math.max(2, nLast - 199);               // फक्त शेवटच्या २०० सूचना — Sheet वाढली तरी वेग तोच
+      var nRows = noticeSh.getRange(nStart, 1, nLast - nStart + 1, 6).getValues();
       for (var k=0;k<nRows.length;k++) {
         var nr = nRows[k];
         var tc = (nr[5]||"").toString().trim();
@@ -1582,7 +1599,7 @@ function doGetTeacherDashboard(p, cb) {
       notices = notices.slice(0,5);
     }
 
-    return wrap(cb, {
+    var res = {
       status:"ok",
       totalStudents: totalStudents,
       absentCount: absentList.length,
@@ -1590,7 +1607,9 @@ function doGetTeacherDashboard(p, cb) {
       absentList: absentList,
       birthdayStudents: birthdayStudents,
       notices: notices
-    });
+    };
+    cachePutBig_(ckey, res, 90);
+    return wrap(cb, res);
   } catch(err) {
     return wrap(cb, {status:"error", message:err.toString()});
   }
@@ -2202,69 +2221,72 @@ function doGetAttendancePending(p, cb) {
     var dm = ISO_DATE_RE.exec(date);
     var isSunday = new Date(parseInt(dm[1], 10), parseInt(dm[2], 10) - 1, parseInt(dm[3], 10)).getDay() === 0;
 
-    // अपेक्षित वर्ग-शिक्षक: Users sheet मधील role=teacher + AssignedClass
+    // अपेक्षित वर्ग-शिक्षक: Users sheet मधील role=teacher + AssignedClass + मोबाईल (स्तंभ F)
     var teachers = [];
     var uSh = ss.getSheetByName("Users");
     if (uSh && uSh.getLastRow() > 1) {
-      var uRows = uSh.getRange(2, 1, uSh.getLastRow() - 1, 5).getValues();
+      var ucols = Math.min(6, uSh.getMaxColumns());
+      var uRows = uSh.getRange(2, 1, uSh.getLastRow() - 1, ucols).getValues();
       for (var i = 0; i < uRows.length; i++) {
         var u = uRows[i];
-        if ((u[2] || "").toString().trim() !== "teacher") continue;
+        if (normRole_(u[2]) !== "teacher") continue;
         var parts = (u[4] || "").toString().split("|");
         if (!parts[0]) continue;
-        teachers.push({username: u[0], label: u[3] || u[0], iyatta: parts[0].trim(), tukdi: (parts[1] || "").trim()});
+        teachers.push({username: u[0], label: u[3] || u[0], iyatta: parts[0].trim(), tukdi: (parts[1] || "").trim(), mobile: ucols >= 6 ? phoneDigits_(u[5]) : ""});
       }
     }
 
-    // हजेरी भरल्याची नोंद: (अ) Log sheet चा शेवटचा भाग — सर्व Save नोंदवतो, शून्य-अनुपस्थित Save सुद्धा
+    // हजेरी भरल्याची नोंद: AttMarks (प्रत्येक Save ची एक ओळ — शून्य-अनुपस्थित Save सुद्धा). AttMarks नसेल तरच Log चा शेवटचा भाग.
     var marked = {};
-    var logSh = ss.getSheetByName("Log");
-    if (logSh && logSh.getLastRow() > 1) {
-      var lastRow = logSh.getLastRow();
-      var cnt = Math.min(lastRow - 1, 4000);
-      var lRows = logSh.getRange(lastRow - cnt + 1, 1, cnt, 5).getValues();
-      for (var j = 0; j < lRows.length; j++) {
-        var lr = lRows[j];
-        if ((lr[3] || "").toString() !== "saveAttendance") continue;
-        var ref = (lr[4] || "").toString();
-        var sp = ref.lastIndexOf(" ");
-        if (sp < 1 || ref.slice(sp + 1) !== date) continue;
-        var tm = lr[0] instanceof Date ? Utilities.formatDate(lr[0], "Asia/Kolkata", "HH:mm") : (lr[0] || "").toString();
-        marked[ref.slice(0, sp)] = {by: lr[1], time: tm};
+    var marks = attMarksRowsForDate_(date);
+    if (marks !== null) {
+      marks.forEach(function(m) {
+        marked[(m[1] || "").toString().trim() + "-" + (m[2] || "").toString().trim()] = {by: m[6], time: (m[7] || "").toString().split(",").pop().trim()};
+      });
+    } else {
+      var logSh = ss.getSheetByName("Log");
+      if (logSh && logSh.getLastRow() > 1) {
+        var lastRow = logSh.getLastRow();
+        var cnt = Math.min(lastRow - 1, 4000);
+        var lRows = logSh.getRange(lastRow - cnt + 1, 1, cnt, 5).getValues();
+        for (var j = 0; j < lRows.length; j++) {
+          var lr = lRows[j];
+          if ((lr[3] || "").toString() !== "saveAttendance") continue;
+          var ref = (lr[4] || "").toString();
+          var sp = ref.lastIndexOf(" ");
+          if (sp < 1 || ref.slice(sp + 1) !== date) continue;
+          var tm = lr[0] instanceof Date ? Utilities.formatDate(lr[0], "Asia/Kolkata", "HH:mm") : (lr[0] || "").toString();
+          marked[ref.slice(0, sp)] = {by: lr[1], time: tm};
+        }
       }
     }
-    // (आ) त्या दिवशी अनुपस्थित विद्यार्थी नोंदवलेले वर्गही "भरले" समजा
-    var attRows = readAttendanceRows_(date, date);
-    for (var a = 0; a < attRows.length; a++) {
-      if (fmt(attRows[a][1]) !== date) continue;
-      var k2 = (attRows[a][2] || "").toString().trim() + "-" + (attRows[a][3] || "").toString().trim();
-      if (!marked[k2]) marked[k2] = {by: attRows[a][8], time: ""};
-    }
+    // त्या दिवशी अनुपस्थित विद्यार्थी नोंदवलेले वर्गही "भरले" समजा
+    readAttendanceDateRows_(date).forEach(function(r) {
+      if (fmt(r[1]) !== date) return;
+      var k2 = (r[2] || "").toString().trim() + "-" + (r[3] || "").toString().trim();
+      if (!marked[k2]) marked[k2] = {by: r[8], time: ""};
+    });
 
     var pending = [], done = [], covered = {};
     teachers.forEach(function(t) {
       var key = t.iyatta + "-" + t.tukdi;
       covered[key] = true;
       var m = marked[key];
-      if (m) done.push({username: t.username, label: t.label, iyatta: t.iyatta, tukdi: t.tukdi, by: m.by, time: m.time});
-      else pending.push({username: t.username, label: t.label, iyatta: t.iyatta, tukdi: t.tukdi});
+      if (m) done.push({username: t.username, label: t.label, iyatta: t.iyatta, tukdi: t.tukdi, mobile: t.mobile, by: m.by, time: m.time});
+      else pending.push({username: t.username, label: t.label, iyatta: t.iyatta, tukdi: t.tukdi, mobile: t.mobile});
     });
     pending.sort(function(a, b) { return classSortKey_(a.iyatta) - classSortKey_(b.iyatta) || (a.tukdi < b.tukdi ? -1 : 1); });
 
-    // Students मध्ये आहेत पण कोणत्याही वर्ग-शिक्षकाला नेमलेले नाहीत असे वर्ग
+    // Students मध्ये आहेत पण कोणत्याही वर्ग-शिक्षकाला नेमलेले नाहीत असे वर्ग (वर्ग-यादी Cache मधून)
     var unassigned = [], seen = {};
-    var stSh = ss.getSheetByName("Students");
-    if (stSh && stSh.getLastRow() > 1) {
-      var cd = stSh.getRange(2, 7, stSh.getLastRow() - 1, 2).getValues();
-      for (var c = 0; c < cd.length; c++) {
-        var ci = (cd[c][0] || "").toString().trim(), ct = (cd[c][1] || "").toString().trim();
-        if (!ci) continue;
-        var ck = ci + "-" + ct;
-        if (seen[ck]) continue;
-        seen[ck] = true;
-        if (!covered[ck]) unassigned.push({iyatta: ci, tukdi: ct});
-      }
-    }
+    getRosterCached_("", "", false).data.forEach(function(st) {
+      var ci = (st.iyatta || "").toString().trim(), ct = (st.tukdi || "").toString().trim();
+      if (!ci) return;
+      var ck = ci + "-" + ct;
+      if (seen[ck]) return;
+      seen[ck] = true;
+      if (!covered[ck]) unassigned.push({iyatta: ci, tukdi: ct});
+    });
     return wrap(cb, {status:"ok", date: date, isSunday: isSunday, totalExpected: teachers.length,
       pending: pending, done: done, unassigned: unassigned});
   } catch (err) {
@@ -2460,6 +2482,9 @@ function doGetAttendanceAnalytics(p, cb) {
     if (!iyatta) return wrap(cb, {status:"error", message:"वर्ग निवडा."});
     if (!/^\d{4}-\d{2}$/.test(month)) return wrap(cb, {status:"error", message:"महिना YYYY-MM स्वरूपात हवा."});
     var from = month + "-01", to = month + "-31";
+    var ckey = "ana_" + month + "_" + encodeURIComponent(iyatta + "|" + tukdi) + "_" + minRun + "_" + attVer_() + "_" + rosterVer_();
+    var hitA = cacheGetBig_(ckey);
+    if (hitA) { hitA.cached = true; return wrap(cb, hitA); }
 
     var roster = getRosterCached_(iyatta, tukdi, false).data;
 
@@ -2470,20 +2495,31 @@ function doGetAttendanceAnalytics(p, cb) {
       (workByDiv[div] = workByDiv[div] || {})[date] = true;
     }
     var ss = SpreadsheetApp.getActiveSpreadsheet();
-    var logSh = ss.getSheetByName("Log");
-    if (logSh && logSh.getLastRow() > 1) {
-      var lastRow = logSh.getLastRow();
-      var cnt = Math.min(lastRow - 1, 20000);
-      var lRows = logSh.getRange(lastRow - cnt + 1, 4, cnt, 2).getValues(); // D=Action, E=Reference
-      for (var i = 0; i < lRows.length; i++) {
-        if ((lRows[i][0] || "").toString() !== "saveAttendance") continue;
-        var ref = (lRows[i][1] || "").toString();
-        var sp = ref.lastIndexOf(" ");
-        if (sp < 1) continue;
-        var div = ref.slice(0, sp), dt = ref.slice(sp + 1);
-        if (div.indexOf(iyatta + "-") !== 0) continue;
-        if (tukdi && div !== iyatta + "-" + tukdi) continue;
-        addWork(div, dt);
+    // कार्यदिवस: AttMarks (प्रत्येक वर्गाची प्रत्येक दिवशीची Save) — नसेल तरच जुनी पद्धत (Log)
+    var marksRows = attMarksMonthRows_(month.replace("-", "_"));
+    if (marksRows !== null) {
+      marksRows.forEach(function(m) {
+        var div = (m[1] || "").toString().trim() + "-" + (m[2] || "").toString().trim();
+        if (div.indexOf(iyatta + "-") !== 0) return;
+        if (tukdi && div !== iyatta + "-" + tukdi) return;
+        addWork(div, fmt(m[0]));
+      });
+    } else {
+      var logSh = ss.getSheetByName("Log");
+      if (logSh && logSh.getLastRow() > 1) {
+        var lastRow = logSh.getLastRow();
+        var cnt = Math.min(lastRow - 1, 20000);
+        var lRows = logSh.getRange(lastRow - cnt + 1, 4, cnt, 2).getValues(); // D=Action, E=Reference
+        for (var i = 0; i < lRows.length; i++) {
+          if ((lRows[i][0] || "").toString() !== "saveAttendance") continue;
+          var ref = (lRows[i][1] || "").toString();
+          var sp = ref.lastIndexOf(" ");
+          if (sp < 1) continue;
+          var div2 = ref.slice(0, sp), dt = ref.slice(sp + 1);
+          if (div2.indexOf(iyatta + "-") !== 0) continue;
+          if (tukdi && div2 !== iyatta + "-" + tukdi) continue;
+          addWork(div2, dt);
+        }
       }
     }
     var attRows = readAttendanceRows_(from, to);
@@ -2530,8 +2566,10 @@ function doGetAttendanceAnalytics(p, cb) {
     streaks.sort(function(a, b) { return b.run - a.run; });
     var workingDays = 0;
     Object.keys(workByDiv).forEach(function(kk) { workingDays = Math.max(workingDays, Object.keys(workByDiv[kk]).length); });
-    return wrap(cb, {status:"ok", month: month, iyatta: iyatta, tukdi: tukdi, minRun: minRun, workingDays: workingDays,
-      avgPct: counted ? Math.round(totalPct * 10 / counted) / 10 : null, students: students, streaks: streaks});
+    var resA = {status:"ok", month: month, iyatta: iyatta, tukdi: tukdi, minRun: minRun, workingDays: workingDays,
+      avgPct: counted ? Math.round(totalPct * 10 / counted) / 10 : null, students: students, streaks: streaks};
+    cachePutBig_(ckey, resA, 600);
+    return wrap(cb, resA);
   } catch (err) {
     return wrap(cb, {status:"error", message:err.toString()});
   }
@@ -2880,7 +2918,7 @@ function elSort_(list) {
 }
 function elAbsentSet_(date, iyatta, tukdi) {
   var set = {};
-  readAttendanceRows_(date, date).forEach(function(r) {
+  readAttendanceDateRows_(date).forEach(function(r) {
     if (fmt(r[1]) !== date) return;
     if ((r[2] || "").toString().trim() !== iyatta) return;
     if (tukdi && (r[3] || "").toString().trim() !== tukdi) return;
@@ -3497,4 +3535,123 @@ function transportEnsureMigrated_() {
   migrateLegacyToYearly_({legacy: "StudentTransport", flag: "TRANSPORT_YEARLY_MIGRATED", ncols: 10,
     yearOf: function() { return currentAcYear_(); },
     target: function(y) { return getYearSheet_("Transport", y, TRANSPORT_HEADERS, true); }});
+}
+
+
+// =====================================================================
+// ===== V19.43 — टप्पा ४: हजेरी (AttMarks, Cache, वर्गनिहाय सारांश) =====
+// =====================================================================
+function phoneDigits_(v) {
+  if (v === null || v === undefined) return "";
+  return (typeof v === "number" ? String(Math.round(v)) : v.toString()).replace(/[^0-9]/g, "");
+}
+
+// हजेरीची "आवृत्ती" — प्रत्येक हजेरी Save वर बदलते; ती Cache keys मध्ये असल्याने जुना Cache आपोआप निरुपयोगी होतो
+function attVer_() {
+  try {
+    var c = CacheService.getScriptCache(), v = c.get("att_ver");
+    if (!v) { v = String(Date.now()); c.put("att_ver", v, 21600); }
+    return v;
+  } catch (e) { return "0"; }
+}
+function attBump_() { try { CacheService.getScriptCache().put("att_ver", String(Date.now()), 21600); } catch (e) {} }
+
+// ---- AttMarks_YYYY_MM: प्रत्येक वर्ग-तुकडीची प्रत्येक दिवसाची हजेरी-Save ची एक ओळ (विद्यार्थी, गैरहजर, हजर, कोणी, केव्हा) ----
+var ATT_MARKS_HEADERS = ["Date","Class","Division","Total","Absent","Present","MarkedBy","SavedAt"];
+function attMarksSheet_(date, create) {
+  var m = ISO_DATE_RE.exec((date || "").toString());
+  if (!m) return null;
+  var ss = SpreadsheetApp.getActiveSpreadsheet(), name = "AttMarks_" + m[1] + "_" + m[2];
+  var sh = ss.getSheetByName(name);
+  if (sh || !create) return sh;
+  sh = ss.insertSheet(name);
+  trimNewSheet_(sh, ATT_MARKS_HEADERS.length);
+  sh.appendRow(ATT_MARKS_HEADERS);
+  sh.getRange("A:A").setNumberFormat("@");
+  sh.setFrozenRows(1);
+  return sh;
+}
+function attMarksRowsForDate_(date) {            // null = त्या महिन्याची AttMarks Sheet अस्तित्वातच नाही
+  var sh = attMarksSheet_(date, false);
+  if (!sh) return null;
+  if (sh.getLastRow() < 2) return [];
+  return sh.getRange(2, 1, sh.getLastRow() - 1, 8).getValues().filter(function(r) { return fmt(r[0]) === date; });
+}
+function attMarksMonthRows_(monthKey) {          // monthKey = "YYYY_MM"
+  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("AttMarks_" + monthKey);
+  if (!sh) return null;
+  return sh.getLastRow() < 2 ? [] : sh.getRange(2, 1, sh.getLastRow() - 1, 8).getValues();
+}
+function attMarksUpsert_(date, iyatta, tukdi, absentCount, by) {
+  var sh = attMarksSheet_(date, true);
+  var total = getRosterCached_(iyatta, tukdi, false).data.length;
+  var last = sh.getLastRow(), rowIx = 0;
+  if (last > 1) {
+    var vals = sh.getRange(2, 1, last - 1, 3).getValues();
+    for (var i = 0; i < vals.length; i++) {
+      if (fmt(vals[i][0]) === date && (vals[i][1] || "").toString().trim() === iyatta && (vals[i][2] || "").toString().trim() === tukdi) { rowIx = i + 2; break; }
+    }
+  }
+  var row = [date, iyatta, tukdi, total, absentCount, Math.max(0, total - absentCount), by || "", new Date().toLocaleString("en-IN")];
+  if (rowIx) sh.getRange(rowIx, 1, 1, 8).setValues([row]); else sh.appendRow(row);
+  attBump_();
+}
+
+// एका तारखेच्या सर्व गैरहजर नोंदी — महिन्याची मोठी Sheet पूर्ण न वाचता (TextFinder). जुनी "DailyAttendance" Sheet असल्यास ती पूर्ण वाचतो.
+function readAttendanceDateRows_(date) {
+  var out = [];
+  attMonthSheets_(date, date).forEach(function(sh) {
+    if (sh.getName() === ATT_LEGACY_SHEET) {
+      if (sh.getLastRow() > 1) sh.getRange(2, 1, sh.getLastRow() - 1, 9).getValues().forEach(function(r) { if (fmt(r[1]) === date) out.push(r); });
+    } else {
+      out = out.concat(readRowsAt_(sh, findRowsByValue_(sh, 2, date), 9));
+    }
+  });
+  return out;
+}
+
+// ---- Master/Super: सर्व वर्गांचा महिन्याचा उपस्थिती सारांश (फक्त AttMarks वाचतो) ----
+function doGetAttendanceOverview(p, cb) {
+  try {
+    if (p.requesterRole !== "super" && p.requesterRole !== "master") return wrap(cb, {status:"error", message:"हे पाहण्याचा अधिकार Super Master / Master ला आहे."});
+    var month = (p.month || todayStr().slice(0, 7)).toString().trim();
+    if (!/^\d{4}-\d{2}$/.test(month)) return wrap(cb, {status:"error", message:"महिना YYYY-MM स्वरूपात हवा."});
+    var today = todayStr();
+    var ckey = "attov_" + month + "_" + today + "_" + attVer_() + "_" + rosterVer_();
+    var hit = cacheGetBig_(ckey);
+    if (hit) { hit.cached = true; return wrap(cb, hit); }
+
+    var students = {};
+    getRosterCached_("", "", false).data.forEach(function(st) {
+      var k = (st.iyatta || "").toString().trim() + "|" + (st.tukdi || "").toString().trim();
+      if (!st.iyatta) return;
+      students[k] = (students[k] || 0) + 1;
+    });
+    var agg = {}, todayMark = {};
+    var rows = attMarksMonthRows_(month.replace("-", "_"));
+    (rows || []).forEach(function(m) {
+      var d = fmt(m[0]);
+      var k = (m[1] || "").toString().trim() + "|" + (m[2] || "").toString().trim();
+      var a = agg[k] || (agg[k] = {days: {}, total: 0, absent: 0, last: ""});
+      a.days[d] = true;
+      a.total += parseInt(m[3], 10) || 0;
+      a.absent += parseInt(m[4], 10) || 0;
+      if (d > a.last) a.last = d;
+      if (d === today) todayMark[k] = {absent: parseInt(m[4], 10) || 0};
+    });
+    var out = Object.keys(students).map(function(k) {
+      var parts = k.split("|"), a = agg[k];
+      return {iyatta: parts[0], tukdi: parts[1], students: students[k],
+        days: a ? Object.keys(a.days).length : 0,
+        avgPct: (a && a.total) ? Math.round((a.total - a.absent) * 1000 / a.total) / 10 : null,
+        absentDays: a ? a.absent : 0, lastDate: a ? a.last : "",
+        todayMarked: !!todayMark[k], todayAbsent: todayMark[k] ? todayMark[k].absent : null};
+    });
+    out.sort(function(a, b) { return classSortKey_(a.iyatta) - classSortKey_(b.iyatta) || (a.tukdi < b.tukdi ? -1 : (a.tukdi > b.tukdi ? 1 : 0)); });
+    var res = {status:"ok", month: month, rows: out, hasMarks: rows !== null && rows.length > 0};
+    cachePutBig_(ckey, res, 300);
+    return wrap(cb, res);
+  } catch (err) {
+    return wrap(cb, {status:"error", message:err.toString()});
+  }
 }

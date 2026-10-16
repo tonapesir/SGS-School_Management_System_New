@@ -32,7 +32,7 @@ window.androidBackPressed = function() {
 
 
 // URL persistence
-var DEFAULT_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbwwWYIrNbvCHPVerxUxe7L-2Y8emZjKlmYpxOjFqssKxfGfif9HToQRIKTttTiXac1k/exec';
+var DEFAULT_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbxKKR4nX_J45UVN2lRvrbVQco-8bsI6R9tjxfTlORryd6ADHvnexwYfKQxKCjhjLQSi/exec';
 
 // =====================================================
 // 🔐 LOGIN + ROLE PERMISSIONS
@@ -4491,29 +4491,33 @@ function tchInitDiaryTab() {
   if (!tchRoster.length) tchLoadRoster(function(){ tchPopulateDiaryStudentSelect(); });
 }
 
-function tchLoadDiaryForStudent() {
+function tchLoadDiaryForStudent(withArchive) {
   var regNo = document.getElementById('tch_diaryStudent').value;
-  tchSelectedStudent = tchRoster.filter(function(x){ return String(x.regNo) === String(regNo); })[0] || null;
-  document.getElementById('tch_native').value = '';
-  document.getElementById('tch_travelMode').value = '';
-  document.getElementById('tch_transportContact').value = '';
+  var arch = (withArchive === true);
+  if (!arch) {
+    tchSelectedStudent = tchRoster.filter(function(x){ return String(x.regNo) === String(regNo); })[0] || null;
+    document.getElementById('tch_native').value = '';
+    document.getElementById('tch_travelMode').value = '';
+    document.getElementById('tch_transportContact').value = '';
+  }
   document.getElementById('tch_diaryHistory').innerHTML = '⏳ Load होत आहे...';
   if (!regNo) { document.getElementById('tch_diaryHistory').innerHTML = 'आधी विद्यार्थी निवडा.'; return; }
-  jsonpRequest({action:'getTransport', regNo: regNo}, function(r) {
+  if (!arch) jsonpRequest({action:'getTransport', regNo: regNo}, function(r) {
     if (r && r.status === 'ok' && r.data.length) {
       document.getElementById('tch_native').value = r.data[0].nativeVillage || '';
       document.getElementById('tch_travelMode').value = r.data[0].travelMode || '';
       document.getElementById('tch_transportContact').value = r.data[0].transportContact || '';
     }
   });
-  jsonpRequest({action:'getDiary', regNo: regNo}, function(r) {
+  jsonpRequest({action:'getDiary', regNo: regNo, archive: arch ? '1' : ''}, function(r) {
     var el = document.getElementById('tch_diaryHistory');
-    if (!r || r.status !== 'ok' || !r.data.length) { el.innerHTML = 'अद्याप कोणतीही नोंद नाही.'; return; }
+    var archLink = (!arch && r && r.archivedYears && r.archivedYears.length) ? '<div style="margin-top:8px"><a href="#" onclick="tchLoadDiaryForStudent(true);return false" style="color:#7bc0ff">🗄️ जुनी वर्षे (' + r.archivedYears.join(', ') + ') पहा</a></div>' : '';
+    if (!r || r.status !== 'ok' || !r.data.length) { el.innerHTML = 'अद्याप कोणतीही नोंद नाही.' + archLink; return; }
     var typeLabel = {positive:'👍 Positive', warning:'⚠️ Warning', scholarship:'🎓 Scholarship', personal:'📝 वैयक्तिक नोंदी'};
     el.innerHTML = r.data.map(function(d) {
       return '<div style="margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid rgba(255,255,255,.1)">' +
         '<b>' + (typeLabel[d.type]||d.type) + '</b> <span style="opacity:.6;font-size:11px">(' + tchFmtDate(d.date) + ')</span><br>' + d.remark + '</div>';
-    }).join('');
+    }).join('') + archLink;
   });
 }
 
@@ -4581,10 +4585,11 @@ function tchRenderStudentFeeStat(regNo) {
   var entries = tchFeesData.filter(function(f){ return String(f.regNo) === String(regNo); });
   var latest = entries[0];
   var paid = latest ? (parseFloat(latest.feePaid)||0) : 0;
-  var pending = Math.max(0, tchTotalFeePerStudent - paid); // सध्याच्या (चालू) एकूण फी सेटिंगनुसार नेहमी ताजी गणना
+  var opening = latest ? (parseFloat(latest.openingDue) || 0) : 0;   // V19.44: मागील वर्षाची पुढे आणलेली बाकी
+  var pending = Math.max(0, opening + tchTotalFeePerStudent - paid); // सध्याच्या (चालू) एकूण फी सेटिंगनुसार नेहमी ताजी गणना
   document.getElementById('tch_studentFeeName').textContent = (s.rollNo||'') + ' - ' + (s.fullName||'');
   document.getElementById('tch_studentFeePaid').textContent = '₹' + paid;
-  document.getElementById('tch_studentFeePending').textContent = '₹' + pending;
+  document.getElementById('tch_studentFeePending').textContent = '₹' + pending + (opening ? ' (मागील बाकी ₹' + opening + ' सह)' : '');
   document.getElementById('tch_totalFeeAmt').textContent = tchTotalFeePerStudent;
   var hist = document.getElementById('tch_studentFeeHistory');
   // V19.42: वर्ग-यादीत फक्त ताजी (सारांश) नोंद येते; प्रत्येक installment चा इतिहास त्या विद्यार्थ्यासाठी वेगळा मागवतो
@@ -4642,7 +4647,8 @@ function tchLoadFeesTable(reselectRegNo) {
         var entries = tchFeesData.filter(function(f){ return String(f.regNo) === String(s.regNo); });
         var latest = entries[0];
         var paid = latest ? (parseFloat(latest.feePaid)||0) : 0;
-        var pending = Math.max(0, tchTotalFeePerStudent - paid); // सध्याच्या (चालू) एकूण फी सेटिंगनुसार नेहमी ताजी गणना
+        var opening = latest ? (parseFloat(latest.openingDue) || 0) : 0;
+        var pending = Math.max(0, opening + tchTotalFeePerStudent - paid); // सध्याच्या (चालू) एकूण फी सेटिंगनुसार नेहमी ताजी गणना
         classTotal += paid;
         var pendingStyle = pending > 0 ? 'color:#ff9090;font-weight:700' : 'color:#7be08a';
         return '<tr><td>' + (s.rollNo||'') + '</td><td>' + s.fullName + '</td><td>₹' + paid + '</td><td style="' + pendingStyle + '">₹' + pending + '</td></tr>';
@@ -5163,6 +5169,7 @@ function mstLoadAttendancePending() {
 // V19.35 — Super Master Admin पान: थकबाकी यादी, वर्ग-बढती, Backup
 // =====================================================================
 function saLoadAll() {
+  saLoadYear();
   saLoadSizes();
   saLoadSecurity();
   saLoadBackupStatus();
@@ -5188,7 +5195,7 @@ function saLoadPendingFees() {
       var msg = 'नमस्कार, श्री. गो. से. हायस्कूल, पाचोरा कडून सूचना: आपला पाल्य ' + x.fullName + ' (' + (x.iyatta||'') + ' ' + (x.tukdi||'') + ') याची शालेय फी ₹' + x.pending + ' बाकी आहे. कृपया लवकरात लवकर भरावी. धन्यवाद.';
       var wa = waHref(x.mobile, msg);
       return '<tr><td>' + (i+1) + '</td><td>' + escRpHtml(x.fullName) + '</td><td>' + escRpHtml((x.iyatta||'') + ' ' + (x.tukdi||'')) + '</td><td>' + escRpHtml(x.rollNo) +
-        '</td><td>₹' + x.paid + '</td><td style="color:#c02020;font-weight:700">₹' + x.pending + '</td><td>' + escRpHtml(x.mobile) + '</td>' +
+        '</td><td>₹' + x.paid + '</td><td>' + (x.opening ? '₹' + x.opening : '—') + '</td><td style="color:#c02020;font-weight:700">₹' + x.pending + '</td><td>' + escRpHtml(x.mobile) + '</td>' +
         '<td>' + (wa ? '<a href="' + wa + '" target="_blank" rel="noopener" style="color:#7be08a;text-decoration:none">📲 आठवण</a>' : '<span style="opacity:.5">नंबर नाही</span>') + '</td></tr>';
     }).join('');
   });
@@ -5198,7 +5205,7 @@ function saExportPendingXlsx() {
   if (!saPendingData || !saPendingData.data.length) return;
   var rows = saPendingData.data.map(function(x, i) {
     return {'अ.क्र.': i+1, 'नाव': x.fullName, 'वर्ग': x.iyatta, 'तुकडी': x.tukdi, 'Roll No': x.rollNo, 'Reg No': x.regNo,
-      'एकूण फी': saPendingData.totalFee, 'जमा': x.paid, 'बाकी': x.pending, 'शेवटची जमा तारीख': x.lastPaidDate, 'मोबाईल': x.mobile};
+      'एकूण फी': saPendingData.totalFee, 'जमा': x.paid, 'मागील वर्षाची बाकी': x.opening || 0, 'एकूण बाकी': x.pending, 'शेवटची जमा तारीख': x.lastPaidDate, 'मोबाईल': x.mobile};
   });
   var wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'थकबाकी');
@@ -5221,7 +5228,7 @@ function saExportPendingPdf() {
     var chunk = data.slice(p * ROWS, (p+1) * ROWS);
     var body = chunk.map(function(x, i) {
       return '<tr><td style="'+tdS+'">'+(p*ROWS+i+1)+'</td><td style="'+tdS+'">'+escRpHtml(x.fullName)+'</td><td style="'+tdS+'">'+escRpHtml((x.iyatta||'')+' '+(x.tukdi||''))+'</td><td style="'+tdS+'">'+escRpHtml(x.rollNo)+
-        '</td><td style="'+tdS+'">₹'+x.paid+'</td><td style="'+tdS+';font-weight:700">₹'+x.pending+'</td><td style="'+tdS+'">'+escRpHtml(x.mobile)+'</td></tr>';
+        '</td><td style="'+tdS+'">₹'+x.paid+'</td><td style="'+tdS+'">'+(x.opening?'₹'+x.opening:'—')+'</td><td style="'+tdS+';font-weight:700">₹'+x.pending+'</td><td style="'+tdS+'">'+escRpHtml(x.mobile)+'</td></tr>';
     }).join('');
     var div = document.createElement('div');
     div.style.cssText = 'width:'+pdfW+'mm;min-height:'+pdfH+'mm;padding:12mm;box-sizing:border-box;background:#fff;font-family:"Kokila","Noto Sans Devanagari","Mukta",sans-serif;color:#111';
@@ -5229,7 +5236,7 @@ function saExportPendingPdf() {
       '<div style="font-size:11pt;font-weight:700;margin-top:1mm">फी थकबाकी यादी (सर्वाधिक थकबाकी प्रथम) — एकूण फी ₹'+saPendingData.totalFee+'</div>' +
       '<div style="font-size:8pt;color:#555;margin-top:1mm">दिनांक: '+todayDate()+' | थकबाकीदार: '+saPendingData.summary.pendingCount+' | एकूण थकबाकी: ₹'+saPendingData.summary.pendingTotal+' | पान '+(p+1)+'/'+nPages+'</div></div>' +
       '<table style="width:100%;border-collapse:collapse"><thead><tr>' +
-      ['अ.क्र.','नाव','वर्ग','Roll','जमा','बाकी','मोबाईल'].map(function(h){ return '<th style="'+thS+'">'+h+'</th>'; }).join('') +
+      ['अ.क्र.','नाव','वर्ग','Roll','जमा','मागील','एकूण बाकी','मोबाईल'].map(function(h){ return '<th style="'+thS+'">'+h+'</th>'; }).join('') +
       '</tr></thead><tbody>'+body+'</tbody></table>';
     container.appendChild(div); pages.push(div);
   }
@@ -6018,4 +6025,72 @@ function attaPick(val) {
   if (!found) { setTimeout(function() { attaPick(val); }, 400); return; }
   attaLoad();
   var out = document.getElementById('atta_out'); if (out && out.scrollIntoView) out.scrollIntoView({behavior: 'smooth', block: 'start'});
+}
+
+// =====================================================================
+// V19.44 — Super Admin: 📅 शैक्षणिक वर्ष व Archive
+// =====================================================================
+var saYear = null;
+function saLoadYear() {
+  var info = document.getElementById('sa_yrInfo');
+  if (!info) return;
+  info.textContent = '⏳ Load होत आहे...';
+  jsonpRequest({action: 'getYearStatus', requesterRole: currentUser.role}, function(r) {
+    if (!r || r.status !== 'ok' || !r.years) { info.textContent = '❌ ' + friendlyMsg((r && r.message) || 'सर्व्हरचे उत्तर अपूर्ण आहे — नवीन Code.gs Deploy करा.'); return; }
+    saYear = r;
+    document.getElementById('sa_yrBanner').innerHTML = r.needsRollover ?
+      '<div style="background:#5a3a10;border:1px solid #e8a020;border-radius:8px;padding:8px 12px;margin-bottom:10px">⚠️ नवे शैक्षणिक वर्ष (' + escRpHtml(r.calendarYear) + ') सुरू झाले आहे, पण अॅपमध्ये चालू वर्ष ' + escRpHtml(r.current) + ' आहे. वर्ष-बदल करा.</div>' : '';
+    var by = Object.keys(r.studentsByYear || {}).sort().map(function(k) { return escRpHtml(k) + ': <b>' + r.studentsByYear[k] + '</b>'; }).join(' · ');
+    info.innerHTML = 'चालू शैक्षणिक वर्ष: <b>' + escRpHtml(r.current) + '</b> &nbsp;|&nbsp; पुढचे: <b>' + escRpHtml(r.suggested) + '</b><br>' +
+      'विद्यार्थी (Students मधील वर्षानुसार): ' + (by || '—') + '<br>' +
+      'पुढे नेली जाणारी मागील थकबाकी: <b>' + r.dues.count + '</b> विद्यार्थी, <b>₹' + fmtIN(r.dues.total) + '</b> (प्रति विद्यार्थी फी ₹' + r.dues.feePerStudent + ')';
+    var nv = document.getElementById('sa_yrNew'); if (nv && !nv.value) nv.value = r.suggested;
+    var sel = document.getElementById('sa_yrArchiveSel');
+    var olds = r.years.filter(function(y) { return y.year < r.current; });
+    sel.innerHTML = olds.length ? olds.map(function(y) { return '<option value="' + escRpHtml(y.year) + '">' + escRpHtml(y.year) + ' (' + y.sheets.length + ' Sheets)</option>'; }).join('') : '<option value="">— Archive करण्यासारखे जुने वर्ष नाही —</option>';
+    saYearSelChange();
+    document.getElementById('sa_yrArchives').innerHTML = (r.archives && r.archives.length) ? ('<b style="font-size:13px">🗄️ Archive फाइल्स</b><br>' + r.archives.map(function(a) {
+      return a.year + ' — ' + (a.url ? '<a href="' + escRpHtml(a.url) + '" target="_blank" rel="noopener" style="color:#7bc0ff">SGS_Archive_' + escRpHtml(a.year) + ' उघडा</a>' : 'Drive मधील SGS_Data फोल्डर');
+    }).join('<br>')) : '';
+  });
+}
+function saYearSelChange() {
+  var el = document.getElementById('sa_yrArchivePreview');
+  var sel = document.getElementById('sa_yrArchiveSel');
+  if (!saYear || !sel || !sel.value) { if (el) el.textContent = ''; return; }
+  var y = saYear.years.filter(function(x) { return x.year === sel.value; })[0];
+  el.innerHTML = y ? ('हलवल्या जाणाऱ्या Sheets: ' + y.sheets.length + ' · मुख्य फाइलमधील ' + fmtIN(y.cells) + ' cells मोकळे होतील<div style="opacity:.65;font-size:11.5px;margin-top:3px">' + y.sheets.map(function(s) { return escRpHtml(s.name); }).join(', ') + '</div>') : '';
+}
+function saYearStart() {
+  var st = document.getElementById('sa_yrStatus1');
+  var yr = (document.getElementById('sa_yrNew').value || '').trim();
+  var carry = document.getElementById('sa_yrCarry').checked;
+  if (!/^\d{4}-\d{2}$/.test(yr)) { st.textContent = '⚠️ नवे वर्ष 2027-28 या स्वरूपात टाका.'; return; }
+  if (document.getElementById('sa_yrConfirm1').value.trim() !== 'NEWYEAR') { st.textContent = '⚠️ खात्रीसाठी NEWYEAR टाइप करा.'; return; }
+  if (!confirm('नवे शैक्षणिक वर्ष ' + yr + ' सुरू करायचे?\\n\\n' + (carry ? 'मागील थकबाकी (' + (saYear ? saYear.dues.count : '?') + ' विद्यार्थी, ₹' + fmtIN(saYear ? saYear.dues.total : 0) + ') नव्या वर्षात "सुरुवातीची बाकी" म्हणून पुढे येईल.\\n' : 'मागील थकबाकी पुढे नेली जाणार नाही.\\n') + '\\nहे लगेच पूर्ववत करता येत नाही; आधी Spreadsheet ची प्रत केल्याची खात्री करा.')) return;
+  st.textContent = '⏳ चालू आहे — कृपया थांबा...';
+  smartSaveRaw({action: 'startNewYear', newYear: yr, carry: carry ? '1' : '0', confirm: 'NEWYEAR', requesterUser: currentUser.username, requesterRole: currentUser.role}, function(r) {
+    if (r && r.status === 'ok') {
+      st.textContent = '✅ चालू वर्ष आता ' + r.extra.newYear + ' आहे. ' + r.extra.carried + ' विद्यार्थ्यांची ₹' + fmtIN(r.extra.carriedTotal) + ' बाकी पुढे आणली.';
+      document.getElementById('sa_yrConfirm1').value = ''; document.getElementById('sa_yrNew').value = '';
+      try { clearStudentCache(); } catch (e) {}
+      saLoadYear();
+    } else st.textContent = '❌ ' + friendlyMsg((r && r.message) || 'Failed');
+  });
+}
+function saYearArchive() {
+  var st = document.getElementById('sa_yrStatus2');
+  var yr = document.getElementById('sa_yrArchiveSel').value;
+  if (!yr) { st.textContent = '⚠️ Archive करण्यासाठी वर्ष निवडा.'; return; }
+  if (document.getElementById('sa_yrConfirm2').value.trim() !== 'ARCHIVEYEAR') { st.textContent = '⚠️ खात्रीसाठी ARCHIVEYEAR टाइप करा.'; return; }
+  if (!confirm(yr + ' ची सर्व Sheets (फी, डायरी, प्रवास, हजेरी, घरी जाणारे) मुख्य फाइलमधून SGS_Archive_' + yr + ' फाइलमध्ये हलवायची?\\n\\nप्रत बनवून पडताळणी झाल्यावरच मूळ Sheet काढली जाते. अॅपमध्ये त्या वर्षाची हजेरी/घरी-जाणारे नंतर दिसणार नाही (Archive फाइलमध्ये उघडून पाहता येईल).')) return;
+  st.textContent = '⏳ चालू आहे (मोठ्या वर्षासाठी १-२ मिनिटे लागू शकतात)...';
+  smartSaveRaw({action: 'archiveYear', year: yr, confirm: 'ARCHIVEYEAR', requesterUser: currentUser.username, requesterRole: currentUser.role}, function(r) {
+    if (r && r.status === 'ok') {
+      var x = r.extra;
+      st.innerHTML = '✅ ' + x.moved.length + ' Sheets हलवल्या, ' + fmtIN(x.freedCells) + ' cells मोकळे.' + (x.skipped.length ? '<br>ℹ️ वगळल्या: ' + escRpHtml(x.skipped.join('; ')) : '') + (x.failed.length ? '<br>⚠️ जमल्या नाहीत (मूळ तशाच): ' + escRpHtml(x.failed.join(', ')) : '');
+      document.getElementById('sa_yrConfirm2').value = '';
+      saLoadYear(); setTimeout(saLoadSizes, 800);
+    } else st.textContent = '❌ ' + friendlyMsg((r && r.message) || 'Failed');
+  });
 }

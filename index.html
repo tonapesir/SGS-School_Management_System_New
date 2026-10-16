@@ -1335,8 +1335,8 @@
       <div id="sa_pfSummary" style="font-size:13px;margin-bottom:8px"></div>
       <div id="sa_pfStatus" style="font-size:12.5px;color:#cfd8e8;margin-bottom:8px"></div>
       <div style="overflow-x:auto;max-height:420px;overflow-y:auto">
-        <table class="hist-table"><thead><tr><th>अ.क्र.</th><th>नाव</th><th>वर्ग</th><th>Roll</th><th>जमा</th><th>बाकी</th><th>मोबाईल</th><th>📲 WhatsApp</th></tr></thead>
-        <tbody id="sa_pfTbody"><tr><td colspan="8">"यादी तयार करा" दाबा.</td></tr></tbody></table>
+        <table class="hist-table"><thead><tr><th>अ.क्र.</th><th>नाव</th><th>वर्ग</th><th>Roll</th><th>जमा</th><th>मागील बाकी</th><th>एकूण बाकी</th><th>मोबाईल</th><th>📲 WhatsApp</th></tr></thead>
+        <tbody id="sa_pfTbody"><tr><td colspan="9">"यादी तयार करा" दाबा.</td></tr></tbody></table>
       </div>
     </div>
   </div>
@@ -1354,6 +1354,35 @@
       </div>
       <div id="sa_promoStatus" style="font-size:12.5px;margin-top:10px;color:#cfd8e8"></div>
       <div id="sa_promoBatches" style="margin-top:12px;font-size:12.5px"></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:16px;border:2px solid #2a7ad0">
+    <div class="card-header"><div><h2>📅 शैक्षणिक वर्ष व Archive</h2><p>वर्ष-बदल: नवे वर्ष सुरू करणे, मागील थकबाकी पुढे नेणे आणि जुने वर्ष Archive फाइलमध्ये हलवणे</p></div>
+      <button class="btn btn-blue btn-sm" onclick="saLoadYear()">🔄 Refresh</button></div>
+    <div class="card-body">
+      <div id="sa_yrBanner"></div>
+      <div id="sa_yrInfo" style="font-size:13px;margin-bottom:10px"></div>
+      <div style="font-size:12px;opacity:.8;margin-bottom:12px;line-height:1.7">क्रम: ① 10th Pass-out Archive → ② वर्ग-बढती → ③ <b>नवे वर्ष सुरू करा</b> → ④ २-३ दिवस तपासणी → ⑤ <b>जुने वर्ष Archive फाइलमध्ये हलवा</b>. प्रत्येक पायरीआधी Spreadsheet ची प्रत करा.</div>
+
+      <div style="font-weight:700;margin-bottom:6px">③ नवे शैक्षणिक वर्ष सुरू करा</div>
+      <div class="frow" style="gap:10px;flex-wrap:wrap;align-items:flex-end">
+        <div class="fg w150"><label>नवे वर्ष</label><input id="sa_yrNew" placeholder="उदा. 2027-28" maxlength="7"></div>
+        <div class="fg" style="flex:0 0 auto;padding-bottom:6px"><label style="display:flex;gap:6px;align-items:center;font-size:13px"><input id="sa_yrCarry" type="checkbox" checked> मागील थकबाकी पुढे न्या</label></div>
+        <div class="fg w150"><label>खात्री: NEWYEAR टाइप करा</label><input id="sa_yrConfirm1" placeholder="NEWYEAR"></div>
+        <div class="fg" style="flex:0 0 auto"><button class="btn btn-gold" onclick="saYearStart()">📅 नवे वर्ष सुरू करा</button></div>
+      </div>
+      <div id="sa_yrStatus1" style="font-size:12.5px;margin:8px 0 16px;color:#cfd8e8"></div>
+
+      <div style="font-weight:700;margin-bottom:6px">⑤ जुने वर्ष Archive फाइलमध्ये हलवा</div>
+      <div class="frow" style="gap:10px;flex-wrap:wrap;align-items:flex-end">
+        <div class="fg w180"><label>वर्ष</label><select id="sa_yrArchiveSel" onchange="saYearSelChange()" style="padding:7px 10px;border-radius:var(--r);border:1.5px solid var(--pb);background:var(--peach);font-family:inherit;width:100%"></select></div>
+        <div class="fg w150"><label>खात्री: ARCHIVEYEAR टाइप करा</label><input id="sa_yrConfirm2" placeholder="ARCHIVEYEAR"></div>
+        <div class="fg" style="flex:0 0 auto"><button class="btn btn-orange" onclick="saYearArchive()">🗄️ जुने वर्ष हलवा</button></div>
+      </div>
+      <div id="sa_yrArchivePreview" style="font-size:12.5px;margin-top:8px"></div>
+      <div id="sa_yrStatus2" style="font-size:12.5px;margin:8px 0;color:#cfd8e8"></div>
+      <div id="sa_yrArchives" style="font-size:12.5px"></div>
     </div>
   </div>
 

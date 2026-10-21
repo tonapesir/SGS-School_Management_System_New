@@ -1314,26 +1314,48 @@ function postPhotoViaHiddenForm(url, regNo, b64, onPosted) {
 }
 
 function uploadPhotoByChunks(regNo, b64, mimeType, onDone) {
+  // V19.46.1: प्रत्येक पायरीला (Start / Chunk / Finish) स्वतंत्र पुन्हा-प्रयत्न व स्पष्ट त्रुटी-संदेश.
+  // सर्व पायरी पुन्हा चालवणे सुरक्षित: Start/Chunk = Cache मध्ये तीच नोंद पुन्हा ठेवणे; Finish = जुनी फाइल नवीने बदलते.
   var uploadId = 'ph_' + Date.now() + '_' + Math.floor(Math.random() * 1e6);
   var chunkSize = 1400;
+  var MAX_TRIES = 3;
   var chunks = [];
   for (var i = 0; i < b64.length; i += chunkSize) chunks.push(b64.slice(i, i + chunkSize));
   var total = chunks.length;
+  var t0 = Date.now();
 
   function fail(msg) {
     showPhotoStatus('❌ ' + msg, 'err');
     onDone('', msg);
   }
+  function isTransient(r) {
+    return !r || r.status === 'timeout' || (r.status === 'error' && /Empty response|Fetch error|network|Failed to fetch/i.test(r.message || ''));
+  }
+  // एक पायरी: params पाठवा; क्षणिक अपयशावर ३ वेळा; शेवटी (result, tries) परत
+  function step(label, params, progressText, cb) {
+    var tries = 0;
+    (function attempt() {
+      tries++;
+      showPhotoStatus(progressText + (tries > 1 ? ' — पुन्हा प्रयत्न ' + tries + '/' + MAX_TRIES : ''), 'info');
+      jsonpRequest(JSON.parse(JSON.stringify(params)), function(r) {
+        if (isTransient(r) && tries < MAX_TRIES) { setTimeout(attempt, 1500); return; }
+        cb(r, tries);
+      });
+    })();
+  }
+  function failStep(label, r, tries, fallbackMsg) {
+    var secs = Math.round((Date.now() - t0) / 1000);
+    if (r && r.status === 'timeout') {
+      fail('Timeout — पायरी: ' + label + ' (' + tries + ' प्रयत्न, एकूण ' + secs + ' से.). सर्व्हर मंद/व्यस्त आहे; थोड्या वेळाने पुन्हा प्रयत्न करा.');
+    } else {
+      fail('पायरी: ' + label + ' — ' + ((r && r.message) || fallbackMsg));
+    }
+  }
 
-  jsonpRequest({
-    action:'photoChunkStart',
-    uploadId:uploadId,
-    regNo:regNo || '',
-    mimeType:mimeType || 'image/jpeg',
-    count:total
-  }, function(startResult){
+  step('Start', {action:'photoChunkStart', uploadId:uploadId, regNo:regNo || '', mimeType:mimeType || 'image/jpeg', count:total},
+    '⏳ Upload सुरू...', function(startResult, tries) {
     if (!startResult || startResult.status !== 'ok') {
-      fail((startResult && startResult.message) || 'Apps Script मध्ये photoChunkStart action नाही. Code update करून redeploy करा.');
+      failStep('Start', startResult, tries, 'Apps Script मध्ये photoChunkStart action नाही. Code update करून redeploy करा.');
       return;
     }
     sendChunk(0);
@@ -1341,14 +1363,8 @@ function uploadPhotoByChunks(regNo, b64, mimeType, onDone) {
 
   function sendChunk(idx) {
     if (idx >= total) {
-      showPhotoStatus('⏳ Drive file तयार करत आहे...', 'info');
-      jsonpRequest({
-        action:'photoChunkFinish',
-        uploadId:uploadId,
-        regNo:regNo || '',
-        mimeType:mimeType || 'image/jpeg',
-        count:total
-      }, function(doneResult){
+      step('Finish', {action:'photoChunkFinish', uploadId:uploadId, regNo:regNo || '', mimeType:mimeType || 'image/jpeg', count:total},
+        '⏳ Drive file तयार करत आहे...', function(doneResult, tries) {
         if (doneResult && doneResult.status === 'ok' && doneResult.photoUrl) {
           var urlEl = document.getElementById('s_photoUrl');
           if (urlEl) urlEl.value = doneResult.photoUrl;
@@ -1356,23 +1372,15 @@ function uploadPhotoByChunks(regNo, b64, mimeType, onDone) {
           patchCacheEntry(regNo, {photoUrl: doneResult.photoUrl});   // V19.45
           onDone(doneResult.photoUrl);
         } else {
-          fail((doneResult && doneResult.message) || 'Upload पूर्ण झाला नाही. Apps Script redeploy/folder permission तपासा.');
+          failStep('Finish', doneResult, tries, 'Upload पूर्ण झाला नाही. Apps Script redeploy/folder permission तपासा.');
         }
       });
       return;
     }
-    showPhotoStatus('⏳ Upload ' + (idx + 1) + '/' + total, 'info');
-    jsonpRequest({
-      action:'photoChunk',
-      uploadId:uploadId,
-      idx:idx,
-      chunk:chunks[idx]
-    }, function(chunkResult){
-      if (chunkResult && chunkResult.status === 'ok') {
-        sendChunk(idx + 1);
-      } else {
-        fail((chunkResult && chunkResult.message) || ('Chunk ' + (idx + 1) + ' upload failed. Apps Script redeploy करा.'));
-      }
+    step('Chunk ' + (idx + 1) + '/' + total, {action:'photoChunk', uploadId:uploadId, idx:idx, chunk:chunks[idx]},
+      '⏳ Upload ' + (idx + 1) + '/' + total, function(chunkResult, tries) {
+      if (chunkResult && chunkResult.status === 'ok') sendChunk(idx + 1);
+      else failStep('Chunk ' + (idx + 1) + '/' + total, chunkResult, tries, 'Chunk upload failed. Apps Script redeploy करा.');
     });
   }
 }

@@ -1779,6 +1779,7 @@ function latestFileByName_(folder, name) {
 }
 
 function savePhotoData(regNo, photoData, mimeType) {
+  var stage = "सुरुवात";   // V19.46.1: त्रुटी-संदेशात कोणता Drive/Sheet कॉल अडला ते दिसावे म्हणून
   try {
     regNo = (regNo || "").toString().trim();
     if (!regNo) return {status:"error", message:"regNo required"};
@@ -1788,27 +1789,33 @@ function savePhotoData(regNo, photoData, mimeType) {
     var bytes = Utilities.base64Decode(photoData);
     if (bytes.length > 10240) return {status:"error", message:"Photo size is " + bytes.length + " bytes. Please compress below 10 KB."};
 
+    stage = "getFolderById (Photo फोल्डर)";
     var folder = DriveApp.getFolderById(PHOTO_FOLDER_ID);
     var fileName = cleanRegFileName(regNo) + ".jpg";
+    stage = "getFilesByName (जुनी फाइल शोध)";
     var oldFiles = [];
     var existing = folder.getFilesByName(fileName);
     while (existing.hasNext()) oldFiles.push(existing.next());
 
+    stage = "createFile (नवी फाइल)";
     var blob = Utilities.newBlob(bytes, mimeType || "image/jpeg", fileName);
     var file = folder.createFile(blob);
+    stage = "setSharing (Anyone with link — View)";
     try {
       file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
     } catch (eShare) {
       try { file.setTrashed(true); } catch (eT) {}   // नवी फाइल अर्धवट राहू नये; जुनी जशीच्या तशी
       throw eShare;
     }
+    stage = "setTrashed (जुनी फाइल)";
     oldFiles.forEach(function(f) { try { f.setTrashed(true); } catch (eOld) {} });   // नवी फाइल यशस्वी झाल्यावरच जुनी काढा
 
+    stage = "Students मध्ये लिंक लिहिणे";
     var photoUrl = publicDriveUrl(file.getId());
     var upd = updateStudentPhotoUrl(regNo, photoUrl);
     return {status:"ok", regNo:regNo, photoUrl:photoUrl, fileId:file.getId(), studentFound:!!upd.found, sheetUpdated:!!upd.updated};
   } catch(err) {
-    return {status:"error", message:err.toString()};
+    return {status:"error", message:err.toString() + " [चरण: " + stage + "]"};
   }
 }
 

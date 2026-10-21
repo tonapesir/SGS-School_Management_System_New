@@ -32,7 +32,7 @@ window.androidBackPressed = function() {
 
 
 // URL persistence
-var DEFAULT_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbxKKR4nX_J45UVN2lRvrbVQco-8bsI6R9tjxfTlORryd6ADHvnexwYfKQxKCjhjLQSi/exec';
+var DEFAULT_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbyFMjSFVGwm-wcog_fXWueEZ6IxKZSq_LnW_CI8_mNGkVeeqInvn0cQQU84rMGdzwO4/exec';
 
 // =====================================================
 // 🔐 LOGIN + ROLE PERMISSIONS
@@ -502,14 +502,38 @@ function updateCacheEntry(d) {
   // Remove old entries for this student
   var regKey = d.regNo ? String(d.regNo).trim().toLowerCase() : null;
   var idKey  = d.studentId ? String(d.studentId).trim().toLowerCase() : null;
+  // V19.45: जुनी नोंद पूर्ण बदलण्याऐवजी विलीन (merge) — फॉर्ममध्ये नसलेले फील्ड (contact, _rowIndex) हरवू नयेत
+  var old = null;
   studentCache.data = studentCache.data.filter(function(s){
     var sReg = s.regNo ? String(s.regNo).trim().toLowerCase() : null;
     var sId  = s.studentId ? String(s.studentId).trim().toLowerCase() : null;
-    return !(regKey && sReg === regKey) && !(idKey && sId === idKey);
+    var hit = (regKey && sReg === regKey) || (idKey && sId === idKey);
+    if (hit && !old) old = s;
+    return !hit;
   });
-  studentCache.data.push(d);
+  studentCache.data.push(old ? Object.assign({}, old, d) : d);
   buildCacheIndex();
   saveCacheToStorage();
+}
+
+// V19.45: Cache मधील विद्यार्थ्याची फक्त ठराविक फील्ड्स बदला (उदा. photoUrl). Cache मध्ये नोंद नसेल तर काहीही बनवत नाही.
+// उघडे असलेले Profile त्याच विद्यार्थ्याचे असल्यास लगेच पुन्हा रेखाटते (पान न बदलता फोटो दिसतो).
+function patchCacheEntry(regNo, patch) {
+  var key = String(regNo || '').trim().toLowerCase();
+  if (!key || !studentCache.loaded) return null;
+  var entry = studentCache.index[key];
+  if (!entry) return null;
+  Object.keys(patch || {}).forEach(function(k){ entry[k] = patch[k]; });
+  saveCacheToStorage();
+  try {
+    var last = window._lastProfileData;
+    var content = document.getElementById('profile_content');
+    if (last && content && content.style.display !== 'none' &&
+        String(last.regNo || '').trim().toLowerCase() === String(entry.regNo || '').trim().toLowerCase()) {
+      renderStudentProfile(entry);
+    }
+  } catch (e) {}
+  return entry;
 }
 
 window.addEventListener('DOMContentLoaded', function() {
@@ -1091,11 +1115,7 @@ function refreshPhotoUrlForRecord(pfx, regNo) {
       showPhotoStatus('✅ Drive फोटो', 'ok');
     }
     if (studentCache.loaded) {
-      var cached = searchInCache(regNo);
-      if (cached) {
-        cached.photoUrl = r.photoUrl;
-        updateCacheEntry(cached);
-      }
+      patchCacheEntry(regNo, {photoUrl: r.photoUrl});
     }
   });
 }
@@ -1333,6 +1353,7 @@ function uploadPhotoByChunks(regNo, b64, mimeType, onDone) {
           var urlEl = document.getElementById('s_photoUrl');
           if (urlEl) urlEl.value = doneResult.photoUrl;
           showPhotoStatus('✅ Drive ला Save!', 'ok');
+          patchCacheEntry(regNo, {photoUrl: doneResult.photoUrl});   // V19.45
           onDone(doneResult.photoUrl);
         } else {
           fail((doneResult && doneResult.message) || 'Upload पूर्ण झाला नाही. Apps Script redeploy/folder permission तपासा.');
@@ -1416,10 +1437,9 @@ function uploadOnlyPhoto() {
   showStatus('s','⏳ फोटो Drive ला upload/update करत आहे...','ok');
   uploadPhotoToDrive(regNo, function(photoUrl){
     if (photoUrl) {
-      var data = collectStudent();
-      data.regNo = regNo;
-      data.photoUrl = photoUrl;
-      updateCacheEntry(data);
+      // V19.45: पूर्ण फॉर्म-नोंद ने Cache बदलण्याऐवजी फक्त photoUrl बदला (बाकी माहिती सुरक्षित) व उघडे Profile ताजे करा
+      patchCacheEntry(regNo, {photoUrl: photoUrl});
+      var urlEl2 = document.getElementById('s_photoUrl'); if (urlEl2) urlEl2.value = photoUrl;
       showStatus('s','✅ फोटो Upload/Update झाला!','ok');
     } else {
       showStatus('s','⚠️ फोटो upload झाला, पण URL confirm झाला नाही. Apps Script मध्ये getPhotoUrl action तपासा.','err');
@@ -3333,7 +3353,7 @@ function renderStudentProfile(d) {
   var photoWrap = document.getElementById('prof_photoWrap');
   if (photoWrap) {
     photoWrap.innerHTML = d.photoUrl
-      ? '<img src="' + escAttr(d.photoUrl) + '" alt="photo" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'">' +
+      ? '<img src="' + escAttr(d.photoUrl) + '" alt="photo" onerror="this.style.display=\'none\';if(this.nextElementSibling)this.nextElementSibling.style.display=\'flex\'">' +
         '<span class="ph-placeholder" style="display:none">👤</span>'
       : '<span class="ph-placeholder">👤</span>';
   }
@@ -5605,6 +5625,94 @@ function saArchiveLogNow() {
   smartSaveRaw({action: 'archiveLogNow', days: 90, requesterUser: currentUser.username, requesterRole: currentUser.role}, function(r) {
     st.textContent = (r && r.status === 'ok') ? ('✅ ' + r.count + ' जुन्या Log नोंदी "Log_Archive" मध्ये हलवल्या.') : ('❌ ' + ((r && r.message) || 'Failed'));
   });
+}
+
+// =====================================================================
+// V19.46 — Super Admin: 📷 फोटो लिंक पुन्हा जोडा (Photo link recall)
+// सर्व्हर गटांमध्ये चालतो (प्रत्येक ~४ मिनिटे); येथून "पुढील गट" आपोआप मागवला जातो. पुन्हा चालवणे सुरक्षित.
+// मोठी विनंती असल्याने jsonp (25 से. timeout) नव्हे तर fetchRequest वापरतो.
+// =====================================================================
+var _prState = {running: false, stop: false, runId: '', dry: true, files: 0, batches: 0, retries: 0};
+function saPhotoRecallModeChanged() {
+  var dry = document.getElementById('sa_prDry').checked;
+  document.getElementById('sa_prConfirmWrap').style.display = dry ? 'none' : '';
+  document.getElementById('sa_prBtn').textContent = dry ? '▶️ तपासा' : '▶️ लिंक अद्ययावत करा';
+}
+function saPrStatus(msg) { var e = document.getElementById('sa_prStatus'); if (e) e.textContent = msg; }
+function saPrSetRunning(on) {
+  _prState.running = on;
+  document.getElementById('sa_prBtn').disabled = on;
+  document.getElementById('sa_prDry').disabled = on;
+  document.getElementById('sa_prStop').style.display = on ? '' : 'none';
+}
+function saPhotoRecallStop() { _prState.stop = true; saPrStatus('⏹ थांबवत आहे — चालू गट संपल्यावर थांबेल (झालेले बदल सुरक्षित; पुन्हा चालवता येते).'); }
+function saPhotoRecallStart() {
+  if (_prState.running) return;
+  if (!currentUser || currentUser.role !== 'super') { saPrStatus('⚠️ हे फक्त Super Master साठी आहे.'); return; }
+  var dry = document.getElementById('sa_prDry').checked;
+  if (!dry) {
+    if (document.getElementById('sa_prConfirm').value.trim() !== 'PHOTO') { saPrStatus('⚠️ खात्रीसाठी PHOTO टाइप करा.'); return; }
+    if (!confirm('Photo फोल्डरमधील फाइल्सनुसार Students मधील फोटो-लिंक अद्ययावत करायच्या?\n\nफक्त लिंक बदलते. आधी "फक्त तपासा" चालवली आहे ना? तसेच Spreadsheet ची प्रत घेतली आहे ना?')) return;
+  }
+  _prState = {running: true, stop: false, runId: '', dry: dry, files: 0, batches: 0, retries: 0};
+  document.getElementById('sa_prReport').innerHTML = '';
+  saPrSetRunning(true);
+  saPrStatus('⏳ सुरू होत आहे...');
+  saPhotoRecallStep();
+}
+function saPhotoRecallStep() {
+  var params = {action: 'photoRecall', dry: _prState.dry ? '1' : '0'};
+  if (_prState.runId) params.runId = _prState.runId;
+  fetchRequest(params, function(r) {
+    if (!r || r.status !== 'ok') {
+      var code = r && r.code;
+      if (code === 'runlost') { saPrSetRunning(false); saPrStatus('⚠️ ' + r.message); return; }
+      if (code === 'auth' || (r && r.status === 'error' && /अधिकार|Token/.test(r.message || ''))) { saPrSetRunning(false); saPrStatus('❌ ' + ((r && r.message) || 'अधिकार नाही')); return; }
+      // जाळे/वेळ त्रुटी: जास्तीत जास्त ३ वेळा त्याच सत्रात पुन्हा प्रयत्न (सर्व्हर स्थिती जतन असते; पुनरावृत्ती सुरक्षित)
+      if (_prState.retries < 3) {
+        _prState.retries++;
+        saPrStatus('⚠️ त्रुटी — पुन्हा प्रयत्न ' + _prState.retries + '/3 ... (' + ((r && r.message) || r && r.status || '') + ')');
+        setTimeout(saPhotoRecallStep, 3000);
+        return;
+      }
+      saPrSetRunning(false);
+      saPrStatus('❌ ' + ((r && r.message) || 'Failed') + ' — पुन्हा चालवा (सुरक्षित).');
+      return;
+    }
+    _prState.retries = 0;
+    _prState.runId = r.runId;
+    _prState.files = (r.progress && r.progress.files) || _prState.files;
+    _prState.batches = (r.progress && r.progress.batches) || _prState.batches;
+    if (r.done) { saPhotoRecallDone(r.report); return; }
+    if (_prState.stop) { saPrSetRunning(false); saPrStatus('⏹ थांबवले — ' + _prState.files + ' फाइल्स तपासल्या. पुन्हा चालवल्यास सुरुवातीपासून (सुरक्षित) चालेल.'); return; }
+    saPrStatus('⏳ ' + (_prState.dry ? 'तपासणी' : 'अद्ययावत') + ' चालू — गट ' + _prState.batches + ', आतापर्यंत ' + _prState.files + ' फाइल्स तपासल्या...');
+    setTimeout(saPhotoRecallStep, 300);
+  });
+}
+function saPhotoRecallDone(rep) {
+  saPrSetRunning(false);
+  rep = rep || {};
+  var dry = !!rep.dry;
+  saPrStatus(dry ? '✅ तपासणी पूर्ण (काहीही बदलले नाही).' : '✅ पूर्ण — फोटो-लिंक अद्ययावत झाल्या.');
+  function row(l, v) { return '<tr><td style="padding:3px 10px 3px 0">' + l + '</td><td style="padding:3px 0;font-weight:700">' + v + '</td></tr>'; }
+  function sample(arr) { return (arr && arr.length) ? '<div style="font-size:11.5px;color:#9fb0cc;margin:2px 0 8px">उदा.: ' + arr.map(function(x){ return escAttr(x); }).join(', ') + (arr.length >= 30 ? ' …' : '') + '</div>' : ''; }
+  var h = '<table>'
+    + row('तपासलेल्या फाइल्स', rep.files)
+    + row('जुळलेले (विद्यार्थी)', rep.matched)
+    + row(dry ? 'अद्ययावत होतील' : 'अद्ययावत केले', rep.updated)
+    + row('आधीच बरोबर', rep.alreadyCorrect)
+    + row('फोटो नसलेले विद्यार्थी', rep.studentsWithoutPhoto)
+    + row('विद्यार्थ्याशिवायच्या फाइल्स', rep.filesWithoutStudent)
+    + (rep.nonImage ? row('इमेज नसलेल्या फाइल्स (वगळल्या)', rep.nonImage) : '')
+    + (rep.duplicateRegNos ? row('दुबार Reg No (पहिली ओळ वापरली)', rep.duplicateRegNos) : '')
+    + '</table>';
+  if (rep.studentsWithoutPhotoSample && rep.studentsWithoutPhotoSample.length) h += '<div style="margin-top:6px">फोटो नसलेले Reg No:</div>' + sample(rep.studentsWithoutPhotoSample);
+  if (rep.filesWithoutStudentSample && rep.filesWithoutStudentSample.length) h += '<div>विद्यार्थ्याशिवायच्या फाइल्स:</div>' + sample(rep.filesWithoutStudentSample);
+  document.getElementById('sa_prReport').innerHTML = h;
+  if (!dry) {
+    document.getElementById('sa_prConfirm').value = '';
+    try { clearStudentCache(); } catch (e) {}   // नवीन लिंक दिसण्यासाठी विद्यार्थी Cache रद्द
+  }
 }
 
 // =====================================================================

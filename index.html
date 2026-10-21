@@ -1436,6 +1436,20 @@
     </div>
   </div>
 
+  <div class="card" style="margin-bottom:16px;border:2px solid #7a4ad0">
+    <div class="card-header"><div><h2>📷 फोटो लिंक पुन्हा जोडा (Photo link recall)</h2><p>Photo फोल्डरमधील सर्व फोटो तपासून Students मधील फोटो-लिंक (स्तंभ AA) अद्ययावत करते. फक्त लिंक बदलते — फाइल्स/इतर माहिती नाही.</p></div></div>
+    <div class="card-body">
+      <div class="frow" style="gap:10px;flex-wrap:wrap;align-items:flex-end">
+        <div class="fg" style="flex:0 0 auto"><label style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" id="sa_prDry" checked onchange="saPhotoRecallModeChanged()"> फक्त तपासा (dry run) — काहीही बदलत नाही</label></div>
+        <div class="fg w150" id="sa_prConfirmWrap" style="display:none"><label>खात्री: PHOTO टाइप करा</label><input id="sa_prConfirm" placeholder="PHOTO"></div>
+        <div class="fg" style="flex:0 0 auto"><button class="btn btn-gold" id="sa_prBtn" onclick="saPhotoRecallStart()">▶️ तपासा</button></div>
+        <div class="fg" style="flex:0 0 auto"><button class="btn btn-orange" id="sa_prStop" onclick="saPhotoRecallStop()" style="display:none">⏹ थांबवा</button></div>
+      </div>
+      <div id="sa_prStatus" style="font-size:12.5px;margin-top:10px;color:#cfd8e8"></div>
+      <div id="sa_prReport" style="font-size:12.5px;margin-top:8px"></div>
+    </div>
+  </div>
+
   <div class="card" style="margin-bottom:16px">
     <div class="card-header"><div><h2>💾 आपोआप Backup (Google Drive)</h2><p>Spreadsheet(s) ची प्रत रोज/आठवड्याला आपोआप Drive मध्ये</p></div></div>
     <div class="card-body">

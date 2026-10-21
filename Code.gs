@@ -27,6 +27,7 @@ var AT_HEADERS = [
   "Total Days","Present Days","Percentage","From Date","To Date","Remarks"
 ];
 var PHOTO_FOLDER_ID = "1urIudSUS7U0ClMTjvp__uZ0ZgTQ7GrbU";
+var PHOTO_COL = 27;   // V19.45: Students मधील "Photo URL" स्तंभ (MAIN_HEADERS नुसार 27/AA) — लिहिणे व वाचणे दोन्ही येथेच
 
 // ===== CLASS TEACHER MODULE (V19.32) — sheet headers =====
 var DAILY_ATT_HEADERS = ["Timestamp","Date","Class","Division","RegNo","StudentId","FullName","Reason","MarkedBy"];
@@ -247,6 +248,9 @@ function doGetCore_(e) {
   }
   if (p.action === "getSecurityStatus") {
     return doGetSecurityStatus(p, cb);
+  }
+  if (p.action === "photoRecall") {   // V19.46 — Photo link recall (फक्त Super)
+    return doPhotoRecall(p, cb);
   }
   if (p.action === "promoteStudents" || p.action === "undoPromotion" ||
       p.action === "runBackup" || p.action === "setBackupSchedule" ||
@@ -1761,26 +1765,48 @@ function testPhotoFolderAccess() {
   }
 }
 
+// V19.45: एकाच नावाच्या अनेक फाइल्स असल्यास सर्वात अलीकडे बदललेली फाइल निवडतो.
+function latestFileByName_(folder, name) {
+  var best = null, bestT = -1;
+  var it = folder.getFilesByName(name);
+  while (it.hasNext()) {
+    var f = it.next();
+    var t = 0;
+    try { t = f.getLastUpdated().getTime(); } catch (e) {}
+    if (!best || t > bestT) { best = f; bestT = t; }
+  }
+  return best;
+}
+
 function savePhotoData(regNo, photoData, mimeType) {
   try {
     regNo = (regNo || "").toString().trim();
     if (!regNo) return {status:"error", message:"regNo required"};
     if (!photoData) return {status:"error", message:"photoData required"};
 
-    var folder = DriveApp.getFolderById(PHOTO_FOLDER_ID);
-    var fileName = cleanRegFileName(regNo) + ".jpg";
-    var existing = folder.getFilesByName(fileName);
-    while (existing.hasNext()) {
-      existing.next().setTrashed(true);
-    }
+    // V19.45: आकार आधी तपासा — पूर्वी जुना फोटो आधी Trash होऊन मग आकार-त्रुटी यायची (जुना फोटो वाया).
     var bytes = Utilities.base64Decode(photoData);
     if (bytes.length > 10240) return {status:"error", message:"Photo size is " + bytes.length + " bytes. Please compress below 10 KB."};
+
+    var folder = DriveApp.getFolderById(PHOTO_FOLDER_ID);
+    var fileName = cleanRegFileName(regNo) + ".jpg";
+    var oldFiles = [];
+    var existing = folder.getFilesByName(fileName);
+    while (existing.hasNext()) oldFiles.push(existing.next());
+
     var blob = Utilities.newBlob(bytes, mimeType || "image/jpeg", fileName);
     var file = folder.createFile(blob);
-    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    try {
+      file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    } catch (eShare) {
+      try { file.setTrashed(true); } catch (eT) {}   // नवी फाइल अर्धवट राहू नये; जुनी जशीच्या तशी
+      throw eShare;
+    }
+    oldFiles.forEach(function(f) { try { f.setTrashed(true); } catch (eOld) {} });   // नवी फाइल यशस्वी झाल्यावरच जुनी काढा
+
     var photoUrl = publicDriveUrl(file.getId());
-    updateStudentPhotoUrl(regNo, photoUrl);
-    return {status:"ok", regNo:regNo, photoUrl:photoUrl, fileId:file.getId()};
+    var upd = updateStudentPhotoUrl(regNo, photoUrl);
+    return {status:"ok", regNo:regNo, photoUrl:photoUrl, fileId:file.getId(), studentFound:!!upd.found, sheetUpdated:!!upd.updated};
   } catch(err) {
     return {status:"error", message:err.toString()};
   }
@@ -1839,14 +1865,18 @@ function finishPhotoChunkUpload(p) {
   }
 }
 
+// V19.45: Students मधील Photo URL (PHOTO_COL) अद्ययावत. फक्त बदल असेल तेव्हाच लिहितो व roster cache रद्द करतो
+// (पूर्वी प्रत्येक वेळी लिहून cache रद्द व्हायचा). परत: {found, updated}
 function updateStudentPhotoUrl(regNo, photoUrl) {
   var sh = getOrCreateSheet("Students", MAIN_HEADERS);
   var row = findRowByKey(sh, 3, regNo) || findRowByKey(sh, 4, regNo);
-  if (row) {
-    sh.getRange(row, 27).setValue(photoUrl);
-    SpreadsheetApp.flush();
-    invalidateRosterCache_();
-  }
+  if (!row) return {found:false, updated:false};
+  var cur = (sh.getRange(row, PHOTO_COL).getValue() || "").toString();
+  if (cur === String(photoUrl)) return {found:true, updated:false, same:true};
+  sh.getRange(row, PHOTO_COL).setValue(photoUrl);
+  SpreadsheetApp.flush();
+  invalidateRosterCache_();
+  return {found:true, updated:true};
 }
 
 function getPhotoUrlByRegNo(regNo) {
@@ -1856,20 +1886,179 @@ function getPhotoUrlByRegNo(regNo) {
     var sh = getOrCreateSheet("Students", MAIN_HEADERS);
     var row = findRowByKey(sh, 3, regNo) || findRowByKey(sh, 4, regNo);
     var folder = DriveApp.getFolderById(PHOTO_FOLDER_ID);
-    var files = folder.getFilesByName(cleanRegFileName(regNo) + ".jpg");
-    if (files.hasNext()) {
-      var file = files.next();
+    var file = latestFileByName_(folder, cleanRegFileName(regNo) + ".jpg");
+    if (file) {
       var photoUrl = publicDriveUrl(file.getId());
       updateStudentPhotoUrl(regNo, photoUrl);
       return {status:"ok", photoUrl:photoUrl};
     }
     if (row) {
-      var savedUrl = sh.getRange(row, 33).getValue();
-      if (savedUrl) return {status:"ok", photoUrl:savedUrl};
+      var savedUrl = sh.getRange(row, PHOTO_COL).getValue();   // V19.45: पूर्वी स्तंभ 33 (अस्तित्वात नसलेला) वाचला जायचा
+      if (savedUrl) return {status:"ok", photoUrl:savedUrl.toString()};
     }
     return {status:"notfound", photoUrl:""};
   } catch(err) {
     return {status:"error", message:err.toString()};
+  }
+}
+
+
+// =====================================================================
+// ===== V19.46 — Photo link recall (फक्त Super) =====
+// PHOTO_FOLDER मधील फोटो फाइल्सच्या नावावरून (विस्तारशिवाय == cleanRegFileName(RegNo)) Students स्तंभ PHOTO_COL (27) मध्ये योग्य लिंक भरतो.
+// • गटांमध्ये चालतो: प्रत्येक विनंती ~४ मिनिटांचा वेळ-बजेट वापरते व continuation token परत देते; क्लायंट "पुढील गट" आपोआप मागवतो.
+// • पुन्हा चालवणे सुरक्षित (idempotent): आधीच बरोबर लिंक पुन्हा लिहिली जात नाही.
+// • dry=1 (डीफॉल्ट): काहीही लिहीत नाही, फक्त अहवाल. फाइल sharing/Trash/मूळ डेटा बदलत नाही; फक्त Photo URL स्तंभ.
+// • सत्र-स्थिती (token, आकडे, दावे) Script Cache मध्ये ६ तास (runId नुसार); cache गेल्यास "पुन्हा सुरू करा" संदेश — डेटाला धोका नाही.
+// =====================================================================
+var PHOTO_RECALL_BUDGET_MS = 240000;
+var PHOTO_RECALL_SHARDS = 16;
+var PHOTO_RECALL_TTL = 21600;
+
+function photoRecallShard_(key) {
+  var h = 0;
+  for (var i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) % 1000003;
+  return h % PHOTO_RECALL_SHARDS;
+}
+function photoIdFromUrl_(url) {
+  var m = /[?&]id=([\w-]+)|\/d\/([\w-]+)/.exec((url || "").toString());
+  return m ? (m[1] || m[2]) : "";
+}
+function photoBaseName_(name) {
+  name = (name || "").toString();
+  var i = name.lastIndexOf(".");
+  return i > 0 ? name.substring(0, i) : name;
+}
+
+function doPhotoRecall(p, cb) {
+  var lock = null;
+  try {
+    if (!p._authed || p.requesterRole !== "super") {
+      return wrap(cb, {status:"error", message:"Photo link recall चा अधिकार फक्त Super Master ला आहे (Token सह Login आवश्यक)."});
+    }
+    var dry = (p.dry === undefined || p.dry === null || p.dry === "") ? true : (String(p.dry) !== "0");
+    var budget = parseInt(p.budgetMs || "", 10);
+    if (isNaN(budget)) budget = PHOTO_RECALL_BUDGET_MS;
+    budget = Math.max(3000, Math.min(budget, 270000));
+    var t0 = Date.now();
+    var cache = CacheService.getScriptCache();
+
+    // ---- सत्र-स्थिती ----
+    var runId = (p.runId || "").toString().replace(/[^\w-]/g, "");
+    var st;
+    if (!runId) {
+      runId = Utilities.getUuid().replace(/[^\w]/g, "").substring(0, 12);
+      st = {dry: dry, token: "", files: 0, nonImage: 0, orphans: 0, orphanSample: [], batches: 0};
+    } else {
+      var raw = cache.get("prs_" + runId);
+      if (!raw) return wrap(cb, {status:"error", code:"runlost", message:"सत्र-स्थिती संपली (cache). कृपया पुन्हा सुरू करा — आधी झालेले बदल सुरक्षित आहेत व पुन्हा चालवणे सुरक्षित आहे."});
+      st = JSON.parse(raw);
+      dry = !!st.dry;   // सत्राचा मोड बदलता येत नाही
+    }
+
+    if (!dry) {
+      lock = LockService.getScriptLock();
+      try { lock.waitLock(20000); } catch (eL) { lock = null; return wrap(cb, {status:"error", message:"दुसरी प्रक्रिया चालू आहे — थोड्या वेळाने पुन्हा प्रयत्न करा."}); }
+    }
+
+    // ---- विद्यार्थी: key (cleanRegFileName(RegNo)) → ओळ, सध्याची लिंक ----
+    var sh = getOrCreateSheet("Students", MAIN_HEADERS);
+    var last = sh.getLastRow();
+    var regVals = last >= 2 ? sh.getRange(2, 3, last - 1, 1).getValues() : [];
+    var urlVals = last >= 2 ? sh.getRange(2, PHOTO_COL, last - 1, 1).getValues() : [];
+    var byKey = {}, dupRegs = 0;
+    for (var i = 0; i < regVals.length; i++) {
+      var rg = (regVals[i][0] || "").toString().trim();
+      if (!rg) continue;
+      var k = cleanRegFileName(rg);
+      if (byKey[k]) { dupRegs++; continue; }
+      byKey[k] = {row: i + 2, reg: rg, url: (urlVals[i][0] || "").toString()};
+    }
+
+    // ---- दावे (claims) shards: key → {i: fileId, t: modified ms, o: मूळ लिंकचा id ("" रिकामी, "x" अनोळखी स्वरूप)} ----
+    var shardKeys = [];
+    for (var sI = 0; sI < PHOTO_RECALL_SHARDS; sI++) shardKeys.push("prc_" + runId + "_" + sI);
+    var got = cache.getAll(shardKeys);
+    var shards = [], dirty = {};
+    for (var sJ = 0; sJ < PHOTO_RECALL_SHARDS; sJ++) shards.push(got[shardKeys[sJ]] ? JSON.parse(got[shardKeys[sJ]]) : {});
+
+    var folder = DriveApp.getFolderById(PHOTO_FOLDER_ID);
+    var it = st.token ? DriveApp.continueFileIterator(st.token) : folder.getFiles();
+    var changed = {};    // row → url (या गटात लिहायचे)
+    var processed = 0, finished = false;
+    while (true) {
+      if (!it.hasNext()) { finished = true; break; }
+      if (Date.now() - t0 > budget) break;
+      var f = it.next();
+      processed++; st.files++;
+      var mt = "image/jpeg";
+      try { mt = f.getMimeType ? f.getMimeType() : mt; } catch (eM) {}
+      if ((mt || "").toString().indexOf("image/") !== 0) { st.nonImage++; continue; }
+      var key = photoBaseName_(f.getName());
+      var stu = byKey[key];
+      if (!stu) {
+        st.orphans++;
+        if (st.orphanSample.length < 30) st.orphanSample.push(f.getName());
+        continue;
+      }
+      var fid = f.getId(), ft = 0;
+      try { ft = f.getLastUpdated().getTime(); } catch (eT) {}
+      var sd = shards[photoRecallShard_(key)];
+      var c = sd[key];
+      if (c && ft <= c.t) continue;           // एकाच नावाची जुनी/समान फाइल — सर्वात अलीकडील आधीच निवडली
+      var origId = c ? c.o : (stu.url ? (photoIdFromUrl_(stu.url) || "x") : "");
+      sd[key] = {i: fid, t: ft, o: origId};
+      dirty[photoRecallShard_(key)] = 1;
+      var want = publicDriveUrl(fid);
+      if (stu.url !== want) changed[stu.row] = want;
+      else delete changed[stu.row];
+    }
+
+    // ---- लेखन: एकाच setValues (फक्त बदललेल्या ओळींच्या पल्ल्यात; लेखनापूर्वी ताजे वाचन) ----
+    var wrote = 0;
+    var rows = Object.keys(changed).map(function(x) { return parseInt(x, 10); });
+    if (!dry && rows.length) {
+      var minR = Math.min.apply(null, rows), maxR = Math.max.apply(null, rows);
+      var fresh = sh.getRange(minR, PHOTO_COL, maxR - minR + 1, 1).getValues();
+      rows.forEach(function(r) { fresh[r - minR][0] = changed[r]; wrote++; });
+      sh.getRange(minR, PHOTO_COL, maxR - minR + 1, 1).setValues(fresh);
+      SpreadsheetApp.flush();
+      invalidateRosterCache_();
+    }
+
+    // ---- स्थिती जतन ----
+    st.batches++;
+    st.token = finished ? "" : it.getContinuationToken();
+    var putAll = {};
+    Object.keys(dirty).forEach(function(d) { putAll[shardKeys[d]] = JSON.stringify(shards[d]); });
+    putAll["prs_" + runId] = JSON.stringify(st);
+    Object.keys(putAll).forEach(function(k2) { cache.put(k2, putAll[k2], PHOTO_RECALL_TTL); });
+
+    var res = {status:"ok", runId: runId, dry: dry, done: finished, batchFiles: processed, batchWrote: wrote,
+      progress: {files: st.files, batches: st.batches}};
+
+    if (finished) {
+      var matched = 0, updated = 0, same = 0, claimed = {};
+      shards.forEach(function(sd2) {
+        Object.keys(sd2).forEach(function(k3) { matched++; claimed[k3] = 1; if (sd2[k3].i === sd2[k3].o) same++; else updated++; });
+      });
+      var noPhoto = [], noPhotoCount = 0;
+      Object.keys(byKey).forEach(function(k4) {
+        if (!claimed[k4]) { noPhotoCount++; if (noPhoto.length < 30) noPhoto.push(byKey[k4].reg); }
+      });
+      res.report = {files: st.files, nonImage: st.nonImage, matched: matched, updated: updated, alreadyCorrect: same,
+        studentsWithoutPhoto: noPhotoCount, studentsWithoutPhotoSample: noPhoto,
+        filesWithoutStudent: st.orphans, filesWithoutStudentSample: st.orphanSample, duplicateRegNos: dupRegs,
+        dry: dry, wouldUpdate: dry ? updated : 0};
+      // cache स्वच्छ करा
+      shardKeys.forEach(function(k5) { cache.remove(k5); }); cache.remove("prs_" + runId);
+      if (!dry) logAudit(p.auditUser || p.requesterUser, p.auditRole || p.requesterRole, "photoRecall", "files=" + st.files + ", updated=" + updated + ", ok=" + same);
+    }
+    return wrap(cb, res);
+  } catch (err) {
+    return wrap(cb, {status:"error", message:err.toString()});
+  } finally {
+    if (lock) { try { lock.releaseLock(); } catch (eR) {} }
   }
 }
 
@@ -3106,14 +3295,13 @@ function doGetPhotoData(p, cb) {
     var file = null;
     // १) Photo फोल्डरमधील <regNo>.jpg
     try {
-      var files = DriveApp.getFolderById(PHOTO_FOLDER_ID).getFilesByName(cleanRegFileName(regNo) + ".jpg");
-      if (files.hasNext()) file = files.next();
+      file = latestFileByName_(DriveApp.getFolderById(PHOTO_FOLDER_ID), cleanRegFileName(regNo) + ".jpg");
     } catch (e1) {}
     // २) Students मध्ये साठवलेल्या Photo URL मधील File ID
     if (!file) {
       var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Students");
       var row = sh ? (findRowByKey(sh, 3, regNo) || findRowByKey(sh, 4, regNo)) : 0;
-      var url = row ? (sh.getRange(row, 27).getValue() || "").toString() : "";
+      var url = row ? (sh.getRange(row, PHOTO_COL).getValue() || "").toString() : "";
       var m = /[?&]id=([\w-]+)|\/d\/([\w-]+)/.exec(url);
       if (m) { try { file = DriveApp.getFileById(m[1] || m[2]); } catch (e2) {} }
     }

@@ -32,7 +32,7 @@ window.androidBackPressed = function() {
 
 
 // URL persistence
-var DEFAULT_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbxyS49yiKkFV366fw5hqc9COJv8SXrywtvXKzUAg4ZfvKg6ObgJjS1U76tTGjOuNgK7/exec';
+var DEFAULT_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbxX97OelZAQ7mSWW-wJg8mzK0-WVGOSz_FPhO1FiblG38YyP0hWn_r80iOw9134_J7I/exec';
 
 // =====================================================
 // 🔐 LOGIN + ROLE PERMISSIONS
@@ -255,6 +255,7 @@ function completeLogin(username, user, pEl, st, token, exp) {
 }
 
 function logoutUser() {
+  try { swrClearAll(); } catch (e) {}   // V19.49: जुना cache पुसा
   sessionStorage.removeItem('sgs_login_user');
   sessionStorage.removeItem(SESSION_KEY);
   currentUser = null;
@@ -725,6 +726,154 @@ var rowTracker={s:null,lc:null,bf:null,at:null};
 
 // V19.40: ब्राउझरमधून मोजलेला एकूण वेळ (नेटवर्क + Apps Script सुरू होण्याचा वेळ + सर्व्हर) — शेवटच्या १५० विनंत्या
 var clientPerf = [];
+// =====================================================================
+// V19.49 (टप्पा 6 / C2) — "आधी जुना, मागून ताजा" (stale-while-revalidate)
+// localStorage मध्ये शेवटचे यशस्वी उत्तर (वापरकर्त्याच्या नावानुसार); पान उघडताच ते लगेच दाखवा, मागून ताजे मागवा व बदलल्यासच पुन्हा रेखाटा.
+// नियम: पैसा/थकबाकी/फी जमा स्क्रीनवर कधीही जुना डेटा नाही • २४ तासांहून जुना cache वापरत नाही • अॅप-आवृत्ती बदलल्यास रद्द •
+//       प्रत्येकी ~300 KB / एकूण ~1 MB मर्यादा • Logout वर पूर्ण पुसले जाते • Token कधीही साठवत नाही (फक्त उत्तर).
+// =====================================================================
+var APP_VERSION = 'V19.50';
+var SWR_PREFIX = 'sgs_swr:';
+var SWR_MAX_AGE_MS = 24 * 3600 * 1000, SWR_MAX_ENTRY = 300 * 1024, SWR_MAX_TOTAL = 1024 * 1024;
+var SWR_NEVER = /fee|thakbaki|arrear|payment|receipt/i;   // action किंवा key मध्ये आढळल्यास कधीही stale नाही, साठवतही नाही
+var swrSeq = {}, swrPendingCount = 0, swrBarTimer = null;
+
+function swrKey(key) { return SWR_PREFIX + APP_VERSION + ':' + (currentUser ? currentUser.username : '') + ':' + key; }
+function swrAllKeys() {
+  var out = [];
+  try { for (var i = 0; i < localStorage.length; i++) { var k = localStorage.key(i); if (k && k.indexOf(SWR_PREFIX) === 0) out.push(k); } } catch (e) {}
+  return out;
+}
+function swrClearAll() { swrAllKeys().forEach(function(k) { try { localStorage.removeItem(k); } catch (e) {} }); }
+function swrPurgeOld() {   // जुनी अॅप-आवृत्ती व २४ तासांहून जुन्या नोंदी काढा
+  var cur = SWR_PREFIX + APP_VERSION + ':';
+  swrAllKeys().forEach(function(k) {
+    try {
+      if (k.indexOf(cur) !== 0) { localStorage.removeItem(k); return; }
+      var o = JSON.parse(localStorage.getItem(k) || 'null');
+      if (!o || !o.t || (Date.now() - o.t) > SWR_MAX_AGE_MS) localStorage.removeItem(k);
+    } catch (e) { try { localStorage.removeItem(k); } catch (e2) {} }
+  });
+}
+function swrRead(key) {
+  var k = swrKey(key);
+  try {
+    var raw = localStorage.getItem(k); if (!raw) return null;
+    var o = JSON.parse(raw);
+    if (!o || !o.t || (Date.now() - o.t) > SWR_MAX_AGE_MS || o.u !== (currentUser ? currentUser.username : '')) { localStorage.removeItem(k); return null; }
+    return o;
+  } catch (e) { try { localStorage.removeItem(k); } catch (e2) {} return null; }
+}
+function swrEnforceTotal() {
+  var items = swrAllKeys().map(function(k) { var v = ''; try { v = localStorage.getItem(k) || ''; } catch (e) {} var t = 0; try { t = (JSON.parse(v) || {}).t || 0; } catch (e2) {} return {k: k, n: v.length, t: t}; });
+  var total = items.reduce(function(a, x) { return a + x.n; }, 0);
+  items.sort(function(a, b) { return a.t - b.t; });   // जुने आधी
+  while (total > SWR_MAX_TOTAL && items.length) { var x = items.shift(); try { localStorage.removeItem(x.k); } catch (e) {} total -= x.n; }
+}
+function swrWrite(key, data) {
+  var k = swrKey(key), json;
+  try { json = JSON.stringify({t: Date.now(), u: (currentUser ? currentUser.username : ''), d: data}); } catch (e) { return false; }
+  if (json.length > SWR_MAX_ENTRY) { try { localStorage.removeItem(k); } catch (e) {} return false; }   // खूप मोठे — साठवू नका
+  try { localStorage.setItem(k, json); }
+  catch (e) { swrPurgeOld(); try { localStorage.setItem(k, json); } catch (e2) { return false; } }
+  swrEnforceTotal();
+  return true;
+}
+function swrBar(state) {   // 'on' | 'fail' | 'off'
+  var el = document.getElementById('swrBar');
+  if (!el) { el = document.createElement('div'); el.id = 'swrBar'; document.body.appendChild(el); }
+  if (swrBarTimer) { clearTimeout(swrBarTimer); swrBarTimer = null; }
+  if (state === 'on') { el.textContent = '⏱ ताजी माहिती येत आहे…'; el.className = 'swr-on'; return; }
+  if (state === 'fail') { el.textContent = '⚠️ ताजी माहिती मिळाली नाही — जुनी माहिती दाखवली आहे'; el.className = 'swr-on swr-fail'; swrBarTimer = setTimeout(function() { if (!swrPendingCount) el.className = ''; }, 5000); return; }
+  el.className = '';
+}
+// fetcher(cb) → cb(r). render(r, meta): meta = {stale, failed}. opts: noStale, notifyFresh (उत्तर तेच असले तरी fresh-सूचना द्या)
+function swrRun(key, fetcher, render, opts) {
+  opts = opts || {};
+  function settled() { if (opts.onSettled) { try { opts.onSettled(); } catch (e) {} } }   // V19.50: नेटवर्क उत्तर (ताजे/अपयश) आल्यावर — lazy queue साठी
+  if (opts.noStale || SWR_NEVER.test(key) || !currentUser) { fetcher(function(r) { try { render(r, {stale: false}); } finally { settled(); } }); return; }
+  var seq = (swrSeq[key] = (swrSeq[key] || 0) + 1);
+  var hit = swrRead(key), shown = null, t0 = Date.now();
+  if (hit) {
+    shown = JSON.stringify(hit.d);
+    swrPendingCount++; swrBar('on');
+    try { render(hit.d, {stale: true, age: Date.now() - hit.t}); } catch (e) { try { console.error(e); } catch (e2) {} }
+    clientPerfAdd('⚡ ' + key.split(':')[0] + ' (जुना — पहिला डेटा)', Date.now() - t0, {status: 'ok'});
+  }
+  fetcher(function(r) {
+    try {
+      if (hit) { swrPendingCount = Math.max(0, swrPendingCount - 1); if (!swrPendingCount) swrBar('off'); }
+      if (seq !== swrSeq[key]) return;   // याच key ची नवी विनंती सुरू झाली — हे जुने उत्तर टाका
+      if (r && r.status === 'ok') {
+        var s = ''; try { s = JSON.stringify(r); } catch (e) {}
+        swrWrite(key, r);
+        if (!hit || s !== shown || opts.notifyFresh) render(r, {stale: false, same: !!hit && s === shown});
+      } else if (hit) {
+        swrBar('fail');   // जुनी माहिती तशीच राहते
+      } else {
+        render(r, {stale: false, failed: true});
+      }
+    } finally { settled(); }
+  });
+}
+function swrRequest(key, params, render, opts) { swrRun(key, function(cb) { jsonpRequest(params, cb); }, render, opts); }
+try { swrPurgeOld(); } catch (e) {}
+
+
+// =====================================================================
+// V19.50 (टप्पा 6 / C3) — कार्ड/Tab उघडल्यावर (दिसताना) Load; एकावेळी जास्तीत जास्त LAZY_CONCURRENCY विनंत्या
+// Master मुख्यपृष्ठावर पूर्वी ५-६ विनंत्या एकदम सुटायच्या (Apps Script एकाच वेळी ~३० विनंत्याच हाताळतो — सकाळच्या गर्दीत महत्त्वाचे).
+// आता: कार्ड स्क्रीनवर दिसू लागल्यावरच त्याचा Load; रांगेतून क्रमाने (प्रत्येक loader पूर्ण झाल्यावर done() कळवतो; १२ से. नंतर पुढे जातो).
+// =====================================================================
+var LAZY_CONCURRENCY = 2, LAZY_TIMEOUT_MS = 12000;
+var lazyState = {gen: 0, queue: [], running: 0, observers: []};
+function lazyReset() {
+  lazyState.gen++; lazyState.queue = []; lazyState.running = 0;
+  lazyState.observers.forEach(function(o) { try { o.disconnect(); } catch (e) {} });
+  lazyState.observers = [];
+}
+function lazyPump() {
+  while (lazyState.running < LAZY_CONCURRENCY && lazyState.queue.length) {
+    var task = lazyState.queue.shift();
+    lazyState.running++;
+    (function(task, gen) {
+      var finished = false, tm = null;
+      function fin() {
+        if (finished) return; finished = true; clearTimeout(tm);
+        if (gen === lazyState.gen) { lazyState.running = Math.max(0, lazyState.running - 1); lazyPump(); }
+      }
+      tm = setTimeout(fin, LAZY_TIMEOUT_MS);
+      try { task.load(fin); } catch (e) { try { console.error(e); } catch (e2) {} fin(); }
+    })(task, lazyState.gen);
+  }
+}
+// cards = [{el: 'elementId', load: function(done)}] — क्रम महत्त्वाचा (एकाच वेळी दिसल्यास याच क्रमाने)
+function lazyCards(cards) {
+  lazyReset();
+  var gen = lazyState.gen;
+  function enqueue(c) { if (gen !== lazyState.gen) return; lazyState.queue.push(c); lazyPump(); }
+  if (typeof IntersectionObserver === 'undefined') { cards.forEach(enqueue); return; }
+  var lazyOnly = [];
+  cards.forEach(function(c) { if (c.eager) enqueue(c); else lazyOnly.push(c); });   // eager = दिसण्याची वाट न पाहता लगेच (सर्वात महत्त्वाचे कार्ड)
+  cards = lazyOnly;
+  var io = new IntersectionObserver(function(entries) {
+    entries.forEach(function(en) {
+      if (!en.isIntersecting) return;
+      io.unobserve(en.target);
+      var c = en.target.__lazyCard; en.target.__lazyCard = null;
+      if (c) enqueue(c);
+    });
+  }, {rootMargin: '150px 0px'});
+  lazyState.observers.push(io);
+  cards.forEach(function(c) {
+    var el = document.getElementById(c.el);
+    if (!el) return;
+    el.__lazyCard = c;
+    io.observe(el);
+  });
+}
+
+
 function clientPerfAdd(action, ms, r) {
   if (!action || action === 'ping') return;
   clientPerf.push({a: action, ms: ms, ok: !!(r && r.status !== 'timeout' && r.status !== 'error')});
@@ -3260,21 +3409,22 @@ function renderRecentSearches() {
 }
 
 // ===== DASHBOARD LIVE STATS (V19.8) =====
-function loadDashboardStats() {
+function loadDashboardStats(done) {
   var url = getUrl();
+  var fin = (typeof done === 'function') ? done : function() {};
   var loading = document.getElementById('dashStatsLoading');
   var cards = document.getElementById('dashStatCards');
   var chartPanel = document.getElementById('dashClassChart');
   if (!url) {
     if (loading) loading.textContent = '⚠️ आधी Google Sheets URL Set करा.';
-    return;
+    fin(); return;
   }
   if (loading) { loading.style.display = 'block'; loading.textContent = '⏳ आकडेवारी Load होत आहे...'; }
   if (cards) cards.style.display = 'none';
   if (chartPanel) chartPanel.style.display = 'none';
   var cb = 'dashCb_' + Date.now();
   window[cb] = function(r) {
-    delete window[cb];
+    delete window[cb]; fin();
     if (r && r.status === 'ok') {
       document.getElementById('stat_totalStudents').textContent = r.totalStudents || 0;
       document.getElementById('stat_todayLC').textContent = r.todayLC || 0;
@@ -3292,7 +3442,7 @@ function loadDashboardStats() {
   s.src = url + '?action=getDashboardStats&callback=' + cb + tokenQS() + '&t=' + Date.now();
   s.onerror = function() {
     if (loading) loading.textContent = '❌ Network Error.';
-    delete window[cb];
+    delete window[cb]; fin();
   };
   document.head.appendChild(s);
 }
@@ -3595,11 +3745,18 @@ showPage = function(name, btn) {
     renderRecentSearches();
   }
   if (name === 'dashboard') {
-    loadDashboardStats();
-    loadAnalytics();
-    if (currentUser && (currentUser.role === 'master' || currentUser.role === 'super')) mstLoadRecentNotices();
-    if (currentUser && (currentUser.role === 'master' || currentUser.role === 'super')) mstLoadTodayBirthdays();
-    if (currentUser && (currentUser.role === 'master' || currentUser.role === 'super')) mstLoadAttendancePending();
+    // V19.50: सर्व कार्ड्स एकदम नाही — दिसू लागल्यावर, रांगेतून (एकावेळी जास्तीत जास्त २ विनंत्या)
+    var dashCards = [];
+    if (currentUser && (currentUser.role === 'master' || currentUser.role === 'super')) {
+      dashCards.push({el: 'mst_attPending', load: mstLoadAttendancePending, eager: true});   // आजची हजेरी — सर्वात महत्त्वाचे, लगेच (जुना डेटा आधी)
+      dashCards.push({el: 'mst_birthdaysToday', load: mstLoadTodayBirthdays});
+      dashCards.push({el: 'mst_recentNotices', load: mstLoadRecentNotices});
+    }
+    dashCards.push({el: 'dashStatsLoading', load: loadDashboardStats});
+    dashCards.push({el: 'anaLoading', load: loadAnalytics});
+    lazyCards(dashCards);
+  } else if (lazyState.queue.length || lazyState.observers.length) {
+    lazyReset();   // दुसऱ्या पानावर गेल्यावर न सुरू झालेले Load रद्द
   }
   if (name === 'superadmin' && currentUser && currentUser.role === 'super') {
     saLoadAll();
@@ -4030,11 +4187,12 @@ function buildCategoryTableFromCounts(female, male) {
 }
 
 // ===== Master / Super Master — आज वाढदिवस असलेले विद्यार्थी (V19.34) =====
-function mstLoadTodayBirthdays() {
+function mstLoadTodayBirthdays(done) {
   var el = document.getElementById('mst_birthdaysToday');
-  if (!el) return;
+  if (!el) { if (typeof done === 'function') done(); return; }
   el.innerHTML = '⏳ Load होत आहे...';
   jsonpRequest({action:'getTodayBirthdays'}, function(r) {
+    if (typeof done === 'function') done();
     if (!r || r.status !== 'ok') { el.innerHTML = '❌ Load Failed'; return; }
     if (!r.data.length) { el.innerHTML = 'आज कोणत्याही विद्यार्थ्याचा वाढदिवस नाही.'; return; }
     el.innerHTML = r.data.map(function(s) {
@@ -4083,9 +4241,10 @@ function mstSaveNotice() {
 
 // वर्ग शिक्षकांना लक्ष्य करण्यासाठी Students sheet मध्ये प्रत्यक्षात असलेल्या इयत्ता-तुकडी जोड्यांची यादी लोड करते
 var mstClassListLoaded = false;
-function mstLoadClassListForNotice() {
-  if (mstClassListLoaded) return;
+function mstLoadClassListForNotice(done) {
+  if (mstClassListLoaded) { if (typeof done === 'function') done(); return; }
   jsonpRequest({action:'getClassList'}, function(r) {
+    if (typeof done === 'function') done();
     var sel = document.getElementById('mst_noticeTargetClass');
     if (!sel) return;
     if (!r || r.status !== 'ok' || !r.data.length) return;
@@ -4099,9 +4258,10 @@ function mstLoadClassListForNotice() {
   });
 }
 
-function mstLoadRecentNotices() {
-  mstLoadClassListForNotice();
+function mstLoadRecentNotices(done) {
+  // V19.50: एका कार्डासाठी एका वेळी एकच विनंती — आधी सूचना, मग (गरज असल्यास) वर्ग-यादी; done() शेवटी
   jsonpRequest({action:'getNotices', limit: 15}, function(r) {
+    mstLoadClassListForNotice(done);
     var el = document.getElementById('mst_recentNotices');
     if (!el) return;
     if (!r || r.status !== 'ok' || !r.data.length) { el.innerHTML = 'अद्याप कोणतीही सूचना पाठवलेली नाही.'; return; }
@@ -4241,15 +4401,18 @@ function tchLoadRoster(onDone, force) {
     if (onDone) onDone();
     return;
   }
-  jsonpRequest({action:'getClassStudents', iyatta: currentUser.iyatta, tukdi: currentUser.tukdi, nocache: force ? '1' : ''}, function(r) {
+  var called = false;
+  function fin() { if (!called) { called = true; if (onDone) onDone(); } }
+  swrRequest('tchRoster:' + currentUser.iyatta + '|' + currentUser.tukdi, {action:'getClassStudents', iyatta: currentUser.iyatta, tukdi: currentUser.tukdi, nocache: force ? '1' : ''}, function(r, meta) {
     if (r && r.status === 'ok') {
       tchRoster = r.data || [];
-      tchRosterLoadedAt = Date.now();
+      tchRosterLoadedAt = meta.stale ? 0 : Date.now();   // जुना डेटा "ताजा" मानू नका
       tchRenderRoster();
       tchPopulateDiaryStudentSelect();
+      if (called) { try { tchRenderCatAge(); } catch (e) {} }   // जुन्यानंतर ताजा आला — तक्ते पुन्हा रेखाटा
     }
-    if (onDone) onDone();
-  });
+    fin();
+  }, {noStale: !!force});
 }
 
 function tchRenderRoster() {
@@ -4343,7 +4506,7 @@ function tchContactCell(s) {
 // ---- Dashboard ----
 function tchLoadDashboard() {
   var today = new Date().toISOString().slice(0,10);
-  jsonpRequest({action:'getTeacherDashboard', iyatta: currentUser.iyatta, tukdi: currentUser.tukdi, date: today}, function(r) {
+  swrRequest('tchDash:' + currentUser.iyatta + '|' + currentUser.tukdi + ':' + today, {action:'getTeacherDashboard', iyatta: currentUser.iyatta, tukdi: currentUser.tukdi, date: today}, function(r) {
     if (!r || r.status !== 'ok') return;
     document.getElementById('tch_totalStudents').textContent = r.totalStudents;
     document.getElementById('tch_presentToday').textContent = r.presentCount;
@@ -4369,10 +4532,13 @@ function tchLoadDashboard() {
     document.getElementById('tch_absentBoys').textContent = boys;
     document.getElementById('tch_absentTotal2').textContent = r.absentCount;
   });
-
-  // वर्ग प्रवर्ग (Category) व वयानुरूप तक्ते — tchRoster वापरून (roster आधीच Load झालेला असतो)
+  tchRenderCatAge();
+}
+// वर्ग प्रवर्ग (Category) व वयानुरूप तक्ते — tchRoster वापरून (roster आधीच Load झालेला असतो)
+function tchRenderCatAge() {
   var catEl = document.getElementById('tch_categoryBody');
   var ageEl = document.getElementById('tch_ageBody');
+  if (!catEl || !ageEl) return;
   if (tchRoster.length) {
     catEl.innerHTML = buildCategoryTableHtml(tchRoster);
     ageEl.innerHTML = buildAgeTableSimpleHtml(tchRoster, STATS_AGE_ASOF);
@@ -4702,16 +4868,17 @@ function tchLoadNoticesFull() {
     }).join('');
   });
 }
-function loadAnalytics() {
+function loadAnalytics(done) {
   var url = getUrl();
+  var fin = (typeof done === 'function') ? done : function() {};
   var loading = document.getElementById('anaLoading');
   var body = document.getElementById('anaBody');
-  if (!url) { if (loading) loading.textContent = '⚠️ आधी URL Set करा.'; return; }
+  if (!url) { if (loading) loading.textContent = '⚠️ आधी URL Set करा.'; fin(); return; }
   if (loading) { loading.style.display = 'block'; loading.textContent = '⏳ Analytics Data Load होत आहे...'; }
   if (body) body.style.display = 'none';
   var cb = 'anaCb_' + Date.now();
   window[cb] = function(r) {
-    delete window[cb];
+    delete window[cb]; fin();
     if (r && r.status === 'ok') {
       renderAnalytics(r);
       if (loading) loading.style.display = 'none';
@@ -4722,6 +4889,7 @@ function loadAnalytics() {
   };
   var s = document.createElement('script');
   s.src = url + '?action=getAnalyticsData&callback=' + cb + tokenQS() + '&t=' + Date.now();
+  s.onerror = function() { if (loading) loading.textContent = '❌ Network Error.'; delete window[cb]; fin(); };
   document.head.appendChild(s);
 }
 function renderBarList(containerId, counts) {
@@ -5160,11 +5328,11 @@ function closeSaveNotif(){
 // =====================================================================
 // V19.35 — Dashboard: "आज कोणी हजेरी भरली नाही" (Super Master / Master)
 // =====================================================================
-function mstLoadAttendancePending() {
+function mstLoadAttendancePending(done) {
   var el = document.getElementById('mst_attPending');
-  if (!el) return;
+  if (!el) { if (typeof done === 'function') done(); return; }
   el.innerHTML = '⏳ Load होत आहे...';
-  jsonpRequest({action:'getAttendancePending', requesterRole: currentUser.role}, function(r) {
+  swrRequest('mstAttPending:' + isoToday(), {action:'getAttendancePending', requesterRole: currentUser.role}, function(r) {
     if (!r || r.status !== 'ok') { el.innerHTML = '❌ ' + ((r && r.message) || 'Load Failed'); return; }
     var html = '';
     if (r.isSunday) html += '<div style="opacity:.7;margin-bottom:8px">ℹ️ आज रविवार आहे — हजेरी अपेक्षित नसावी.</div>';
@@ -5194,7 +5362,7 @@ function mstLoadAttendancePending() {
         r.unassigned.map(function(c){ return escRpHtml(c.iyatta + ' ' + c.tukdi); }).join(', ') + '</div>';
     }
     el.innerHTML = html;
-  });
+  }, {onSettled: done});
 }
 
 // =====================================================================
@@ -5631,6 +5799,29 @@ function saRenumberRun() {
     } else saCleanStatus('❌ ' + ((r && r.message) || 'Failed'));
   });
 }
+// V19.48: जुनी Log + Log_Archive → Log_YYYY_MM (एकदाच). जुन्या Sheets "Log_OLD_..." नावाने लपवल्या जातात, मिटवल्या जात नाहीत.
+function saMigrateLogs() {
+  var st = document.getElementById('sa_bkStatus');
+  if (!currentUser || currentUser.role !== 'super') { st.textContent = '⚠️ हे फक्त Super Master साठी आहे.'; return; }
+  var w = prompt('जुनी Log मासिक Sheets मध्ये हलवायची? (जुन्या Sheets लपवल्या जातात, मिटवल्या जात नाहीत.)\n\nSpreadsheet ची प्रत घेतली आहे ना?\nसुरू करण्यासाठी LOG टाइप करा:');
+  if (w === null) return;
+  if (String(w).trim() !== 'LOG') { st.textContent = '⚠️ पुष्टी-शब्द चुकला — काही बदलले नाही.'; return; }
+  st.textContent = '⏳ Log स्थलांतर चालू आहे...';
+  var tries = 0;
+  (function step() {
+    fetchRequest({action: 'migrateLogs', confirm: 'LOG'}, function(r) {
+      if (r && r.status === 'ok' && r.done) {
+        if (r.already) { st.textContent = 'ℹ️ ' + (r.message || 'स्थलांतर आधीच झाले आहे.'); return; }
+        var rep = r.report || {};
+        st.textContent = '✅ ' + rep.rows + ' नोंदी ' + ((rep.months || []).length) + ' महिन्यांच्या Sheets मध्ये हलवल्या' + (rep.unparsed ? ' (' + rep.unparsed + ' ओळखू न येणाऱ्या Log_Unparsed मध्ये)' : '') + '. जुन्या Sheets लपवल्या: ' + (rep.hiddenSheets || []).join(', ') + '.';
+        return;
+      }
+      if (r && r.status === 'ok' && !r.done) { st.textContent = '⏳ चालू... उर्वरित महिने: ' + r.remainingMonths; setTimeout(step, 400); return; }
+      if (tries < 2 && (!r || r.status === 'timeout' || /Fetch error|network/i.test((r && r.message) || ''))) { tries++; st.textContent = '⚠️ पुन्हा प्रयत्न ' + tries + '/2 ...'; setTimeout(step, 2500); return; }
+      st.textContent = '❌ ' + ((r && r.message) || 'Failed') + ' — पुन्हा चालवणे सुरक्षित आहे.';
+    });
+  })();
+}
 function saArchiveLogNow() {
   var st = document.getElementById('sa_bkStatus');
   st.textContent = '⏳ Log Archive चालू आहे...';
@@ -6019,22 +6210,32 @@ function elLoad() {
   elState.date = date; elState.iyatta = iy || ''; elState.tukdi = tk || ''; elState.all = all; elState.draft = {};
   st.textContent = '⏳ Load होत आहे...';
   document.getElementById('el_saveStatus').textContent = '';
-  var need = all ? 1 : 2, got = 0, errMsg = '';
-  var recRes = null, rosRes = null;
-  function done() {
-    got++; if (got < need) return;
-    if (errMsg) { st.textContent = '❌ ' + friendlyMsg(errMsg); return; }
+  // V19.49: जुनी यादी लगेच, ताजी मागून. जुन्या डेटावर नोंद (Save) बंद — गैरहजर/नोंदींची स्थिती ताजी येईपर्यंत.
+  var key = 'elStaff:' + (all ? 'ALL' : iy + '|' + tk) + ':' + date;
+  swrRun(key, function(cb) {
+    var need = all ? 1 : 2, got = 0, errMsg = '', recRes = null, rosRes = null;
+    function done() { got++; if (got < need) return; cb(errMsg ? {status: 'error', message: errMsg} : {status: 'ok', rec: recRes, ros: rosRes}); }
+    var q = {action: 'getEarlyLeave', date: date, requesterRole: currentUser.role};
+    if (!all) { q.iyatta = iy; q.tukdi = tk; }
+    jsonpRequest(q, function(r) { if (!r || r.status !== 'ok') errMsg = (r && r.message) || 'Load Failed'; else recRes = r; done(); });
+    if (!all) jsonpRequest({action: 'getClassStudents', iyatta: iy, tukdi: tk}, function(r) { if (!r || r.status !== 'ok') errMsg = (r && r.message) || 'वर्ग-यादी Load झाली नाही'; else rosRes = r; done(); });
+  }, function(r, meta) {
+    // वापरकर्त्याने दरम्यान वर्ग/तारीख बदलली असल्यास हे उत्तर टाका (चुकीच्या वर्गाची यादी दिसू नये)
+    if (elState.date !== date || elState.iyatta !== (iy || '') || elState.tukdi !== (tk || '') || elState.all !== all) return;
+    if (!r || r.status !== 'ok') { st.textContent = '❌ ' + friendlyMsg(r && r.message); return; }
+    var recRes = r.rec || {}, rosRes = r.ros;
     elState.records = recRes.records || [];
-    elState.saved = {}; elState.records.forEach(function(r) { elState.saved[r.regNo] = r; });
+    elState.saved = {}; elState.records.forEach(function(x) { elState.saved[x.regNo] = x; });
     elState.absent = {}; (recRes.absentRegNos || []).forEach(function(x) { elState.absent[x] = true; });
     elState.roster = all ? [] : ((rosRes && rosRes.data) || []);
+    elState.stale = !!meta.stale;
     st.textContent = '';
-    elRenderEntry(); elRenderList();
-  }
-  var q = {action: 'getEarlyLeave', date: date, requesterRole: currentUser.role};
-  if (!all) { q.iyatta = iy; q.tukdi = tk; }
-  jsonpRequest(q, function(r) { if (!r || r.status !== 'ok') errMsg = (r && r.message) || 'Load Failed'; else recRes = r; done(); });
-  if (!all) jsonpRequest({action: 'getClassStudents', iyatta: iy, tukdi: tk}, function(r) { if (!r || r.status !== 'ok') errMsg = (r && r.message) || 'वर्ग-यादी Load झाली नाही'; else rosRes = r; done(); });
+    if (meta.stale && !all) {
+      document.getElementById('el_entryWrap').innerHTML = '<div style="opacity:.85;font-size:13px">⏱ ताजी माहिती येईपर्यंत नोंद (Save) बंद आहे — खाली जुनी यादी दिसते.</div>';
+      document.getElementById('el_saveBtn').style.display = 'none';
+    } else elRenderEntry();
+    elRenderList();
+  }, {notifyFresh: true});   // उत्तर जुन्यासारखेच असले तरी "ताजे आले" कळवा — नोंद-तक्ता पुन्हा चालू होण्यासाठी
 }
 
 // ---- नोंद-तक्ता ----
@@ -6069,6 +6270,7 @@ function elOnChange(i) {
 }
 function elSave() {
   var st = document.getElementById('el_saveStatus');
+  if (elState.stale) { st.textContent = '⏱ ताजी माहिती येईपर्यंत थांबा — नंतर Save करा.'; return; }   // V19.49
   var date = elState.date;
   if (date > isoToday()) { st.textContent = '⚠️ भविष्यातील तारखेची नोंद करता येत नाही.'; return; }
   var entries = [], removes = [], bad = '';
@@ -6124,34 +6326,39 @@ function elRenderList() {
 function elPeonLoad(silent) {
   var box = document.getElementById('el_peonList');
   if (!silent) box.textContent = '⏳ Load होत आहे...';
-  jsonpRequest({action: 'getEarlyLeavePeon', requesterRole: currentUser.role}, function(r) {
+  // V19.49: पहिल्या उघडण्यावर जुनी यादी लगेच; ताजी येईपर्यंत "गेला/गेला नाही" बटणे बंद. ४५ से. चे आपोआप Refresh (silent) थेट ताजे.
+  swrRequest('elPeon:' + isoToday(), {action: 'getEarlyLeavePeon', requesterRole: currentUser.role}, function(r, meta) {
     if (!r || r.status !== 'ok') { if (!silent) box.textContent = '❌ ' + friendlyMsg((r && r.message) || 'Load Failed'); return; }
     elState.peon = r.records || [];
+    elState.peonStale = !!meta.stale;
     elPeonRender(r.date);
-  });
+  }, {noStale: !!silent, notifyFresh: true});
 }
 function elPeonRender(date) {
   var box = document.getElementById('el_peonList'), sum = document.getElementById('el_peonSummary');
   var list = elState.peon.slice().sort(function(a, b) { var pa = a.status ? 1 : 0, pb = b.status ? 1 : 0; return (pa - pb) || (a.period - b.period); });
   var pending = list.filter(function(r) { return !r.status; }).length;
   sum.innerHTML = 'दिनांक <b>' + escRpHtml(fmtDate(date || isoToday())) + '</b> — एकूण: <b>' + list.length + '</b> &nbsp;|&nbsp; जायचे बाकी: <b style="color:#ffd27a">' + pending + '</b>';
+  if (elState.peonStale) sum.innerHTML += '<div style="margin-top:6px;font-size:12px;color:#ffd27a">⏱ ताजी यादी येईपर्यंत "गेला / गेला नाही" बटणे बंद आहेत.</div>';
   if (!list.length) { box.innerHTML = '<div style="opacity:.8;padding:10px">आज परवानगी मिळालेला कोणताही विद्यार्थी नाही.</div>'; return; }
   box.innerHTML = list.map(function(r) {
     var i = elState.peon.indexOf(r);
     var stTxt = r.status === 'gone' ? '<span style="color:#7be08a">✅ गेला' + (r.markedAt ? ' (' + escRpHtml(String(r.markedAt).split(',').pop().trim()) + ')' : '') + '</span>' :
                 (r.status === 'notgone' ? '<span style="color:#ff9a9a">❌ गेला नाही</span>' : '<span style="color:#ffd27a">⏳ प्रतीक्षा</span>');
-    var bs = 'padding:8px 14px;border:0;border-radius:6px;font-size:14px;font-weight:700;cursor:pointer;color:#fff;margin:3px;font-family:inherit';
+    var bs = 'padding:8px 14px;border:0;border-radius:6px;font-size:14px;font-weight:700;cursor:pointer;color:#fff;margin:3px;font-family:inherit' + (elState.peonStale ? ';opacity:.45;cursor:not-allowed' : '');
+    var dis = elState.peonStale ? ' disabled' : '';
     return '<div style="padding:10px 12px;margin-bottom:8px;border-radius:10px;background:rgba(255,255,255,.06)">' +
       '<div style="font-size:15px"><b>' + escRpHtml(r.fullName) + '</b> — ' + escRpHtml(elClsLabel(r.iyatta, r.tukdi)) + ' <span style="opacity:.7">(Roll ' + escRpHtml(r.rollNo) + ')</span></div>' +
       '<div style="margin:3px 0">तासिका <b>' + r.period + '</b> नंतर परवानगी · ' + stTxt + '</div>' +
-      '<div><button style="' + bs + 'background:#1a7a3a" onclick="elMark(' + i + ',\'gone\')">✅ गेला</button>' +
-      '<button style="' + bs + 'background:#a03030" onclick="elMark(' + i + ',\'notgone\')">❌ गेला नाही</button>' +
-      (r.status ? '<button style="' + bs + 'background:#555" onclick="elMark(' + i + ',\'\')">↩️ पूर्ववत</button>' : '') + '</div>' +
+      '<div><button class="el-mark-btn"' + dis + ' style="' + bs + 'background:#1a7a3a" onclick="elMark(' + i + ',\'gone\')">✅ गेला</button>' +
+      '<button class="el-mark-btn"' + dis + ' style="' + bs + 'background:#a03030" onclick="elMark(' + i + ',\'notgone\')">❌ गेला नाही</button>' +
+      (r.status ? '<button class="el-mark-btn"' + dis + ' style="' + bs + 'background:#555" onclick="elMark(' + i + ',\'\')">↩️ पूर्ववत</button>' : '') + '</div>' +
       '<div style="margin-top:4px">' + elContactBtns(r) + '<button class="btn btn-blue btn-sm" onclick="elShowProfile(' + JSON.stringify(r.regNo).replace(/"/g, '&quot;') + ')">🪪 प्रोफाइल</button></div></div>';
   }).join('');
 }
 function elMark(i, status) {
   var r = elState.peon[i]; if (!r) return;
+  if (elState.peonStale) return;   // V19.49: जुन्या यादीवर मार्क-आउट नको
   var msg = document.getElementById('el_peonMsg');
   msg.textContent = '⏳ नोंद होत आहे...';
   smartSave({action: 'markEarlyLeaveOut', regNo: r.regNo, status: status, requesterUser: currentUser.username, requesterRole: currentUser.role}, function(x) {
@@ -6172,7 +6379,7 @@ function tlInit() {
 function tlLoad() {
   var box = document.getElementById('tl_list');
   box.innerHTML = '<div style="padding:10px">⏳ Load होत आहे...</div>';
-  jsonpRequest({action: 'getClassTeachers', requesterRole: currentUser.role}, function(r) {
+  swrRequest('tlList', {action: 'getClassTeachers', requesterRole: currentUser.role}, function(r) {
     if (!r || r.status !== 'ok') { box.innerHTML = '<div style="padding:10px">❌ ' + escRpHtml(friendlyMsg((r && r.message) || 'Load Failed')) + '</div>'; return; }
     tlState.data = r.data || [];
     tlState.loadedAt = Date.now();
@@ -6287,7 +6494,7 @@ function attaOverview() {
   attaMonthDefault('atta_month');
   var month = document.getElementById('atta_month').value;
   st.textContent = '⏳ Load होत आहे...';
-  jsonpRequest({action: 'getAttendanceOverview', month: month, requesterRole: currentUser.role}, function(r) {
+  swrRequest('attaOv:' + month, {action: 'getAttendanceOverview', month: month, requesterRole: currentUser.role}, function(r) {
     if (!r || r.status !== 'ok' || !r.rows) { st.textContent = '❌ ' + friendlyMsg((r && r.message) || 'सर्व्हरचे उत्तर अपूर्ण आहे — नवीन Code.gs Deploy करा.'); return; }
     attaOvData = r;
     st.textContent = r.hasMarks ? '' : 'ℹ️ या महिन्यात अजून कोणत्याही वर्गाची हजेरी भरलेली नाही.';

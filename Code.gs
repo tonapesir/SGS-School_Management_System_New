@@ -255,6 +255,9 @@ function doGetCore_(e) {
   if (p.action === "getSecurityStatus") {
     return doGetSecurityStatus(p, cb);
   }
+  if (p.action === "migrateLogs") {   // V19.48 — जुनी Log/Log_Archive → Log_YYYY_MM (फक्त Super, एकदाच)
+    return doMigrateLogs(p, cb);
+  }
   if (p.action === "photoRecall") {   // V19.46 — Photo link recall (फक्त Super)
     return doPhotoRecall(p, cb);
   }
@@ -432,14 +435,57 @@ function handleAction(d, cb) {
 }
 
 // ===== AUDIT LOG (V19.8) — कोणत्या User ने कधी काय Save केले =====
+// =====================================================================
+// ===== V19.48 (टप्पा 6) — मासिक Log: Log_YYYY_MM (भारतीय वेळेनुसार महिना; लहान Sheet) =====
+// जुनी एकच "Log" व "Log_Archive" एकदाच Log_YYYY_MM मध्ये स्थलांतरित (doMigrateLogs, फक्त Super). स्थलांतरापूर्वी वाचणारे भाग जुनी "Log" सुद्धा पाहतात.
+// =====================================================================
+var LOG_HEADERS = ["Timestamp","User","Role","Action","Reference"];
+function logMonthKey_(d) { return Utilities.formatDate(d || new Date(), "Asia/Kolkata", "yyyy_MM"); }
+function logPrevKey_(key) {
+  var m = /^(\d{4})_(\d{2})$/.exec(key), y = parseInt(m[1], 10), mo = parseInt(m[2], 10) - 1;
+  if (mo < 1) { y--; mo = 12; }
+  return y + "_" + ("0" + mo).slice(-2);
+}
+function logMigrated_() { return PropertiesService.getScriptProperties().getProperty("LOG_MIGRATED") === "1"; }
+function logSheet_(key, create) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet(), name = "Log_" + key, sh = ss.getSheetByName(name);
+  if (sh || !create) return sh;
+  try {
+    sh = ss.insertSheet(name);
+    trimNewSheet_(sh, LOG_HEADERS.length);
+    sh.appendRow(LOG_HEADERS);
+    try { sh.setFrozenRows(1); } catch (eF) {}
+  } catch (eIns) {
+    sh = ss.getSheetByName(name);   // एकाच वेळी दुसऱ्या विनंतीने बनवली असू शकते
+    if (!sh) throw eIns;
+  }
+  return sh;
+}
 function logAudit(user, role, action, refInfo) {
   try {
-    var sh = getOrCreateSheet("Log", ["Timestamp","User","Role","Action","Reference"]);
+    var sh = logSheet_(logMonthKey_(new Date()), true);
     sh.appendRow([new Date().toLocaleString("en-IN"), user || "unknown", role || "", action || "", refInfo || ""]);
   } catch(e) {
     // Logging failure should never block the main save operation
   }
 }
+// त्या महिन्याच्या Sheet ची शेवटची maxRows ओळी (५ स्तंभ)
+function logTailRows_(key, maxRows) {
+  var sh = logSheet_(key, false);
+  if (!sh || sh.getLastRow() < 2) return [];
+  var last = sh.getLastRow(), n = Math.min(last - 1, maxRows || 50000);
+  return sh.getRange(last - n + 1, 1, n, 5).getValues();
+}
+// स्थलांतरापूर्वी जुनी एकच "Log" (फक्त शेवटच्या maxRows ओळी); स्थलांतरानंतर रिकामी
+function logLegacyTail_(maxRows) {
+  if (logMigrated_()) return [];
+  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Log");
+  if (!sh || sh.getLastRow() < 2) return [];
+  var last = sh.getLastRow(), n = Math.min(last - 1, maxRows || 5000);
+  return sh.getRange(last - n + 1, 1, n, 5).getValues();
+}
+// एका महिन्यासाठी: (स्थलांतरापूर्वी जुनी Log) + त्या महिन्याची Sheet — जुने आधी, नवे मागून
+function logRowsForMonth_(key, maxRows) { return logLegacyTail_(maxRows).concat(logTailRows_(key, maxRows)); }
 
 // ===== DASHBOARD LIVE STATS (V19.8) =====
 function doGetDashboardStats(p, cb) {
@@ -1650,18 +1696,18 @@ function doGetMyLog(p, cb) {
   try {
     var username = (p.username||"").toString().trim().toLowerCase();
     var limit = parseInt(p.limit||"100",10);
-    var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Log");
-    var out = [];
-    if (sh && sh.getLastRow() > 1) {
-      var rows = sh.getRange(2,1,sh.getLastRow()-1,5).getValues();
-      for (var i=0;i<rows.length;i++) {
-        var r = rows[i];
-        if (username && (r[1]||"").toString().trim().toLowerCase() !== username) continue;
-        out.push({timestamp:r[0], user:r[1], role:r[2], action:r[3], reference:r[4]});
-      }
+    // V19.48: एकावेळी फक्त चालू + मागील महिना (Log_YYYY_MM); स्थलांतरापूर्वी जुनी "Log" सुद्धा
+    var curKey = logMonthKey_(new Date());
+    var rows = logLegacyTail_(5000).concat(logTailRows_(logPrevKey_(curKey), 20000), logTailRows_(curKey, 20000));
+    var tmp = [];
+    for (var i=0;i<rows.length;i++) {
+      var r = rows[i];
+      if (username && (r[1]||"").toString().trim().toLowerCase() !== username) continue;
+      var dt = parseLogDate_(r[0]);
+      tmp.push({seq: i, t: dt ? dt.getTime() : 0, o: {timestamp:r[0], user:r[1], role:r[2], action:r[3], reference:r[4]}});
     }
-    out.sort(function(a,b){ return new Date(b.timestamp) - new Date(a.timestamp); });
-    return wrap(cb, {status:"ok", data: out.slice(0, limit)});
+    tmp.sort(function(a,b){ return (b.t - a.t) || (b.seq - a.seq); });   // नवे आधी (तारीख, नंतर नोंदीचा क्रम)
+    return wrap(cb, {status:"ok", data: tmp.slice(0, limit).map(function(x){ return x.o; })});
   } catch(err) {
     return wrap(cb, {status:"error", message:err.toString()});
   }
@@ -1809,11 +1855,22 @@ function savePhotoData(regNo, photoData, mimeType) {
     var blob = Utilities.newBlob(bytes, mimeType || "image/jpeg", fileName);
     var file = folder.createFile(blob);
     stage = "setSharing (Anyone with link — View)";
+    var shareWarning = "";
     try {
       file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
     } catch (eShare) {
-      try { file.setTrashed(true); } catch (eT) {}   // नवी फाइल अर्धवट राहू नये; जुनी जशीच्या तशी
-      throw eShare;
+      // V19.47.1: फाइल-स्तरावर sharing नाकारले (उदा. Workspace धोरण) तरी फोल्डरच "Anyone" असेल तर फाइलला तोच प्रवेश मिळतो — चालू ठेवा.
+      // फोल्डर खाजगी असल्यास फोटो कोणालाच दिसणार नाही, म्हणून तेव्हा पूर्वीप्रमाणेच अपयश (नवी फाइल Trash, जुनी तशीच).
+      var folderPublic = false;
+      try {
+        var fa = folder.getSharingAccess();
+        folderPublic = (fa === DriveApp.Access.ANYONE || fa === DriveApp.Access.ANYONE_WITH_LINK);
+      } catch (eFa) {}
+      if (!folderPublic) {
+        try { file.setTrashed(true); } catch (eT) {}
+        throw eShare;
+      }
+      shareWarning = "फाइल-स्तरावर sharing नाकारले; फोल्डरच्या sharing वर अवलंबून.";
     }
     stage = "setTrashed (जुनी फाइल)";
     oldFiles.forEach(function(f) { try { f.setTrashed(true); } catch (eOld) {} });   // नवी फाइल यशस्वी झाल्यावरच जुनी काढा
@@ -1821,7 +1878,9 @@ function savePhotoData(regNo, photoData, mimeType) {
     stage = "Students मध्ये लिंक लिहिणे";
     var photoUrl = publicDriveUrl(file.getId());
     var upd = updateStudentPhotoUrl(regNo, photoUrl);
-    return {status:"ok", regNo:regNo, photoUrl:photoUrl, fileId:file.getId(), studentFound:!!upd.found, sheetUpdated:!!upd.updated};
+    var okRes = {status:"ok", regNo:regNo, photoUrl:photoUrl, fileId:file.getId(), studentFound:!!upd.found, sheetUpdated:!!upd.updated};
+    if (shareWarning) okRes.shareWarning = shareWarning;
+    return okRes;
   } catch(err) {
     return {status:"error", message:err.toString() + " [चरण: " + stage + "]"};
   }
@@ -2092,6 +2151,109 @@ function doDeleteScholarship(p, cb) {
     return wrap(cb, {status: "error", message: err.toString()});
   } finally {
     if (lock) { try { lock.releaseLock(); } catch (eL) {} }
+  }
+}
+
+
+// ===== V19.48 — एकदाचे स्थलांतर: Log + Log_Archive → Log_YYYY_MM (+ Log_Unparsed) =====
+// • फक्त Super, पुष्टी-शब्द "LOG"; Script Lock (स्वतः घेतो — दुसऱ्या Lock आत बोलावू नका).
+// • पुन्हा चालवणे सुरक्षित: Sheet मध्ये आधी असलेल्या सारख्या ओळी (multiset) पुन्हा लिहिल्या जात नाहीत; वेळ-बजेट संपल्यास done=false.
+// • सर्व ओळी तपासल्यावरच जुन्या Sheets "Log_OLD_..." नावाने लपवल्या जातात (मिटवत नाही) व flag LOG_MIGRATED=1 बसतो.
+function logSig_(r) { return [r[0], r[1], r[2], r[3], r[4]].join("\u0001"); }
+function logNormRow_(r) {
+  var ts = r[0];
+  var raw = ts;
+  if (ts instanceof Date) ts = ts.toLocaleString("en-IN");
+  return {row: [ts, r[1], r[2], r[3], r[4]], raw: raw};
+}
+function doMigrateLogs(p, cb) {
+  var lock = null;
+  try {
+    if (!p._authed || p.requesterRole !== "super") return wrap(cb, {status:"error", message:"Log स्थलांतराचा अधिकार फक्त Super Master ला आहे (Token सह Login आवश्यक)."});
+    if (String(p.confirm || "") !== "LOG") return wrap(cb, {status:"error", message:"पुष्टीसाठी LOG टाइप करा."});
+    if (logMigrated_()) return wrap(cb, {status:"ok", done:true, already:true, message:"स्थलांतर आधीच झाले आहे."});
+    lock = LockService.getScriptLock();
+    lock.waitLock(30000);
+    if (logMigrated_()) return wrap(cb, {status:"ok", done:true, already:true, message:"स्थलांतर आधीच झाले आहे."});
+    var t0 = Date.now();
+    var budget = parseInt(p.budgetMs || "", 10);
+    if (isNaN(budget)) budget = 240000;
+    budget = Math.max(3000, Math.min(budget, 270000));
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sources = [];
+    ["Log", "Log_Archive"].forEach(function(n) { var sh = ss.getSheetByName(n); if (sh) sources.push(sh); });
+
+    // 1) वाचा व महिन्यानुसार गट करा
+    var byKey = {}, unparsed = [], total = 0;
+    sources.forEach(function(sh) {
+      var n = sh.getLastRow();
+      if (n < 2) return;
+      sh.getRange(2, 1, n - 1, 5).getValues().forEach(function(r) {
+        if (!r[0] && !r[1] && !r[2] && !r[3] && !r[4]) return;
+        var nr = logNormRow_(r), dt = parseLogDate_(nr.raw);
+        total++;
+        if (!dt || isNaN(dt.getTime())) { unparsed.push(nr.row); return; }
+        var key = Utilities.formatDate(dt, "Asia/Kolkata", "yyyy_MM");
+        (byKey[key] = byKey[key] || []).push(nr.row);
+      });
+    });
+
+    // 2) लिहा (आधीच असलेल्या सारख्या ओळी वगळून)
+    function writeInto(sh, rows) {
+      var have = {}, last = sh.getLastRow();
+      if (last > 1) sh.getRange(2, 1, last - 1, 5).getValues().forEach(function(r) { var g = logSig_(logNormRow_(r).row); have[g] = (have[g] || 0) + 1; });
+      var todo = [];
+      rows.forEach(function(r) { var g = logSig_(r); if (have[g] > 0) have[g]--; else todo.push(r); });
+      if (!todo.length) return 0;
+      var start = Math.max(sh.getLastRow(), 1) + 1;
+      ensureRows_(sh, start + todo.length - 1);
+      sh.getRange(start, 1, todo.length, 5).setValues(todo);
+      return todo.length;
+    }
+    var keys = Object.keys(byKey).sort(), written = 0, doneKeys = 0;
+    for (var i = 0; i < keys.length; i++) {
+      if (Date.now() - t0 > budget) break;
+      written += writeInto(logSheet_(keys[i], true), byKey[keys[i]]);
+      doneKeys++;
+    }
+    if (doneKeys < keys.length) {
+      return wrap(cb, {status:"ok", done:false, remainingMonths:keys.length - doneKeys, message:"वेळ-बजेट संपले — पुन्हा चालवा (सुरक्षित)."});
+    }
+    var unSh = null;
+    if (unparsed.length) {
+      unSh = ss.getSheetByName("Log_Unparsed");
+      if (!unSh) { unSh = ss.insertSheet("Log_Unparsed"); trimNewSheet_(unSh, 5); unSh.appendRow(LOG_HEADERS); }
+      written += writeInto(unSh, unparsed);
+    }
+
+    // 3) पडताळणी: स्त्रोतातील प्रत्येक ओळ लक्ष्य Sheet मध्ये आहे का
+    function covered(sh, rows) {
+      var have = {}, last = sh.getLastRow();
+      if (last > 1) sh.getRange(2, 1, last - 1, 5).getValues().forEach(function(r) { var g = logSig_(logNormRow_(r).row); have[g] = (have[g] || 0) + 1; });
+      for (var j = 0; j < rows.length; j++) { var g2 = logSig_(rows[j]); if (!(have[g2] > 0)) return false; have[g2]--; }
+      return true;
+    }
+    for (var k = 0; k < keys.length; k++) {
+      if (!covered(logSheet_(keys[k], false), byKey[keys[k]])) return wrap(cb, {status:"error", message:"पडताळणी अयशस्वी (" + keys[k] + ") — जुने Sheets तसेच ठेवले; पुन्हा चालवा."});
+    }
+    if (unparsed.length && !covered(unSh, unparsed)) return wrap(cb, {status:"error", message:"पडताळणी अयशस्वी (Log_Unparsed) — जुने Sheets तसेच ठेवले."});
+
+    // 4) जुन्या Sheets लपवा (मिटवू नका) व flag बसवा
+    var stamp = Utilities.formatDate(new Date(), "Asia/Kolkata", "yyyyMMdd"), hidden = [];
+    sources.forEach(function(sh) {
+      var base = "Log_OLD_" + (sh.getName() === "Log_Archive" ? "Archive_" : "") + stamp, nm = base, c = 1;
+      while (ss.getSheetByName(nm)) { c++; nm = base + "_" + c; }
+      sh.setName(nm);
+      try { sh.hideSheet(); } catch (eH) {}
+      hidden.push(nm);
+    });
+    PropertiesService.getScriptProperties().setProperty("LOG_MIGRATED", "1");
+    logAudit(p.auditUser || p.requesterUser, p.auditRole || p.requesterRole, "migrateLogs", "rows=" + total + ", months=" + keys.length + ", unparsed=" + unparsed.length);
+    return wrap(cb, {status:"ok", done:true, report:{rows: total, written: written, months: keys, unparsed: unparsed.length, hiddenSheets: hidden}});
+  } catch (err) {
+    return wrap(cb, {status:"error", message:err.toString()});
+  } finally {
+    if (lock) { try { lock.releaseLock(); } catch (eR) {} }
   }
 }
 
@@ -2645,11 +2807,8 @@ function doGetAttendancePending(p, cb) {
         marked[(m[1] || "").toString().trim() + "-" + (m[2] || "").toString().trim()] = {by: m[6], time: (m[7] || "").toString().split(",").pop().trim()};
       });
     } else {
-      var logSh = ss.getSheetByName("Log");
-      if (logSh && logSh.getLastRow() > 1) {
-        var lastRow = logSh.getLastRow();
-        var cnt = Math.min(lastRow - 1, 4000);
-        var lRows = logSh.getRange(lastRow - cnt + 1, 1, cnt, 5).getValues();
+      {   // V19.48: त्या तारखेच्या महिन्याची Log_YYYY_MM (स्थलांतरापूर्वी जुनी Log सुद्धा)
+        var lRows = logRowsForMonth_(date.slice(0, 7).replace("-", "_"), 4000);
         for (var j = 0; j < lRows.length; j++) {
           var lr = lRows[j];
           if ((lr[3] || "").toString() !== "saveAttendance") continue;
@@ -2908,14 +3067,11 @@ function doGetAttendanceAnalytics(p, cb) {
         addWork(div, fmt(m[0]));
       });
     } else {
-      var logSh = ss.getSheetByName("Log");
-      if (logSh && logSh.getLastRow() > 1) {
-        var lastRow = logSh.getLastRow();
-        var cnt = Math.min(lastRow - 1, 20000);
-        var lRows = logSh.getRange(lastRow - cnt + 1, 4, cnt, 2).getValues(); // D=Action, E=Reference
+      {   // V19.48: त्या महिन्याची Log_YYYY_MM (स्थलांतरापूर्वी जुनी Log सुद्धा)
+        var lRows = logRowsForMonth_(month.replace("-", "_"), 20000);   // [3]=Action, [4]=Reference
         for (var i = 0; i < lRows.length; i++) {
-          if ((lRows[i][0] || "").toString() !== "saveAttendance") continue;
-          var ref = (lRows[i][1] || "").toString();
+          if ((lRows[i][3] || "").toString() !== "saveAttendance") continue;
+          var ref = (lRows[i][4] || "").toString();
           var sp = ref.lastIndexOf(" ");
           if (sp < 1) continue;
           var div2 = ref.slice(0, sp), dt = ref.slice(sp + 1);
@@ -3184,6 +3340,7 @@ function parseLogDate_(v) {
   return null;
 }
 function archiveOldLog_(days) {
+  if (logMigrated_()) return 0;   // V19.48: मासिक Log_ मुळे आता गरज नाही
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sh = ss.getSheetByName("Log");
   if (!sh || sh.getLastRow() < 2) return 0;
@@ -4113,7 +4270,7 @@ function sheetsOfYear_(ss, year) {
   ss.getSheets().forEach(function(sh) {
     var n = sh.getName(), m;
     if (n === "Fees_" + year || n === "FeesSummary_" + year || n === "Diary_" + year || n === "Transport_" + year || n === "Scholarship_" + year) { out.push(sh); return; }
-    if ((m = /^(Attendance|AttMarks)_(\d{4})_(\d{2})$/.exec(n))) { var k = m[2] + "-" + m[3]; if (k >= from && k <= to) out.push(sh); return; }
+    if ((m = /^(Attendance|AttMarks|Log)_(\d{4})_(\d{2})$/.exec(n))) { var k = m[2] + "-" + m[3]; if (k >= from && k <= to) out.push(sh); return; }
     if ((m = /^EL_(\d{4}-\d{2}-\d{2})$/.exec(n))) { if (m[1] >= y + "-06-01" && m[1] <= (y + 1) + "-05-31") out.push(sh); }
   });
   return out;
@@ -4121,7 +4278,7 @@ function sheetsOfYear_(ss, year) {
 function sheetYearOf_(name) {
   var m;
   if ((m = /^(?:Fees|FeesSummary|Diary|Transport|Scholarship)_(\d{4}-\d{2})$/.exec(name))) return m[1];
-  if ((m = /^(?:Attendance|AttMarks)_(\d{4})_(\d{2})$/.exec(name))) return acYearOfDate_(m[1] + "-" + m[2] + "-15");
+  if ((m = /^(?:Attendance|AttMarks|Log)_(\d{4})_(\d{2})$/.exec(name))) return acYearOfDate_(m[1] + "-" + m[2] + "-15");
   if ((m = /^EL_(\d{4}-\d{2}-\d{2})$/.exec(name))) return acYearOfDate_(m[1]);
   return "";
 }

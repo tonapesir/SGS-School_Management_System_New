@@ -1506,7 +1506,7 @@
         <div class="fg" style="min-width:220px;flex:1"><label>Backup अपयशाची सूचना — Email</label><input id="sa_bkEmail" type="email" placeholder="रिकामे = खाते-मालकाचा Email"></div>
         <div class="fg" style="flex:0 0 auto"><button class="btn btn-gold" onclick="saSaveBackupSchedule()">💾 जतन करा</button></div>
         <div class="fg" style="flex:0 0 auto"><button class="btn btn-blue" onclick="saRunBackupNow()">▶️ आत्ताच Backup घ्या</button></div>
-        <div class="fg" style="flex:0 0 auto"><button class="btn btn-orange" onclick="saArchiveLogNow()">🗄️ जुने Log Archive (९० दिवस+)</button></div>
+        <div class="fg" style="flex:0 0 auto"><button class="btn btn-orange" onclick="saMigrateLogs()" title="जुन्या Log व Log_Archive चे एकदाचे स्थलांतर — मासिक Log_YYYY_MM">🗂️ Log → मासिक Sheets (एकदाच)</button></div>
       </div>
       <div id="sa_bkStatus" style="font-size:12.5px;margin-top:10px;color:#cfd8e8"></div>
     </div>

@@ -75,6 +75,7 @@
   <button class="navbtn super-only" data-page="superadmin" onclick="showPage('superadmin',this)">🛡️ Super Admin</button>
   <button class="navbtn master-only" data-page="attanalytics" onclick="showPage('attanalytics',this)">📈 हजेरी विश्लेषण</button>
   <button class="navbtn" data-page="earlyleave" onclick="showPage('earlyleave',this)">🚪 घरी जाणारे</button>
+  <button class="navbtn" data-page="scholarship" onclick="showPage('scholarship',this)">🎓 शिष्यवृत्ती</button>
   <button class="navbtn" data-page="teacherlist" onclick="showPage('teacherlist',this)">📒 वर्ग शिक्षक यादी</button>
   <button class="navbtn" data-page="teacher" onclick="showPage('teacher',this)">🏫 वर्ग शिक्षक</button>
   <span class="user-chip" id="authUserChip">User</span>
@@ -1282,6 +1283,48 @@
         <div id="el_listSummary" style="font-size:13px;margin-bottom:6px"></div>
         <div id="el_list"></div>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 🎓 शिष्यवृत्ती नोंदवही (Super / Master / वर्ग शिक्षक) — V19.47 ==================== -->
+<div id="pg-scholarship" class="page">
+  <div class="sec-title" style="margin-bottom:10px">🎓 शिष्यवृत्ती नोंदवही</div>
+
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-header"><div><h2>🔎 यादी व सारांश</h2><p>वर्ग, वर्ष, स्थिती किंवा शोधाने गाळा. स्थितीनिहाय संख्या व एकूण रक्कम खाली दिसते.</p></div>
+      <button class="btn btn-blue btn-sm" onclick="schLoad()">🔄 Refresh</button></div>
+    <div class="card-body">
+      <div class="frow" style="gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px">
+        <div class="fg w180" id="sch_classWrap"><label>वर्ग / तुकडी</label><select id="sch_class" onchange="schOnClass()" style="padding:7px 10px;border-radius:var(--r);border:1.5px solid var(--pb);background:var(--peach);font-family:inherit;width:100%"><option value="ALL|">⏳ Load होत आहे...</option></select></div>
+        <div class="fg w120"><label>शैक्षणिक वर्ष</label><select id="sch_year" onchange="schLoad()" style="padding:7px 10px;border-radius:var(--r);border:1.5px solid var(--pb);background:var(--peach);font-family:inherit;width:100%"></select></div>
+        <div class="fg w150"><label>स्थिती</label><select id="sch_statusF" onchange="schRender()" style="padding:7px 10px;border-radius:var(--r);border:1.5px solid var(--pb);background:var(--peach);font-family:inherit;width:100%"><option value="">सर्व</option><option value="प्रलंबित">प्रलंबित</option><option value="मंजूर">मंजूर</option><option value="वितरित">वितरित</option></select></div>
+        <div class="fg w180"><label>शोध (नाव / Reg No / शिष्यवृत्ती)</label><input id="sch_q" type="text" oninput="schRender()" placeholder="शोधा..."></div>
+      </div>
+      <div id="sch_teacherClass" style="display:none;font-weight:700;margin-bottom:8px"></div>
+      <div id="sch_info" style="font-size:12.5px;margin-bottom:8px;color:#cfd8e8"></div>
+      <div id="sch_summary" style="margin-bottom:10px"></div>
+      <div id="sch_list"></div>
+    </div>
+  </div>
+
+  <div class="card" id="sch_formCard">
+    <div class="card-header"><div><h2 id="sch_formTitle">✍️ नवीन नोंद</h2><p>एकाच विद्यार्थ्याची एकाच वर्षातील एकाच नावाची नोंद दुबार होत नाही — तीच नोंद अद्ययावत होते.</p></div></div>
+    <div class="card-body">
+      <div id="sch_formNote" style="font-size:12.5px;margin-bottom:8px;color:#cfd8e8"></div>
+      <div class="frow" style="gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px">
+        <div class="fg w220"><label>विद्यार्थी</label><select id="sch_student" style="padding:7px 10px;border-radius:var(--r);border:1.5px solid var(--pb);background:var(--peach);font-family:inherit;width:100%"></select></div>
+        <div class="fg w220"><label>शिष्यवृत्तीचे नाव *</label><input id="sch_name" type="text" maxlength="120" placeholder="उदा. NMMS"></div>
+        <div class="fg w180"><label>योजना</label><input id="sch_scheme" type="text" maxlength="150" placeholder="उदा. केंद्र शासन"></div>
+        <div class="fg w120"><label>रक्कम (₹)</label><input id="sch_amount" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0"></div>
+        <div class="fg w150"><label>स्थिती</label><select id="sch_status2" style="padding:7px 10px;border-radius:var(--r);border:1.5px solid var(--pb);background:var(--peach);font-family:inherit;width:100%"><option value="प्रलंबित">प्रलंबित</option><option value="मंजूर">मंजूर</option><option value="वितरित">वितरित</option></select></div>
+      </div>
+      <div class="fg" style="margin-bottom:10px"><label>शेरा</label><input id="sch_remark" type="text" maxlength="500" placeholder="शेरा (पर्यायी)"></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button id="sch_saveBtn" class="btn btn-green" onclick="schSave()">💾 Save करा</button>
+        <button id="sch_cancelBtn" class="btn btn-orange" onclick="schResetForm()" style="display:none">✖ Edit रद्द करा</button>
+      </div>
+      <div id="sch_saveStatus" style="font-size:12.5px;margin-top:8px;color:#cfd8e8"></div>
     </div>
   </div>
 </div>

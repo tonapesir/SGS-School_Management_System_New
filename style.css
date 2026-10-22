@@ -36,7 +36,7 @@ body.role-master #userMgmtAdminCards{display:none!important}
 /* सर्व Users ला आता Google Sheets URL + Load Students सुविधा उपलब्ध (V19.15) */
 
 /* ===== CLASS TEACHER ROLE (V19.32) — फक्त स्वतःच्या वर्गाचे Teacher पान दिसते ===== */
-body.role-teacher .navbtn:not([data-page="teacher"]):not([data-page="earlyleave"]):not([data-page="report"]),
+body.role-teacher .navbtn:not([data-page="teacher"]):not([data-page="earlyleave"]):not([data-page="report"]):not([data-page="scholarship"]),
 body.role-teacher .dcard:not([data-page="teacher"]):not([data-page="earlyleave"]):not([data-page="report"]){display:none!important}
 body.role-teacher .master-only,
 body.role-teacher .edit-only{display:none!important}
@@ -409,3 +409,11 @@ body.role-teacher .tch-tabbar{display:none}
 
 /* ===== V19.39 — वर्ग शिक्षक यादी: वर्ग-शिक्षक व Certificate-user ला दिसू नये ===== */
 body.role-cert .navbtn[data-page="teacherlist"],body.role-cert .dcard[data-page="teacherlist"]{display:none!important}
+
+/* ===== V19.47 — शिष्यवृत्ती नोंदवही: फक्त super / master / teacher ला दिसते ===== */
+body.role-deo .navbtn[data-page="scholarship"],body.role-cert .navbtn[data-page="scholarship"],body.role-peon .navbtn[data-page="scholarship"],
+body.role-deo #pg-scholarship,body.role-cert #pg-scholarship,body.role-peon #pg-scholarship{display:none!important}
+.sch-chip{display:inline-block;margin:0 6px 6px 0;padding:5px 10px;border-radius:14px;background:rgba(255,255,255,.08);font-size:12.5px;border:1px solid rgba(255,255,255,.15)}
+.sch-chip b{color:#f2c25a}
+.sch-st{display:inline-block;padding:2px 8px;border-radius:10px;font-size:12px;font-weight:700}
+.sch-st-p{background:#5a4a1a;color:#ffd98a}.sch-st-m{background:#1a3f5a;color:#8fd0ff}.sch-st-d{background:#1a4a2a;color:#8fe0a0}

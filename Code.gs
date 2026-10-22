@@ -194,6 +194,12 @@ function doGetCore_(e) {
   if (p.action === "getDiary") {
     return doGetDiary(p, cb);
   }
+  if (p.action === "getScholarship") {      // V19.47
+    return doGetScholarship(p, cb);
+  }
+  if (p.action === "deleteScholarship") {   // V19.47 — फक्त super/master; आधी Deleted_Scholarship मध्ये Backup
+    return doDeleteScholarship(p, cb);
+  }
   if (p.action === "getTransport") {
     return doGetTransport(p, cb);
   }
@@ -363,6 +369,8 @@ function handleAction(d, cb) {
       result = doSaveNotice(d);
     } else if (action === "saveDiary") {
       result = doSaveDiary(d);
+    } else if (action === "saveScholarship") {
+      result = doSaveScholarship(d);
     } else if (action === "saveTransport") {
       result = doSaveTransport(d);
     } else if (action === "saveFees") {
@@ -1911,6 +1919,184 @@ function getPhotoUrlByRegNo(regNo) {
 
 
 // =====================================================================
+// ===== V19.47 — शिष्यवृत्ती नोंदवही (Diary मधील "Scholarship" प्रकारापासून स्वतंत्र) =====
+// वार्षिक Sheet "Scholarship_<शै.वर्ष>". नोंद/अद्ययावत: super, master, वर्ग शिक्षक (फक्त स्वतःच्या वर्गाचे — Token मधून सक्ती).
+// मिटवणे: फक्त super/master, आधी Deleted_Scholarship मध्ये Backup. नाव/वर्ग server वर विद्यार्थी-यादीतून भरले जाते.
+// एकाच विद्यार्थ्याची, एकाच वर्षातील, एकाच नावाची नोंद दुबार होत नाही — अद्ययावत होते.
+// =====================================================================
+var SCHOLAR_HEADERS = ["Id","Timestamp","AcYear","RegNo","StudentId","FullName","Class","Division","ScholarshipName","Scheme","Amount","Status","Remark","UpdatedBy","UpdatedAt"];
+var SCHOLAR_STATUSES = ["प्रलंबित","मंजूर","वितरित"];
+
+function scholarSheet_(year, create) { return getYearSheet_("Scholarship", year, SCHOLAR_HEADERS, create, 4); }
+function scholarNorm_(v) { return (v === null || v === undefined ? "" : v).toString().trim().replace(/\s+/g, " ").toLowerCase(); }
+function scholarClassOf_(s) { var c = String(s || "").split("|"); return {iyatta: (c[0] || "").trim(), tukdi: (c[1] || "").trim()}; }
+
+// भूमिका तपासणी. परत: {err} किंवा {role, teacherClass:{iyatta,tukdi}|null}
+function scholarAuth_(p, forWrite) {
+  if (!p._authed) return {err: "शिष्यवृत्ती नोंदवहीसाठी Token सह Login आवश्यक आहे — कृपया पुन्हा Login करा."};
+  var r = p.requesterRole;
+  if (r !== "super" && r !== "master" && r !== "teacher") return {err: "शिष्यवृत्ती नोंदवहीचा अधिकार Super / Master / वर्ग शिक्षकाला आहे."};
+  if (r === "teacher") {
+    var tc = scholarClassOf_(p._tClass);
+    if (!tc.iyatta) return {err: "तुमच्या User ला वर्ग नेमलेला नाही — Master कडून Users मध्ये वर्ग भरून घ्या."};
+    return {role: r, teacherClass: tc};
+  }
+  return {role: r, teacherClass: null};
+}
+function scholarFindStudent_(regNo) {
+  var key = scholarNorm_(regNo);
+  if (!key) return null;
+  var list = getRosterCached_("", "", false).data || [];
+  for (var i = 0; i < list.length; i++) if (scholarNorm_(list[i].regNo) === key) return list[i];
+  return null;
+}
+function scholarRowToObj_(r, cur) {
+  return {id: r[0], timestamp: r[1], acYear: r[2], regNo: r[3], studentId: r[4], fullName: r[5],
+    iyatta: cur ? cur.iyatta : r[6], tukdi: cur ? cur.tukdi : r[7], scholarshipName: r[8], scheme: r[9],
+    amount: parseFloat(r[10]) || 0, status: r[11], remark: r[12], updatedBy: r[13], updatedAt: r[14]};
+}
+function scholarNewId_() { return "SCH" + Date.now().toString(36) + Math.floor(Math.random() * 46656).toString(36); }
+
+function doSaveScholarship(d) {
+  var lock = null;
+  try {
+    var a = scholarAuth_(d, true);
+    if (a.err) return {status: "error", message: a.err};
+    var name = (d.scholarshipName || "").toString().trim();
+    if (!name) return {status: "error", message: "शिष्यवृत्तीचे नाव आवश्यक आहे."};
+    if (name.length > 120) return {status: "error", message: "शिष्यवृत्तीचे नाव खूप मोठे आहे."};
+    var status = (d.status || "प्रलंबित").toString().trim();
+    if (SCHOLAR_STATUSES.indexOf(status) === -1) return {status: "error", message: "स्थिती: " + SCHOLAR_STATUSES.join(" / ") + " यापैकी हवी."};
+    var amtRaw = (d.amount === undefined || d.amount === null || d.amount === "") ? 0 : parseFloat(d.amount);
+    if (isNaN(amtRaw) || amtRaw < 0 || amtRaw > 100000000) return {status: "error", message: "रक्कम बरोबर टाका (० किंवा जास्त)."};
+    var amount = Math.round(amtRaw * 100) / 100;
+    var year = normAcYear_(d.acYear);
+    var by = d.auditUser || d.requesterUser || "";
+    var ts = new Date().toLocaleString("en-IN");
+
+    lock = LockService.getScriptLock();
+    lock.waitLock(20000);
+    var sh = scholarSheet_(year, !!!d.id);
+    var id = (d.id || "").toString().trim();
+    var rowNo = 0, old = null, regNo = (d.regNo || "").toString().trim();
+
+    if (id) {   // Edit: Id ने ओळ शोधा; विद्यार्थी त्या ओळीतूनच ठरतो (क्लायंटच्या regNo वर विश्वास नाही)
+      if (!sh) return {status: "error", message: "नोंद सापडली नाही (" + year + ")."};
+      var hits = findRowsByValue_(sh, 1, id);
+      if (!hits.length) return {status: "error", message: "नोंद सापडली नाही — कदाचित मिटवली गेली आहे."};
+      rowNo = hits[0]; old = sh.getRange(rowNo, 1, 1, SCHOLAR_HEADERS.length).getValues()[0];
+      regNo = (old[3] || "").toString().trim();
+    }
+    var stu = scholarFindStudent_(regNo);
+    if (!stu) return {status: "error", message: "विद्यार्थी (Reg No: " + regNo + ") सापडला नाही."};
+    if (a.teacherClass) {   // शिक्षक: विद्यार्थ्याचा खरा (server वरील) वर्ग == Token मधील वर्ग
+      if ((stu.iyatta || "").toString().trim() !== a.teacherClass.iyatta || (stu.tukdi || "").toString().trim() !== a.teacherClass.tukdi) {
+        return {status: "error", message: "आपण फक्त स्वतःच्या वर्गाच्या विद्यार्थ्यांची शिष्यवृत्ती नोंद करू शकता."};
+      }
+    }
+    if (!sh) sh = scholarSheet_(year, true);
+
+    // दुबार तपासणी: एकाच विद्यार्थ्याची एकाच वर्षातील एकाच नावाची नोंद (Edit मध्ये स्वतःची ओळ वगळून)
+    var sameRows = readRowsAt_(sh, findRowsByValue_(sh, 4, regNo), SCHOLAR_HEADERS.length);
+    var rowsList = findRowsByValue_(sh, 4, regNo);
+    var dupRow = 0;
+    for (var i = 0; i < sameRows.length; i++) {
+      if (rowsList[i] === rowNo) continue;
+      if (scholarNorm_(sameRows[i][8]) === scholarNorm_(name)) { dupRow = rowsList[i]; break; }
+    }
+    var mode = "created";
+    if (dupRow && !id) { rowNo = dupRow; old = sh.getRange(rowNo, 1, 1, SCHOLAR_HEADERS.length).getValues()[0]; id = (old[0] || "").toString(); mode = "updated"; }
+    else if (dupRow && id) return {status: "error", message: "या विद्यार्थ्याची '" + name + "' नावाची नोंद या वर्षात आधीच आहे."};
+    else if (id) mode = "updated";
+
+    var row = [id || scholarNewId_(), old ? old[1] : ts, year, regNo, stu.studentId || "", stu.fullName || "",
+      (stu.iyatta || "").toString(), (stu.tukdi || "").toString(), name, (d.scheme || "").toString().trim().slice(0, 150), amount, status,
+      (d.remark || "").toString().trim().slice(0, 500), by, ts];
+    if (rowNo) {
+      sh.getRange(rowNo, 1, 1, row.length).setValues([row]);
+    } else {
+      rowNo = sh.getLastRow() + 1;
+      ensureRows_(sh, rowNo);
+      sh.getRange(rowNo, 1, 1, row.length).setValues([row]);
+    }
+    return {rowIndex: rowNo, mode: mode, ref: regNo + " " + name, extra: {id: row[0], acYear: year, fullName: row[5], status: status, amount: amount}};
+  } catch (err) {
+    return {status: "error", message: err.toString()};
+  } finally {
+    if (lock) { try { lock.releaseLock(); } catch (eL) {} }
+  }
+}
+
+function doGetScholarship(p, cb) {
+  try {
+    var a = scholarAuth_(p, false);
+    if (a.err) return wrap(cb, {status: "error", message: a.err});
+    var year = p.year ? normAcYear_(p.year) : currentAcYear_();
+    var iyatta = (p.iyatta || "").toString().trim(), tukdi = (p.tukdi || "").toString().trim();
+    if (a.teacherClass) { iyatta = a.teacherClass.iyatta; tukdi = a.teacherClass.tukdi; }   // शिक्षकाचा वर्ग सक्तीचा
+    var regNo = scholarNorm_(p.regNo);
+    var sh = scholarSheet_(year, false);
+    var out = [];
+    if (sh && sh.getLastRow() > 1) {
+      var classSet = null;
+      if (iyatta || tukdi) {   // वर्ग-बढती/तुकडी बदलानंतरही अचूक: विद्यार्थ्यांची सध्याची वर्ग-यादी वापरा
+        classSet = {};
+        getRosterCached_(iyatta, tukdi, false).data.forEach(function(st) { classSet[scholarNorm_(st.regNo)] = st; });
+      }
+      var rows = sh.getRange(2, 1, sh.getLastRow() - 1, SCHOLAR_HEADERS.length).getValues();
+      for (var i = 0; i < rows.length; i++) {
+        var r = rows[i], key = scholarNorm_(r[3]);
+        if (!key) continue;
+        if (regNo && key !== regNo) continue;
+        if (classSet && !classSet[key]) continue;
+        out.push(scholarRowToObj_(r, classSet ? classSet[key] : null));
+      }
+    }
+    out.sort(function(x, y) { return (x.iyatta + x.tukdi + x.fullName) < (y.iyatta + y.tukdi + y.fullName) ? -1 : 1; });
+    var years = listYearSheets_("Scholarship").map(function(s2) { return s2.getName().replace("Scholarship_", ""); });
+    var cur = currentAcYear_(); if (years.indexOf(cur) === -1) years.unshift(cur);
+    return wrap(cb, {status: "ok", year: year, data: out, years: years, statuses: SCHOLAR_STATUSES, canDelete: (a.role === "super" || a.role === "master")});
+  } catch (err) {
+    return wrap(cb, {status: "error", message: err.toString()});
+  }
+}
+
+function doDeleteScholarship(p, cb) {
+  var lock = null;
+  try {
+    if (!p._authed || (p.requesterRole !== "super" && p.requesterRole !== "master")) {
+      return wrap(cb, {status: "error", message: "शिष्यवृत्ती नोंद मिटवण्याचा अधिकार फक्त Super / Master ला आहे (Token सह Login आवश्यक)."});
+    }
+    var id = (p.id || "").toString().trim();
+    if (!id) return wrap(cb, {status: "error", message: "Id आवश्यक आहे."});
+    var year = p.year ? normAcYear_(p.year) : currentAcYear_();
+    lock = LockService.getScriptLock();
+    lock.waitLock(20000);
+    var sh = scholarSheet_(year, false);
+    if (!sh) return wrap(cb, {status: "error", message: "नोंद सापडली नाही (" + year + ")."});
+    var hits = findRowsByValue_(sh, 1, id);
+    if (!hits.length) return wrap(cb, {status: "error", message: "नोंद सापडली नाही — कदाचित आधीच मिटवली आहे."});
+    var rowNo = hits[0];
+    var old = sh.getRange(rowNo, 1, 1, SCHOLAR_HEADERS.length).getValues()[0];
+    var by = p.auditUser || p.requesterUser || "";
+    var okBk = backupDeleted_("Scholarship", SCHOLAR_HEADERS, [old], by, "शिष्यवृत्ती नोंद मिटवली");
+    if (!okBk) {   // Backup फाइल न जमल्यास मुख्य फाइलमधील Deleted_Scholarship मध्ये प्रत असल्याची खात्री करा; नसल्यास मिटवू नका
+      var main = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Deleted_Scholarship");
+      var found = main && main.getLastRow() > 1 && findRowsByValue_(main, 4, id).length > 0;
+      if (!found) return wrap(cb, {status: "error", message: "Backup जतन झाला नाही म्हणून नोंद मिटवली नाही. पुन्हा प्रयत्न करा."});
+    }
+    sh.deleteRows(rowNo, 1);
+    logAudit(by, p.auditRole || p.requesterRole, "deleteScholarship", (old[3] || "") + " " + (old[8] || ""));
+    return wrap(cb, {status: "ok", deleted: id});
+  } catch (err) {
+    return wrap(cb, {status: "error", message: err.toString()});
+  } finally {
+    if (lock) { try { lock.releaseLock(); } catch (eL) {} }
+  }
+}
+
+
+// =====================================================================
 // ===== V19.46 — Photo link recall (फक्त Super) =====
 // PHOTO_FOLDER मधील फोटो फाइल्सच्या नावावरून (विस्तारशिवाय == cleanRegFileName(RegNo)) Students स्तंभ PHOTO_COL (27) मध्ये योग्य लिंक भरतो.
 // • गटांमध्ये चालतो: प्रत्येक विनंती ~४ मिनिटांचा वेळ-बजेट वापरते व continuation token परत देते; क्लायंट "पुढील गट" आपोआप मागवतो.
@@ -2521,7 +2707,7 @@ var VALID_ROLES = ["super","master","deo","cert","teacher","peon"];
 // Users sheet मध्ये "Peon" / " Teacher " असे मोठ्या अक्षरात किंवा space सह लिहिले तरी लहान अक्षरात बदलून तपासतो.
 function normRole_(r) { return (r || "").toString().trim().toLowerCase(); }
 var AUTH_PUBLIC_ACTIONS = {ping:1, login:1, verify:1};
-var TEACHER_CLASS_ACTIONS = {getClassStudents:1, getTeacherDashboard:1, saveAttendance:1, getAttendance:1, getAttendanceAnalytics:1, getEarlyLeave:1, saveEarlyLeave:1};
+var TEACHER_CLASS_ACTIONS = {getClassStudents:1, getTeacherDashboard:1, saveAttendance:1, getAttendance:1, getAttendanceAnalytics:1, getEarlyLeave:1, saveEarlyLeave:1, getScholarship:1, saveScholarship:1};
 // Peon (शिपाई) फक्त हेच करू शकतो: विद्यार्थी शोध/प्रोफाइल (getAll), घरी जाणाऱ्यांची यादी, मार्क-आउट, स्वतःचा Password बदल
 var PEON_ACTIONS = {getAll:1, getEarlyLeavePeon:1, markEarlyLeaveOut:1, changePassword:1, getPhotoData:1, getClassTeachers:1};
 var _authSecretMem = null;
@@ -2568,6 +2754,7 @@ function applyAuth_(p) {
   var act = (p.action || "").toString();
   // बाहेरून आलेल्या (browser ने पाठवलेल्या) अंतर्गत चिन्हांना मान्यता नाही
   delete p._authed;
+  delete p._tClass;   // V19.47: शिक्षकाचा वर्ग फक्त Token मधून (browser ने पाठवलेला नाही)
   if (AUTH_PUBLIC_ACTIONS[act]) return null;
   var payload = verifyToken_(p.token);
   if (payload) {
@@ -2576,6 +2763,7 @@ function applyAuth_(p) {
     p.requesterUser = payload.u;
     p.auditUser = payload.u;
     p.auditRole = payload.r;
+    p._tClass = (payload.r === "teacher") ? String(payload.c || "") : "";   // V19.47
     if (payload.r === "peon" && !PEON_ACTIONS[act]) {
       return {status:"error", code:"forbidden", message:"या User ला हे करण्याचा अधिकार नाही."};
     }
@@ -3924,7 +4112,7 @@ function sheetsOfYear_(ss, year) {
   var out = [];
   ss.getSheets().forEach(function(sh) {
     var n = sh.getName(), m;
-    if (n === "Fees_" + year || n === "FeesSummary_" + year || n === "Diary_" + year || n === "Transport_" + year) { out.push(sh); return; }
+    if (n === "Fees_" + year || n === "FeesSummary_" + year || n === "Diary_" + year || n === "Transport_" + year || n === "Scholarship_" + year) { out.push(sh); return; }
     if ((m = /^(Attendance|AttMarks)_(\d{4})_(\d{2})$/.exec(n))) { var k = m[2] + "-" + m[3]; if (k >= from && k <= to) out.push(sh); return; }
     if ((m = /^EL_(\d{4}-\d{2}-\d{2})$/.exec(n))) { if (m[1] >= y + "-06-01" && m[1] <= (y + 1) + "-05-31") out.push(sh); }
   });
@@ -3932,7 +4120,7 @@ function sheetsOfYear_(ss, year) {
 }
 function sheetYearOf_(name) {
   var m;
-  if ((m = /^(?:Fees|FeesSummary|Diary|Transport)_(\d{4}-\d{2})$/.exec(name))) return m[1];
+  if ((m = /^(?:Fees|FeesSummary|Diary|Transport|Scholarship)_(\d{4}-\d{2})$/.exec(name))) return m[1];
   if ((m = /^(?:Attendance|AttMarks)_(\d{4})_(\d{2})$/.exec(name))) return acYearOfDate_(m[1] + "-" + m[2] + "-15");
   if ((m = /^EL_(\d{4}-\d{2}-\d{2})$/.exec(name))) return acYearOfDate_(m[1]);
   return "";

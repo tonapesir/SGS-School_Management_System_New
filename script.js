@@ -32,7 +32,7 @@ window.androidBackPressed = function() {
 
 
 // URL persistence
-var DEFAULT_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbzTDv4LWZ8kRAHAqzirNQ1nomjeY3JXE3mx601vG4SlgykhmT6FE0C1YCMxWrODsU0/exec';
+var DEFAULT_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbxyS49yiKkFV366fw5hqc9COJv8SXrywtvXKzUAg4ZfvKg6ObgJjS1U76tTGjOuNgK7/exec';
 
 // =====================================================
 // 🔐 LOGIN + ROLE PERMISSIONS
@@ -62,11 +62,11 @@ function handleAuthExpired() {
   setTimeout(function() { _authExpiredHandled = false; }, 2000);
 }
 var USER_ALLOWED_PAGES = {
-  master: ['dashboard','student','lc','bonafide','attendance','search','history','users','profile','stats','maintenance','classinfo','report','attanalytics','earlyleave','teacherlist'],
+  master: ['dashboard','student','lc','bonafide','attendance','search','history','users','profile','stats','maintenance','classinfo','report','attanalytics','earlyleave','scholarship','teacherlist'],
   deo:    ['student','search','history','users','profile','teacherlist'],
   cert:   ['bonafide','attendance','search','history','users','profile'],
-  super:  ['dashboard','student','lc','bonafide','attendance','search','history','users','profile','stats','maintenance','classinfo','report','superadmin','attanalytics','earlyleave','teacherlist'],
-  teacher:['teacher','profile','report','earlyleave'],
+  super:  ['dashboard','student','lc','bonafide','attendance','search','history','users','profile','stats','maintenance','classinfo','report','superadmin','attanalytics','earlyleave','scholarship','teacherlist'],
+  teacher:['teacher','profile','report','earlyleave','scholarship'],
   peon:   ['search','profile','earlyleave','teacherlist']   // शिपाई: विद्यार्थी शोध, प्रोफाइल, घरी जाणाऱ्यांची मार्क-आउट यादी
 };
 var CERT_EDITABLE_FIELDS = {
@@ -329,6 +329,7 @@ function applyFormPermissions() {
     if (el.id.indexOf('pwd_') === 0) { el.disabled=false; el.classList.remove('locked-input'); return; }
     if (el.id.indexOf('tch_') === 0) { el.disabled=false; el.classList.remove('locked-input'); return; }
     if (el.id.indexOf('el_') === 0) { el.disabled=false; el.classList.remove('locked-input'); return; }
+    if (el.id.indexOf('sch_') === 0) { el.disabled=false; el.classList.remove('locked-input'); return; }
     if (el.id.indexOf('tl_') === 0) { el.disabled=false; el.classList.remove('locked-input'); return; }
     if (el.id.indexOf('rp_') === 0) { el.disabled=false; el.classList.remove('locked-input'); return; }
     if (el.id.indexOf('um_') === 0) {
@@ -862,7 +863,7 @@ function smartSaveRaw(data, onResult) {
 // प्रत्येक Save सोबत reqId जातो — सर्व्हरने आधी स्वीकारलेली Save पुन्हा आल्यास दुबार नोंद होत नाही.
 // =====================================================
 var PENDING_KEY = 'sgs_pending_saves_v1';
-var QUEUEABLE_ACTIONS = ['saveAttendance','saveFees','saveDiary','saveTransport','saveStudentContact','saveNotice','saveEarlyLeave','markEarlyLeaveOut'];
+var QUEUEABLE_ACTIONS = ['saveAttendance','saveFees','saveDiary','saveTransport','saveStudentContact','saveNotice','saveEarlyLeave','markEarlyLeaveOut','saveScholarship'];
 var _pendingFlushing = false;
 
 function pendingLoad() {
@@ -3609,6 +3610,9 @@ showPage = function(name, btn) {
   if (name === 'earlyleave') {
     elInit();
   }
+  if (name === 'scholarship') {
+    schInit();
+  }
   if (name === 'teacherlist') {
     tlInit();
   }
@@ -5634,6 +5638,171 @@ function saArchiveLogNow() {
     st.textContent = (r && r.status === 'ok') ? ('✅ ' + r.count + ' जुन्या Log नोंदी "Log_Archive" मध्ये हलवल्या.') : ('❌ ' + ((r && r.message) || 'Failed'));
   });
 }
+
+// =====================================================================
+// V19.47 — 🎓 शिष्यवृत्ती नोंदवही (Super / Master / वर्ग शिक्षक)
+// नाव/वर्ग server वर विद्यार्थी-यादीतून भरले जाते; शिक्षकाचा वर्ग Token मधून सक्तीचा. मिटवणे: फक्त Super/Master.
+// =====================================================================
+var schState = {iyatta: '', tukdi: '', all: true, roster: [], records: [], years: [], canDelete: false, editId: '', year: '', classesLoaded: false, seq: 0, saving: false};
+function schEl(id) { return document.getElementById(id); }
+function schIsTeacher() { return currentUser && currentUser.role === 'teacher'; }
+function schStatusClass(st) { return st === 'वितरित' ? 'sch-st-d' : (st === 'मंजूर' ? 'sch-st-m' : 'sch-st-p'); }
+function schMoney(n) { n = parseFloat(n) || 0; return '₹' + n.toLocaleString('en-IN', {maximumFractionDigits: 2}); }
+
+function schInit() {
+  if (!currentUser || ['super', 'master', 'teacher'].indexOf(currentUser.role) === -1) return;
+  var wrap = schEl('sch_classWrap'), tinfo = schEl('sch_teacherClass');
+  if (schIsTeacher()) {
+    if (wrap) wrap.style.display = 'none';
+    if (tinfo) { tinfo.style.display = 'block'; tinfo.textContent = '🏫 तुमचा वर्ग: ' + elClsLabel(currentUser.iyatta, currentUser.tukdi); }
+    schState.all = false; schState.iyatta = currentUser.iyatta || ''; schState.tukdi = currentUser.tukdi || '';
+    schLoadRoster(); schLoad();
+    return;
+  }
+  if (wrap) wrap.style.display = '';
+  if (tinfo) tinfo.style.display = 'none';
+  if (schState.classesLoaded) { schLoad(); return; }
+  jsonpRequest({action: 'getClassList'}, function(r) {
+    var sel = schEl('sch_class');
+    var html = '<option value="ALL|">📋 सर्व वर्ग (यादी पहा)</option>';
+    if (r && r.status === 'ok') {
+      var order = ['5th', '6th', '7th', '8th', '9th', '10th'];
+      (r.data || []).slice().sort(function(a, b) {
+        var ia = order.indexOf(a.iyatta), ib = order.indexOf(b.iyatta);
+        return ((ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib)) || (a.tukdi < b.tukdi ? -1 : 1);
+      }).forEach(function(c) { if (c.tukdi) html += '<option value="' + escRpHtml(c.iyatta) + '|' + escRpHtml(c.tukdi) + '">' + escRpHtml(elClsLabel(c.iyatta, c.tukdi)) + '</option>'; });
+      schState.classesLoaded = true;
+    }
+    sel.innerHTML = html;
+    schOnClass();
+  });
+}
+function schOnClass() {
+  var v = (schEl('sch_class').value || 'ALL|').split('|');
+  schState.all = (v[0] === 'ALL'); schState.iyatta = schState.all ? '' : v[0]; schState.tukdi = schState.all ? '' : (v[1] || '');
+  schResetForm(); schLoadRoster(); schLoad();
+}
+function schLoadRoster() {
+  var seq = ++schState.seq;
+  if (schState.all) { schState.roster = []; schRenderStudentSelect(); return; }
+  jsonpRequest({action: 'getClassStudents', iyatta: schState.iyatta, tukdi: schState.tukdi}, function(r) {
+    if (seq !== schState.seq) return;   // नंतर वर्ग बदलला — जुने उत्तर टाका
+    schState.roster = (r && r.status === 'ok') ? (r.data || []) : [];
+    schRenderStudentSelect();
+  });
+}
+function schRenderStudentSelect(lockedReg) {
+  var sel = schEl('sch_student'); if (!sel) return;
+  var note = schEl('sch_formNote');
+  if (lockedReg) { return; }
+  if (schState.all) { sel.innerHTML = '<option value="">— आधी वर्ग निवडा —</option>'; sel.disabled = true; if (note) note.textContent = 'ℹ️ नोंद करण्यासाठी वर वर्ग व तुकडी निवडा. "सर्व वर्ग" मध्ये फक्त यादी दिसते.'; return; }
+  sel.disabled = false; if (note) note.textContent = '';
+  var html = '<option value="">— विद्यार्थी निवडा —</option>';
+  schState.roster.forEach(function(s) { html += '<option value="' + escRpHtml(s.regNo) + '">' + escRpHtml((s.rollNo ? s.rollNo + ' – ' : '') + s.fullName) + '</option>'; });
+  sel.innerHTML = html;
+}
+
+function schLoad() {
+  var info = schEl('sch_info'); if (!info) return;
+  info.textContent = '⏳ Load होत आहे...';
+  var q = {action: 'getScholarship', requesterRole: currentUser.role};
+  var y = schEl('sch_year').value; if (y) q.year = y;
+  if (!schState.all) { q.iyatta = schState.iyatta; q.tukdi = schState.tukdi; }
+  jsonpRequest(q, function(r) {
+    if (!r || r.status !== 'ok') { info.textContent = '❌ ' + friendlyMsg((r && r.message) || 'Load Failed'); return; }
+    info.textContent = '';
+    schState.records = r.data || []; schState.year = r.year; schState.canDelete = !!r.canDelete;
+    var ys = schEl('sch_year'), html = '';
+    (r.years || [r.year]).forEach(function(yy) { html += '<option value="' + escRpHtml(yy) + '"' + (yy === r.year ? ' selected' : '') + '>' + escRpHtml(yy) + '</option>'; });
+    ys.innerHTML = html;
+    schRender();
+  });
+}
+
+function schRender() {
+  var box = schEl('sch_list'), sum = schEl('sch_summary'); if (!box) return;
+  var stF = schEl('sch_statusF').value, qq = (schEl('sch_q').value || '').trim().toLowerCase();
+  var list = schState.records.filter(function(r) {
+    if (stF && r.status !== stF) return false;
+    if (qq && (String(r.fullName) + ' ' + r.regNo + ' ' + r.scholarshipName + ' ' + r.scheme).toLowerCase().indexOf(qq) === -1) return false;
+    return true;
+  });
+  var tot = {'प्रलंबित': [0, 0], 'मंजूर': [0, 0], 'वितरित': [0, 0]}, all = [0, 0];
+  list.forEach(function(r) { var t = tot[r.status] || (tot[r.status] = [0, 0]); t[0]++; t[1] += r.amount; all[0]++; all[1] += r.amount; });
+  sum.innerHTML = Object.keys(tot).map(function(k) { return '<span class="sch-chip">' + escRpHtml(k) + ': <b>' + tot[k][0] + '</b> · ' + schMoney(tot[k][1]) + '</span>'; }).join('') +
+    '<span class="sch-chip">एकूण: <b>' + all[0] + '</b> · <b>' + schMoney(all[1]) + '</b></span>';
+  if (!list.length) { box.innerHTML = '<div style="opacity:.8">या निवडीसाठी कोणतीही नोंद नाही.</div>'; return; }
+  var showCls = schState.all;
+  var rows = list.map(function(r) {
+    var idA = escRpHtml(r.id);
+    return '<tr>' + (showCls ? '<td>' + escRpHtml(elClsLabel(r.iyatta, r.tukdi)) + '</td>' : '') +
+      '<td>' + escRpHtml(r.fullName) + '<div style="font-size:11px;opacity:.7">' + escRpHtml(r.regNo) + '</div></td>' +
+      '<td>' + escRpHtml(r.scholarshipName) + (r.scheme ? '<div style="font-size:11.5px;opacity:.75">' + escRpHtml(r.scheme) + '</div>' : '') + '</td>' +
+      '<td style="text-align:right">' + schMoney(r.amount) + '</td>' +
+      '<td><span class="sch-st ' + schStatusClass(r.status) + '">' + escRpHtml(r.status) + '</span></td>' +
+      '<td style="font-size:12px">' + escRpHtml(r.remark) + '</td>' +
+      '<td style="white-space:nowrap"><button class="btn btn-blue btn-sm" data-id="' + idA + '" onclick="schEdit(this.dataset.id)" title="Edit">✏️</button>' +
+      (schState.canDelete ? ' <button class="btn btn-orange btn-sm" data-id="' + idA + '" onclick="schDelete(this.dataset.id)" title="मिटवा">🗑</button>' : '') + '</td></tr>';
+  }).join('');
+  box.innerHTML = '<div style="overflow-x:auto"><table class="hist-table"><thead><tr>' + (showCls ? '<th>वर्ग</th>' : '') +
+    '<th>विद्यार्थी</th><th>शिष्यवृत्ती</th><th>रक्कम</th><th>स्थिती</th><th>शेरा</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+}
+
+function schResetForm() {
+  schState.editId = '';
+  ['sch_name', 'sch_scheme', 'sch_amount', 'sch_remark'].forEach(function(id) { var e = schEl(id); if (e) e.value = ''; });
+  var st = schEl('sch_status2'); if (st) st.value = 'प्रलंबित';
+  var t = schEl('sch_formTitle'); if (t) t.textContent = '✍️ नवीन नोंद';
+  var cb = schEl('sch_cancelBtn'); if (cb) cb.style.display = 'none';
+  var ss = schEl('sch_saveStatus'); if (ss) ss.textContent = '';
+  schRenderStudentSelect();
+}
+function schEdit(id) {
+  var r = null; schState.records.forEach(function(x) { if (x.id === id) r = x; });
+  if (!r) return;
+  schState.editId = id;
+  var sel = schEl('sch_student');
+  sel.innerHTML = '<option value="' + escRpHtml(r.regNo) + '">' + escRpHtml(r.fullName) + '</option>'; sel.disabled = true;
+  schEl('sch_name').value = r.scholarshipName || ''; schEl('sch_scheme').value = r.scheme || '';
+  schEl('sch_amount').value = r.amount || ''; schEl('sch_status2').value = r.status || 'प्रलंबित'; schEl('sch_remark').value = r.remark || '';
+  schEl('sch_formTitle').textContent = '✏️ नोंद Edit — ' + (r.fullName || '');
+  schEl('sch_cancelBtn').style.display = '';
+  schEl('sch_saveStatus').textContent = '';
+  try { schEl('sch_formCard').scrollIntoView({behavior: 'smooth', block: 'start'}); } catch (e) {}
+}
+
+function schSave() {
+  if (schState.saving) return;
+  var st = schEl('sch_saveStatus');
+  var reg = schEl('sch_student').value, name = schEl('sch_name').value.trim();
+  var amt = schEl('sch_amount').value.trim();
+  if (!reg) { st.textContent = '⚠️ विद्यार्थी निवडा.'; return; }
+  if (!name) { st.textContent = '⚠️ शिष्यवृत्तीचे नाव टाका.'; return; }
+  if (amt !== '' && (isNaN(parseFloat(amt)) || parseFloat(amt) < 0)) { st.textContent = '⚠️ रक्कम बरोबर टाका.'; return; }
+  schState.saving = true; schEl('sch_saveBtn').disabled = true; st.textContent = '⏳ Save होत आहे...';
+  smartSave({action: 'saveScholarship', id: schState.editId, regNo: reg, acYear: schState.year || '', scholarshipName: name, scheme: schEl('sch_scheme').value.trim(),
+    amount: amt, status: schEl('sch_status2').value, remark: schEl('sch_remark').value.trim(), requesterUser: currentUser.username, requesterRole: currentUser.role}, function(r) {
+    schState.saving = false; schEl('sch_saveBtn').disabled = false;
+    if (r && r.status === 'ok') {
+      var msg = (r.mode === 'updated') ? '✅ नोंद अद्ययावत झाली.' : '✅ नोंद Save झाली.';
+      schResetForm(); schEl('sch_saveStatus').textContent = msg; schLoad();
+    } else if (r && r.status === 'queued') {
+      st.textContent = r.message || '📶 Pending ठेवले.'; schResetForm(); schEl('sch_saveStatus').textContent = r.message || '';
+    } else st.textContent = errTxt(r);
+  });
+}
+
+function schDelete(id) {
+  var r = null; schState.records.forEach(function(x) { if (x.id === id) r = x; });
+  if (!r || !schState.canDelete) return;
+  if (!confirm('ही नोंद मिटवायची?\n\n' + r.fullName + ' — ' + r.scholarshipName + ' (' + schMoney(r.amount) + ')\n\n(मिटवण्यापूर्वी Backup जतन होतो.)')) return;
+  var info = schEl('sch_info'); info.textContent = '⏳ मिटवत आहे...';
+  jsonpRequest({action: 'deleteScholarship', id: id, year: schState.year || '', requesterRole: currentUser.role}, function(res) {
+    if (res && res.status === 'ok') { if (schState.editId === id) schResetForm(); schLoad(); }
+    else info.textContent = '❌ ' + friendlyMsg((res && res.message) || 'Failed');
+  });
+}
+
 
 // =====================================================================
 // V19.46 — Super Admin: 📷 फोटो लिंक पुन्हा जोडा (Photo link recall)

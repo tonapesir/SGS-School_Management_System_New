@@ -32,7 +32,7 @@ window.androidBackPressed = function() {
 
 
 // URL persistence
-var DEFAULT_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbxX97OelZAQ7mSWW-wJg8mzK0-WVGOSz_FPhO1FiblG38YyP0hWn_r80iOw9134_J7I/exec';
+var DEFAULT_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbxfgY-eJPiJImmHyJdjY3jBIX36QrEOT1d87UaCDVduU2jRluGVU2aF6TyWM-eU4Q6J/exec';
 
 // =====================================================
 // 🔐 LOGIN + ROLE PERMISSIONS
@@ -732,7 +732,7 @@ var clientPerf = [];
 // नियम: पैसा/थकबाकी/फी जमा स्क्रीनवर कधीही जुना डेटा नाही • २४ तासांहून जुना cache वापरत नाही • अॅप-आवृत्ती बदलल्यास रद्द •
 //       प्रत्येकी ~300 KB / एकूण ~1 MB मर्यादा • Logout वर पूर्ण पुसले जाते • Token कधीही साठवत नाही (फक्त उत्तर).
 // =====================================================================
-var APP_VERSION = 'V19.50';
+var APP_VERSION = 'V19.51';
 var SWR_PREFIX = 'sgs_swr:';
 var SWR_MAX_AGE_MS = 24 * 3600 * 1000, SWR_MAX_ENTRY = 300 * 1024, SWR_MAX_TOTAL = 1024 * 1024;
 var SWR_NEVER = /fee|thakbaki|arrear|payment|receipt/i;   // action किंवा key मध्ये आढळल्यास कधीही stale नाही, साठवतही नाही

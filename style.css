@@ -412,7 +412,8 @@ body.role-cert .navbtn[data-page="teacherlist"],body.role-cert .dcard[data-page=
 
 /* ===== V19.47 — शिष्यवृत्ती नोंदवही: फक्त super / master / teacher ला दिसते ===== */
 body.role-deo .navbtn[data-page="scholarship"],body.role-cert .navbtn[data-page="scholarship"],body.role-peon .navbtn[data-page="scholarship"],
-body.role-deo #pg-scholarship,body.role-cert #pg-scholarship,body.role-peon #pg-scholarship{display:none!important}
+body.role-deo #pg-scholarship,body.role-cert #pg-scholarship,body.role-peon #pg-scholarship,
+body.role-deo .dcard[data-page="scholarship"],body.role-cert .dcard[data-page="scholarship"],body.role-peon .dcard[data-page="scholarship"]{display:none!important}
 .sch-chip{display:inline-block;margin:0 6px 6px 0;padding:5px 10px;border-radius:14px;background:rgba(255,255,255,.08);font-size:12.5px;border:1px solid rgba(255,255,255,.15)}
 .sch-chip b{color:#f2c25a}
 .sch-st{display:inline-block;padding:2px 8px;border-radius:10px;font-size:12px;font-weight:700}

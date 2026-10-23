@@ -329,25 +329,30 @@
       <h3>रिपोर्ट</h3>
       <p>जात/प्रवर्ग/वर्ग/फी/मोबाईल/पत्ता/लिंग निहाय यादी — A4 PDF Export</p>
     </div>
-    <div class="dcard master-only" data-page="teacherlist" onclick="showPage('teacherlist',this)">
-      <div class="icon">📒</div>
-      <h3>वर्ग शिक्षक यादी</h3>
-      <p>वर्गनिहाय वर्ग शिक्षकांची नावे, मोबाईल नंबर — कॉल व WhatsApp</p>
-    </div>
-    <div class="dcard master-only" data-page="earlyleave" onclick="showPage('earlyleave',this)">
-      <div class="icon">🚪</div>
-      <h3>घरी जाणारे विद्यार्थी</h3>
-      <p>परवानगीने / विनापरवानगी घरी गेलेल्यांची नोंद, यादी व पालकांना कॉल/WhatsApp</p>
+    <div class="dcard super-only" data-page="superadmin" onclick="showPage('superadmin',this)">
+      <div class="icon">🛡️</div>
+      <h3>Super Admin</h3>
+      <p>थकबाकी यादी, वर्ग-बढती (Promotion), आपोआप Backup</p>
     </div>
     <div class="dcard master-only" data-page="attanalytics" onclick="showPage('attanalytics',this)">
       <div class="icon">📈</div>
       <h3>हजेरी विश्लेषण</h3>
       <p>महिन्याची उपस्थिती %, सलग गैरहजर विद्यार्थी — PDF व पालकांना WhatsApp</p>
     </div>
-    <div class="dcard super-only" data-page="superadmin" onclick="showPage('superadmin',this)">
-      <div class="icon">🛡️</div>
-      <h3>Super Admin</h3>
-      <p>थकबाकी यादी, वर्ग-बढती (Promotion), आपोआप Backup</p>
+    <div class="dcard master-only" data-page="earlyleave" onclick="showPage('earlyleave',this)">
+      <div class="icon">🚪</div>
+      <h3>घरी जाणारे विद्यार्थी</h3>
+      <p>परवानगीने / विनापरवानगी घरी गेलेल्यांची नोंद, यादी व पालकांना कॉल/WhatsApp</p>
+    </div>
+    <div class="dcard" data-page="scholarship" onclick="showPage('scholarship',this)">
+      <div class="icon">🎓</div>
+      <h3>शिष्यवृत्ती</h3>
+      <p>शिष्यवृत्ती नोंदवही — नोंद, स्थिती (प्रलंबित/मंजूर/वितरित), रक्कम</p>
+    </div>
+    <div class="dcard master-only" data-page="teacherlist" onclick="showPage('teacherlist',this)">
+      <div class="icon">📒</div>
+      <h3>वर्ग शिक्षक यादी</h3>
+      <p>वर्गनिहाय वर्ग शिक्षकांची नावे, मोबाईल नंबर — कॉल व WhatsApp</p>
     </div>
     </div>
 
@@ -696,7 +701,7 @@
       <div class="div"></div>
       <div class="sec-title">बोनाफाईड विशेष माहिती</div>
       <div class="frow">
-        <div class="fg w180"><label>शै.वर्ष (Academic Year)</label><select id="bf_stxt2" value="2026-27">-</option><option>2026-27</option><option>2027-28</option><option>2028-29</option></select></div>
+        <div class="fg w180"><label>शै.वर्ष (Academic Year)</label><select id="bf_stxt2"><option value="">-</option><option>2025-26</option><option selected>2026-27</option><option>2027-28</option><option>2028-29</option></select></div>
         <div class="fg w150"><label>बोनाफाईड दिनांक</label><input type="date" id="bf_stxt57"></div>
         <div class="fg wf">
           <label>उद्देश (Purpose)</label>

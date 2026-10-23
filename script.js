@@ -32,7 +32,7 @@ window.androidBackPressed = function() {
 
 
 // URL persistence
-var DEFAULT_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbxfgY-eJPiJImmHyJdjY3jBIX36QrEOT1d87UaCDVduU2jRluGVU2aF6TyWM-eU4Q6J/exec';
+var DEFAULT_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbzdYkJPvHM4KNvVi4J3oUS_gSPKQkDbzB4fh9cJPLuiD_6ImBO1N-5CagxL5DaaqwOB/exec';
 
 // =====================================================
 // 🔐 LOGIN + ROLE PERMISSIONS
@@ -50,6 +50,7 @@ function normRole(r) { return String(r == null ? '' : r).trim().toLowerCase(); }
 // V19.36: Server-side Login (Token). Server वर setSuperCredentials + enableAuthEnforcement झाल्यावर हे false करा —
 // तेव्हा browser मधील hardcoded/Sheet मधून आलेले Password पूर्णपणे बंद होतात.
 var ALLOW_LEGACY_LOGIN = true;
+if (!ALLOW_LEGACY_LOGIN) AUTH_USERS = {};   // V19.52: जुना Login बंद असताना hardcoded Password runtime मध्ये राहत नाहीत
 var SESSION_KEY = 'sgs_session_v2';
 function tokenQS() { return (currentUser && currentUser.token) ? '&token=' + encodeURIComponent(currentUser.token) : ''; }
 function attachToken(params) { if (currentUser && currentUser.token) params.token = currentUser.token; return params; }
@@ -732,7 +733,7 @@ var clientPerf = [];
 // नियम: पैसा/थकबाकी/फी जमा स्क्रीनवर कधीही जुना डेटा नाही • २४ तासांहून जुना cache वापरत नाही • अॅप-आवृत्ती बदलल्यास रद्द •
 //       प्रत्येकी ~300 KB / एकूण ~1 MB मर्यादा • Logout वर पूर्ण पुसले जाते • Token कधीही साठवत नाही (फक्त उत्तर).
 // =====================================================================
-var APP_VERSION = 'V19.51';
+var APP_VERSION = 'V19.53';
 var SWR_PREFIX = 'sgs_swr:';
 var SWR_MAX_AGE_MS = 24 * 3600 * 1000, SWR_MAX_ENTRY = 300 * 1024, SWR_MAX_TOTAL = 1024 * 1024;
 var SWR_NEVER = /fee|thakbaki|arrear|payment|receipt/i;   // action किंवा key मध्ये आढळल्यास कधीही stale नाही, साठवतही नाही
@@ -873,6 +874,17 @@ function lazyCards(cards) {
   });
 }
 
+
+// V19.53: Archive झालेल्या वर्षाची माहिती फक्त पाहता येते — त्या पानांवर पट्टी
+function archBanner(anchorId, on) {
+  var a = document.getElementById(anchorId); if (!a || !a.parentNode) return;
+  var id = 'archb_' + anchorId, ex = document.getElementById(id);
+  if (ex && ex.parentNode) ex.parentNode.removeChild(ex);
+  if (!on) return;
+  var d = document.createElement('div'); d.id = id; d.className = 'arch-banner';
+  d.textContent = '📦 Archive — फक्त पाहणे. या वर्षाची माहिती Archive झाली आहे; ती बदलता किंवा मिटवता येत नाही.';
+  a.parentNode.insertBefore(d, a);
+}
 
 function clientPerfAdd(action, ms, r) {
   if (!action || action === 'ping') return;
@@ -3810,6 +3822,7 @@ function loadUsersTable() {
     delete window[cb];
     if (r && r.status === 'ok' && r.data) {
       window._allUsers = r.data;
+      window._pwHidden = !!r.passwordsHidden;   // V19.52: Password सर्व्हर परत पाठवत नाही (hash / Token सक्ती)
       tbody.innerHTML = r.data.map(function(u) {
         var clsLabel = (u.assignedClass||'').replace('|','-');
         return '<tr><td>' + u.username + '</td><td>' + u.role + '</td><td>' + (u.label||'') + '</td><td>' + clsLabel + '</td><td>' + (u.mobile||'') + '</td>'
@@ -3828,7 +3841,8 @@ function editUser(username) {
   var u = (window._allUsers || []).filter(function(x){ return x.username === username; })[0];
   if (!u) return;
   document.getElementById('um_username').value = u.username;
-  document.getElementById('um_password').value = u.password;
+  document.getElementById('um_password').value = u.password || '';
+  document.getElementById('um_password').placeholder = window._pwHidden ? '(बदलायचा नसेल तर रिकामे ठेवा)' : '';
   document.getElementById('um_role').value = u.role;
   document.getElementById('um_label').value = u.label || '';
   document.getElementById('um_mobile').value = u.mobile || '';
@@ -3838,6 +3852,7 @@ function editUser(username) {
   toggleUmClassFields();
 }
 function clearUserForm() {
+  try { document.getElementById('um_password').placeholder = ''; } catch (e) {}
   ['um_username','um_password','um_label','um_mobile'].forEach(function(id){ document.getElementById(id).value = ''; });
   document.getElementById('um_role').value = 'cert';
   document.getElementById('um_assignedClass').value = '';
@@ -3859,7 +3874,8 @@ function saveUser() {
     if (!cls || !tuk) { document.getElementById('um_status').textContent = '⚠️ Class Teacher साठी वर्ग व तुकडी दोन्ही निवडा.'; return; }
     assignedClass = cls + '|' + tuk;
   }
-  if (!username || !password) { document.getElementById('um_status').textContent = '⚠️ Username व Password आवश्यक आहेत.'; return; }
+  var existingUser = (window._allUsers || []).some(function(x) { return x.username === username; });
+  if (!username || (!password && !(window._pwHidden && existingUser))) { document.getElementById('um_status').textContent = '⚠️ Username व Password आवश्यक आहेत.'; return; }
   var mobile = (document.getElementById('um_mobile').value || '').trim();
   var data = { action:'saveUser', username:username, password:password, role:role, label:label, assignedClass:assignedClass, mobile: mobile,
     requesterUser: currentUser.username, requesterRole: currentUser.role };
@@ -5689,6 +5705,7 @@ function attaRender(prefix, r) {
   var out = document.getElementById(prefix + '_out');
   if (!r || r.status !== 'ok') { out.innerHTML = '❌ ' + ((r && r.message) || 'Load Failed'); return; }
   _attaLast[prefix] = r;
+  archBanner(prefix + '_out', !!r.archived);   // V19.53
   var html = '<div style="margin-bottom:10px;font-size:13.5px">कार्यदिवस (हजेरी भरलेले): <b>' + r.workingDays + '</b> &nbsp;|&nbsp; सरासरी उपस्थिती: <b>' + (r.avgPct == null ? '—' : r.avgPct + '%') +
     '</b> &nbsp;|&nbsp; सलग ' + r.minRun + '+ दिवस गैरहजर: <b style="color:#ff9a9a">' + r.streaks.length + '</b></div>';
   if (!r.workingDays) html += '<div style="opacity:.8;margin-bottom:8px">ℹ️ या महिन्यात या वर्गाची हजेरी Save झालेली नाही.</div>';
@@ -5734,6 +5751,9 @@ function saLoadSecurity() {
     rows.push((r.superConfigured ? '✅' : '⚠️') + ' Super Master चा Password सर्व्हरवर ' + (r.superConfigured ? 'नोंदवला आहे.' : 'अजून नोंदवलेला नाही (Editor मध्ये setSuperCredentials Run करा).'));
     rows.push((r.enforced ? '✅' : '⚠️') + ' Token सक्ती ' + (r.enforced ? 'चालू आहे — Token शिवाय कोणतीही विनंती नाकारली जाते.' : 'बंद आहे — URL माहीत असलेला कोणीही Role बनावट पाठवू शकतो.'));
     if (r.defaultPasswordsPresent) rows.push('⚠️ Users मध्ये डिफॉल्ट Password "Pass@1234" असलेले User आहेत — ते बदला.');
+    rows.push((r.passwordsHashed ? '✅' : 'ℹ️') + ' Users मधील Password ' + (r.passwordsHashed ? 'hash (एनक्रिप्टेड) स्वरूपात आहेत.' : 'अजून साध्या स्वरूपात आहेत — Token सक्तीनंतर Editor मध्ये hashAllPasswords Run करा.') + (r.plainPasswords ? ' (साधे: ' + r.plainPasswords + ')' : ''));
+    if (r.rolesNeverLoggedInWithToken && r.rolesNeverLoggedInWithToken.length && !r.enforced) rows.push('ℹ️ Token सक्तीपूर्वी या भूमिकांनी नवा Login करून पाहावा: ' + r.rolesNeverLoggedInWithToken.join(', '));
+    if (!r.enforced && r.readyForEnforcement) rows.push('✅ सर्व भूमिकांचा Token-Login चालला आहे — आता Editor मध्ये enableAuthEnforcement Run करू शकता.');
     if (!ALLOW_LEGACY_LOGIN) rows.push('✅ जुना (browser मधील) Login बंद आहे.');
     else if (r.enforced) rows.push('ℹ️ script.js मध्ये ALLOW_LEGACY_LOGIN = false करा — मग browser मधील hardcoded Password पूर्ण बंद होतात.');
     el.innerHTML = rows.map(function(x) { return '<div style="margin-bottom:5px">' + escRpHtml(x) + '</div>'; }).join('');
@@ -5902,9 +5922,12 @@ function schLoad() {
   jsonpRequest(q, function(r) {
     if (!r || r.status !== 'ok') { info.textContent = '❌ ' + friendlyMsg((r && r.message) || 'Load Failed'); return; }
     info.textContent = '';
-    schState.records = r.data || []; schState.year = r.year; schState.canDelete = !!r.canDelete;
+    schState.records = r.data || []; schState.year = r.year; schState.canDelete = !!r.canDelete; schState.archived = !!r.archived;
+    archBanner('sch_list', schState.archived);   // V19.53
+    var fc = schEl('sch_formCard'); if (fc) fc.style.display = schState.archived ? 'none' : '';
     var ys = schEl('sch_year'), html = '';
-    (r.years || [r.year]).forEach(function(yy) { html += '<option value="' + escRpHtml(yy) + '"' + (yy === r.year ? ' selected' : '') + '>' + escRpHtml(yy) + '</option>'; });
+    var archList = r.archivedYears || [];
+    (r.years || [r.year]).forEach(function(yy) { html += '<option value="' + escRpHtml(yy) + '"' + (yy === r.year ? ' selected' : '') + '>' + (archList.indexOf(yy) !== -1 ? '📦 ' : '') + escRpHtml(yy) + '</option>'; });
     ys.innerHTML = html;
     schRender();
   });
@@ -5932,7 +5955,7 @@ function schRender() {
       '<td style="text-align:right">' + schMoney(r.amount) + '</td>' +
       '<td><span class="sch-st ' + schStatusClass(r.status) + '">' + escRpHtml(r.status) + '</span></td>' +
       '<td style="font-size:12px">' + escRpHtml(r.remark) + '</td>' +
-      '<td style="white-space:nowrap"><button class="btn btn-blue btn-sm" data-id="' + idA + '" onclick="schEdit(this.dataset.id)" title="Edit">✏️</button>' +
+      '<td style="white-space:nowrap">' + (schState.archived ? '' : '<button class="btn btn-blue btn-sm" data-id="' + idA + '" onclick="schEdit(this.dataset.id)" title="Edit">✏️</button>') +
       (schState.canDelete ? ' <button class="btn btn-orange btn-sm" data-id="' + idA + '" onclick="schDelete(this.dataset.id)" title="मिटवा">🗑</button>' : '') + '</td></tr>';
   }).join('');
   box.innerHTML = '<div style="overflow-x:auto"><table class="hist-table"><thead><tr>' + (showCls ? '<th>वर्ग</th>' : '') +
@@ -6229,8 +6252,13 @@ function elLoad() {
     elState.absent = {}; (recRes.absentRegNos || []).forEach(function(x) { elState.absent[x] = true; });
     elState.roster = all ? [] : ((rosRes && rosRes.data) || []);
     elState.stale = !!meta.stale;
+    elState.archived = !!recRes.archived;   // V19.53
+    archBanner('el_entryWrap', elState.archived);
     st.textContent = '';
-    if (meta.stale && !all) {
+    if (elState.archived) {
+      document.getElementById('el_entryWrap').innerHTML = '<div style="opacity:.85;font-size:13px">📦 Archive झालेल्या वर्षाची तारीख — नोंद/बदल करता येत नाही; खाली फक्त जुनी यादी दिसते.</div>';
+      document.getElementById('el_saveBtn').style.display = 'none';
+    } else if (meta.stale && !all) {
       document.getElementById('el_entryWrap').innerHTML = '<div style="opacity:.85;font-size:13px">⏱ ताजी माहिती येईपर्यंत नोंद (Save) बंद आहे — खाली जुनी यादी दिसते.</div>';
       document.getElementById('el_saveBtn').style.display = 'none';
     } else elRenderEntry();
@@ -6271,6 +6299,7 @@ function elOnChange(i) {
 function elSave() {
   var st = document.getElementById('el_saveStatus');
   if (elState.stale) { st.textContent = '⏱ ताजी माहिती येईपर्यंत थांबा — नंतर Save करा.'; return; }   // V19.49
+  if (elState.archived) { st.textContent = '📦 Archive झालेल्या वर्षात बदल करता येत नाही.'; return; }   // V19.53
   var date = elState.date;
   if (date > isoToday()) { st.textContent = '⚠️ भविष्यातील तारखेची नोंद करता येत नाही.'; return; }
   var entries = [], removes = [], bad = '';
@@ -6497,6 +6526,7 @@ function attaOverview() {
   swrRequest('attaOv:' + month, {action: 'getAttendanceOverview', month: month, requesterRole: currentUser.role}, function(r) {
     if (!r || r.status !== 'ok' || !r.rows) { st.textContent = '❌ ' + friendlyMsg((r && r.message) || 'सर्व्हरचे उत्तर अपूर्ण आहे — नवीन Code.gs Deploy करा.'); return; }
     attaOvData = r;
+    archBanner('atta_ovTable', !!r.archived);   // V19.53
     st.textContent = r.hasMarks ? '' : 'ℹ️ या महिन्यात अजून कोणत्याही वर्गाची हजेरी भरलेली नाही.';
     var tot = 0, totDays = 0, sumPct = 0, cnt = 0;
     var rows = r.rows.map(function(x) {

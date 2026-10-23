@@ -630,20 +630,52 @@ function getUsersSheet() {
   return sh;
 }
 
+// =====================================================================
+// ===== V19.52 — Password सुरक्षा: hash (HMAC-SHA256 + salt + गुप्त की), Users मधून Password बाहेर न पडणे =====
+// डीफॉल्ट (PW_HASHED ≠ 1 व Token सक्ती बंद) असताना वर्तन पूर्वीसारखेच. hashAllPasswords() (Editor मधून) नंतर फक्त hash साठवला जातो;
+// जुने साधे Password hash होईपर्यंत चालतात (passwordMatches_ दोन्ही ओळखतो).
+// =====================================================================
+function pwHashed_() { return PropertiesService.getScriptProperties().getProperty("PW_HASHED") === "1"; }
+function isHashedPw_(v) { return /^h1\$[A-Za-z0-9_-]+\$[A-Za-z0-9_=-]+$/.test((v || "").toString()); }
+function hashPassword_(plain) {
+  var salt = Utilities.getUuid().replace(/[^A-Za-z0-9]/g, "").substring(0, 16);
+  return "h1$" + salt + "$" + hmacB64_(salt + "|" + String(plain)).replace(/\./g, "_");
+}
+function passwordMatches_(stored, given) {
+  stored = (stored === null || stored === undefined ? "" : stored).toString();
+  given = (given === null || given === undefined ? "" : given).toString();
+  if (!stored || !given) return false;
+  if (isHashedPw_(stored)) {
+    var m = /^h1\$([^$]+)\$(.+)$/.exec(stored);
+    return safeEq_(hmacB64_(m[1] + "|" + given).replace(/\./g, "_"), m[2]);
+  }
+  return safeEq_(stored, given);   // जुना साधा Password (hash होईपर्यंत)
+}
+// Users मधून Password कधीही बाहेर पाठवायचे नसतील तेव्हा true (hash झाले असेल किंवा Token सक्ती चालू असेल)
+function hidePasswordsInApi_() { return pwHashed_() || authEnforced_(); }
+function pwPolicyError_(pw) {
+  pw = String(pw || "");
+  if (!(pwHashed_() || authEnforced_())) return "";   // पूर्वीसारखे — कोणतीही अट नाही
+  if (pw.length < 8) return "नवा Password किमान ८ अक्षरी असावा.";
+  if (pw === "Pass@1234" || pw === "Super@1234") return "हा डिफॉल्ट Password वापरता येत नाही — वेगळा निवडा.";
+  return "";
+}
+
 function doGetUsers(p, cb) {
   try {
     if (p._authed && p.requesterRole !== "super") {
       return wrap(cb, {status:"error", message:"User यादी पाहण्याचा अधिकार फक्त Super Master ला आहे."});
     }
+    var hide = hidePasswordsInApi_();
     var sh = getUsersSheet();
     ensureCols_(sh, 6);
-    var rows = sh.getRange(2, 1, sh.getLastRow()-1, 6).getValues();
+    var rows = sh.getLastRow() > 1 ? sh.getRange(2, 1, sh.getLastRow()-1, 6).getValues() : [];
     var out = [];
     for (var i=0;i<rows.length;i++) {
       if (!rows[i][0]) continue;
-      out.push({ rowIndex:i+2, username:rows[i][0], password:rows[i][1], role:normRole_(rows[i][2]), label:rows[i][3], assignedClass:rows[i][4]||"", mobile:phoneDigits_(rows[i][5]) })
+      out.push({ rowIndex:i+2, username:rows[i][0], password: hide ? "" : rows[i][1], hasPassword: !!rows[i][1], role:normRole_(rows[i][2]), label:rows[i][3], assignedClass:rows[i][4]||"", mobile:phoneDigits_(rows[i][5]) })
     }
-    return wrap(cb, {status:"ok", data: out});
+    return wrap(cb, {status:"ok", data: out, passwordsHidden: hide});
   } catch(err) {
     return wrap(cb, {status:"error", message:err.toString()});
   }
@@ -671,7 +703,25 @@ function doSaveUser(p, cb) {
       mobile = phoneDigits_(p.mobile);
       if (mobile && (mobile.length < 10 || mobile.length > 12)) return wrap(cb, {status:"error", message:"मोबाईल क्रमांक १० अंकी असावा."});
     }
-    var row = [username, p.password||"", roleIn, p.label||username, p.assignedClass||"", mobile];
+    var pwIn = (p.password === undefined || p.password === null) ? "" : String(p.password);
+    var oldPw = rowToWrite ? sh.getRange(rowToWrite, 2).getValue() : "";
+    var pwOut;
+    if (hidePasswordsInApi_()) {
+      // V19.52: Password रिकामा = जुना कायम (Edit मध्ये बदलायचा नसेल तर). नवा User साठी Password आवश्यक. hash आधीच असेल तर पुन्हा hash नाही.
+      if (!pwIn) {
+        if (!rowToWrite || !oldPw) return wrap(cb, {status:"error", message:"नवीन User साठी Password आवश्यक आहे."});
+        pwOut = oldPw;
+      } else if (isHashedPw_(pwIn)) {
+        return wrap(cb, {status:"error", message:"Password चुकीच्या स्वरूपात आहे."});
+      } else {
+        var perr = pwPolicyError_(pwIn);
+        if (perr) return wrap(cb, {status:"error", message:perr});
+        pwOut = pwHashed_() ? hashPassword_(pwIn) : pwIn;
+      }
+    } else {
+      pwOut = pwIn;   // पूर्वीसारखे (साधे)
+    }
+    var row = [username, pwOut, roleIn, p.label||username, p.assignedClass||"", mobile];
     if (rowToWrite) {
       sh.getRange(rowToWrite, 1, 1, 6).setValues([row]);
     } else {
@@ -709,10 +759,12 @@ function doChangePassword(p, cb) {
     var rowToWrite = findRowByKey(sh, 1, username);
     if (!rowToWrite) return wrap(cb, {status:"error", message:"User सापडला नाही."});
     var current = sh.getRange(rowToWrite, 2).getValue();
-    if ((current||"").toString() !== (p.oldPassword||"").toString()) {
+    if (!passwordMatches_(current, p.oldPassword)) {   // V19.52: साधा किंवा hash — दोन्ही
       return wrap(cb, {status:"error", message:"जुना Password चुकीचा आहे."});
     }
-    sh.getRange(rowToWrite, 2).setValue(p.newPassword||"");
+    var perr = pwPolicyError_(p.newPassword);
+    if (perr) return wrap(cb, {status:"error", message:perr});
+    sh.getRange(rowToWrite, 2).setValue(pwHashed_() ? hashPassword_(p.newPassword || "") : (p.newPassword || ""));
     logAudit(username, p.requesterRole, "changePassword", username);
     return wrap(cb, {status:"ok"});
   } catch(err) {
@@ -885,7 +937,7 @@ function attMonthSheets_(fromDate, toDate) {
 
 function readAttendanceRows_(fromDate, toDate) {
   var rows = [];
-  attMonthSheets_(fromDate, toDate).forEach(function(sh) {
+  attSheetsForRead_(fromDate, toDate).forEach(function(sh) {   // V19.53: Archive झालेल्या महिन्यांसह (फक्त वाचन)
     var last = sh.getLastRow();
     if (last > 1) rows = rows.concat(sh.getRange(2, 1, last - 1, 9).getValues());
   });
@@ -950,6 +1002,7 @@ function doSaveAttendance(d) {
     var tukdi = (d.tukdi||"").toString().trim();
     var date = (d.date||todayStr()).toString().trim();
     if (!iyatta) return {status:"error", message:"Class आवश्यक आहे."};
+    var archErr = archivedWriteError_(date); if (archErr) return {status:"error", message: archErr};   // V19.53
     var shName = attMonthSheetName_(date);
     if (!shName) return {status:"error", message:"तारीख चुकीच्या स्वरूपात आहे (YYYY-MM-DD हवी)."};
     lock.waitLock(25000); locked = true;
@@ -1017,7 +1070,9 @@ function doGetAttendance(p, cb) {
       out.push({date:rDate, iyatta:r[2], tukdi:r[3], regNo:r[4], studentId:r[5], fullName:r[6], reason:r[7], markedBy:r[8]});
     }
     out.sort(function(a,b){ return (a.date < b.date) ? 1 : (a.date > b.date ? -1 : 0); });
-    return wrap(cb, {status:"ok", data: out});
+    var resAt = {status:"ok", data: out};
+    if (archivedFlagDate_(date || dateFrom)) resAt.archived = true;   // V19.53
+    return wrap(cb, resAt);
   } catch(err) {
     return wrap(cb, {status:"error", message:err.toString()});
   }
@@ -1065,6 +1120,7 @@ function doSaveDiary(d) {
   try {
     diaryEnsureMigrated_();
     var date = (d.date || todayStr()).toString();
+    var archErrDi = archivedWriteError_(date); if (archErrDi) return {status:"error", message: archErrDi};   // V19.53
     var sh = diarySheet_(acYearOfDate_(date), true);
     var row = [new Date().toLocaleString("en-IN"), date, d.regNo||"", d.studentId||"", d.fullName||"",
       d.iyatta||"", d.tukdi||"", d.type||"", d.remark||"", d.enteredBy||""];
@@ -1147,6 +1203,7 @@ function doSaveTransport(d) {
   try {
     transportEnsureMigrated_();
     var year = normAcYear_(d.acYear);
+    var archErrTr = archivedWriteError_(year); if (archErrTr) return {status:"error", message: archErrTr};   // V19.53
     var sh = transportSheetForWrite_(year);
     var rowToWrite = findRowByKey(sh, 2, d.regNo);
     var row = [new Date().toLocaleString("en-IN"), d.regNo||"", d.studentId||"", d.fullName||"",
@@ -1211,6 +1268,7 @@ function doSaveFees(d) {
     }
     var amount = parseFloat(d.amountPaid)||0;
     if (amount <= 0) return {status:"error", message:"जमा रक्कम बरोबर टाका."};
+    var archErrFee = archivedWriteError_(normAcYear_(d.acYear)); if (archErrFee) return {status:"error", message: archErrFee};   // V19.53
     feesEnsureMigrated_();
     var feeLock = LockService.getScriptLock();
     feeLock.waitLock(20000);
@@ -2030,6 +2088,7 @@ function doSaveScholarship(d) {
     if (isNaN(amtRaw) || amtRaw < 0 || amtRaw > 100000000) return {status: "error", message: "रक्कम बरोबर टाका (० किंवा जास्त)."};
     var amount = Math.round(amtRaw * 100) / 100;
     var year = normAcYear_(d.acYear);
+    if (isArchivedYear_(year)) return {status: "error", message: archivedMsg_(year)};   // V19.53
     var by = d.auditUser || d.requesterUser || "";
     var ts = new Date().toLocaleString("en-IN");
 
@@ -2114,7 +2173,14 @@ function doGetScholarship(p, cb) {
     out.sort(function(x, y) { return (x.iyatta + x.tukdi + x.fullName) < (y.iyatta + y.tukdi + y.fullName) ? -1 : 1; });
     var years = listYearSheets_("Scholarship").map(function(s2) { return s2.getName().replace("Scholarship_", ""); });
     var cur = currentAcYear_(); if (years.indexOf(cur) === -1) years.unshift(cur);
-    return wrap(cb, {status: "ok", year: year, data: out, years: years, statuses: SCHOLAR_STATUSES, canDelete: (a.role === "super" || a.role === "master")});
+    var archYears = archivedYears_();   // V19.53: Archive झालेल्या वर्षांच्या नोंदीही पाहता येतात (फक्त वाचन)
+    archYears.forEach(function(ay) { if (years.indexOf(ay) === -1) years.push(ay); });
+    years.sort().reverse();
+    var isArch = isArchivedYear_(year);
+    var resS = {status: "ok", year: year, data: out, years: years, statuses: SCHOLAR_STATUSES, canDelete: !isArch && (a.role === "super" || a.role === "master")};
+    if (archYears.length) resS.archivedYears = archYears;
+    if (isArch) resS.archived = true;
+    return wrap(cb, resS);
   } catch (err) {
     return wrap(cb, {status: "error", message: err.toString()});
   }
@@ -2129,6 +2195,7 @@ function doDeleteScholarship(p, cb) {
     var id = (p.id || "").toString().trim();
     if (!id) return wrap(cb, {status: "error", message: "Id आवश्यक आहे."});
     var year = p.year ? normAcYear_(p.year) : currentAcYear_();
+    if (isArchivedYear_(year)) return wrap(cb, {status: "error", message: archivedMsg_(year)});   // V19.53
     lock = LockService.getScriptLock();
     lock.waitLock(20000);
     var sh = scholarSheet_(year, false);
@@ -2954,7 +3021,7 @@ function doLogin(p, cb) {
     if (sh.getLastRow() > 1) {
       var rows = sh.getRange(2, 1, sh.getLastRow() - 1, 5).getValues();
       for (var i = 0; i < rows.length; i++) {
-        if ((rows[i][0] || "").toString().trim() === username && (rows[i][1] || "").toString() === password) {
+        if ((rows[i][0] || "").toString().trim() === username && passwordMatches_(rows[i][1], password)) {
           var rl = normRole_(rows[i][2]);
           if (VALID_ROLES.indexOf(rl) === -1) {
             return wrap(cb, {status:"error", code:"badrole", message:"या User चा Role (" + (rows[i][2] || "रिकामा") + ") अमान्य आहे. Users sheet मध्ये Role: super / master / deo / cert / teacher / peon यापैकी एक हवा."});
@@ -2975,6 +3042,7 @@ function doLogin(p, cb) {
       return wrap(cb, {status:"error", code:"badcred", message:"Username किंवा Password चुकीचा आहे."});
     }
     cache.remove(fk);
+    try { PropertiesService.getScriptProperties().setProperty("LOGIN_SEEN_" + user.role, String(Date.now())); } catch (eSeen) {}   // V19.52: या भूमिकेचा Token-Login चालल्याची नोंद (सक्तीपूर्वी पूर्व-तपासणीसाठी)
     var exp = Date.now() + TOKEN_TTL_MS;
     var token = signToken_({u: username, r: user.role, c: user.assignedClass, exp: exp});
     logAudit(username, user.role, "login", "");
@@ -2993,14 +3061,93 @@ function setSuperCredentials(username, password) {
   props.setProperty("SUPER_PASS", String(password));
   Logger.log("Super credentials सेट झाले. आता नवीन Deploy करून Login तपासा, मग enableAuthEnforcement() Run करा.");
 }
-function enableAuthEnforcement() {
+// V19.52: Token सक्ती चालू करण्यापूर्वी — Users मधील प्रत्येक भूमिकेने Token-Login यशस्वीपणे केल्याची खात्री (अन्यथा त्यांना बाहेर पडावे लागेल)
+function securityPreflight() {
   var props = PropertiesService.getScriptProperties();
-  if (!props.getProperty("SUPER_USER") || !props.getProperty("SUPER_PASS")) {
+  var roles = {}, defaults = 0, plain = 0, hashed = 0;
+  var sh = getUsersSheet();
+  if (sh.getLastRow() > 1) {
+    sh.getRange(2, 1, sh.getLastRow() - 1, 3).getValues().forEach(function(r) {
+      if (!r[0]) return;
+      var rl = normRole_(r[2]); roles[rl] = (roles[rl] || 0) + 1;
+      var pw = (r[1] || "").toString();
+      if (isHashedPw_(pw)) hashed++; else if (pw) plain++;
+      if (pw === "Pass@1234") defaults++;
+    });
+  }
+  var seen = {}, missing = [];
+  Object.keys(roles).forEach(function(rl) {
+    var t = props.getProperty("LOGIN_SEEN_" + rl);
+    seen[rl] = t ? new Date(parseInt(t, 10)).toISOString() : "";
+    if (!t) missing.push(rl);
+  });
+  var superOk = !!(props.getProperty("SUPER_USER") && props.getProperty("SUPER_PASS"));
+  var rep = {superConfigured: superOk, rolesInUsers: roles, tokenLoginSeen: seen, rolesNeverLoggedInWithToken: missing,
+    enforced: authEnforced_(), passwordsHashed: pwHashed_(), plainPasswords: plain, hashedPasswords: hashed, defaultPasswordUsers: defaults,
+    readyForEnforcement: superOk && !missing.length};
+  Logger.log(JSON.stringify(rep, null, 1));
+  return rep;
+}
+function enableAuthEnforcement() {
+  var rep = securityPreflight();
+  if (!rep.superConfigured) {
     throw new Error("आधी setSuperCredentials('user_s','पासवर्ड') Run करा, नाहीतर Super Master ला बाहेर पडावे लागेल.");
   }
+  if (rep.rolesNeverLoggedInWithToken.length) {
+    throw new Error("या भूमिकांनी नवीन (Token) Login अजून एकदाही केलेला नाही: " + rep.rolesNeverLoggedInWithToken.join(", ") +
+      ". आधी प्रत्येक भूमिकेच्या एका User ने ॲपमध्ये Login करून पाहा. नंतर पुन्हा Run करा — किंवा तरीही सक्ती करायची असेल तर enableAuthEnforcementForce() Run करा.");
+  }
+  authSecret_();
+  PropertiesService.getScriptProperties().setProperty("AUTH_ENFORCE", "1");
+  Logger.log("Token सक्ती चालू. आता Token शिवाय कोणतीही विनंती नाकारली जाईल. (परत जाण्यासाठी: disableAuthEnforcement)");
+}
+function enableAuthEnforcementForce() {
+  var props = PropertiesService.getScriptProperties();
+  if (!props.getProperty("SUPER_USER") || !props.getProperty("SUPER_PASS")) throw new Error("आधी setSuperCredentials Run करा.");
   authSecret_();
   props.setProperty("AUTH_ENFORCE", "1");
-  Logger.log("Token सक्ती चालू. आता Token शिवाय कोणतीही विनंती नाकारली जाईल.");
+  Logger.log("Token सक्ती (Force) चालू. पूर्व-तपासणी वगळली.");
+}
+// सर्व साधे Password hash करा. पूर्वअट: Token सक्ती चालू + Super Password सर्व्हरवर. आधी Users ची पूर्ण प्रत "Users_BACKUP_<वेळ>" (लपवलेली) बनते.
+function hashAllPasswords() {
+  var props = PropertiesService.getScriptProperties();
+  if (!authEnforced_()) throw new Error("आधी Token सक्ती चालू करा (enableAuthEnforcement) — नाहीतर जुना Login (साधे Password वाचणारा) बंद पडेल.");
+  if (!props.getProperty("SUPER_USER") || !props.getProperty("SUPER_PASS")) throw new Error("आधी setSuperCredentials Run करा.");
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet(), sh = getUsersSheet();
+    var n = sh.getLastRow();
+    if (n < 2) { props.setProperty("PW_HASHED", "1"); return {hashed: 0, backup: ""}; }
+    var stamp = Utilities.formatDate(new Date(), "Asia/Kolkata", "yyyyMMdd_HHmm");
+    var bk = sh.copyTo(ss); bk.setName("Users_BACKUP_" + stamp);
+    try { bk.hideSheet(); } catch (eH) {}
+    if (bk.getLastRow() !== n) { ss.deleteSheet(bk); throw new Error("Backup पडताळणी अयशस्वी — काहीही बदलले नाही."); }
+    var rng = sh.getRange(2, 2, n - 1, 1), vals = rng.getValues(), cnt = 0;
+    for (var i = 0; i < vals.length; i++) {
+      var v = (vals[i][0] || "").toString();
+      if (v && !isHashedPw_(v)) { vals[i][0] = hashPassword_(v); cnt++; }
+    }
+    rng.setValues(vals);
+    props.setProperty("PW_HASHED", "1");
+    Logger.log("Password hash झाले: " + cnt + ". Backup Sheet: Users_BACKUP_" + stamp + " (लपवलेली — पूर्ण साधे Password तिथे आहेत; पडताळणी झाल्यावर ती मिटवा).");
+    return {hashed: cnt, backup: "Users_BACKUP_" + stamp};
+  } finally { try { lock.releaseLock(); } catch (e) {} }
+}
+// आणीबाणी: सर्वात ताज्या Users_BACKUP_* मधून Password स्तंभ परत आणतो व PW_HASHED=0 करतो
+function restoreUsersFromBackup() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var names = ss.getSheets().map(function(x) { return x.getName(); }).filter(function(n) { return /^Users_BACKUP_/.test(n); }).sort();
+  if (!names.length) throw new Error("Users_BACKUP_* Sheet सापडली नाही.");
+  var bk = ss.getSheetByName(names[names.length - 1]), sh = getUsersSheet();
+  var src = bk.getRange(2, 1, bk.getLastRow() - 1, 2).getValues(), cur = sh.getRange(2, 1, sh.getLastRow() - 1, 2).getValues();
+  var map = {}; src.forEach(function(r) { map[(r[0] || "").toString().trim()] = r[1]; });
+  var restored = 0;
+  for (var i = 0; i < cur.length; i++) { var k = (cur[i][0] || "").toString().trim(); if (map.hasOwnProperty(k)) { cur[i][1] = map[k]; restored++; } }
+  sh.getRange(2, 2, cur.length, 1).setValues(cur.map(function(r) { return [r[1]]; }));
+  PropertiesService.getScriptProperties().setProperty("PW_HASHED", "0");
+  Logger.log("Password परत आणले: " + restored + " (स्त्रोत: " + names[names.length - 1] + ").");
+  return {restored: restored, from: names[names.length - 1]};
 }
 function disableAuthEnforcement() {
   PropertiesService.getScriptProperties().setProperty("AUTH_ENFORCE", "0");
@@ -3021,8 +3168,11 @@ function doGetSecurityStatus(p, cb) {
       var rows = sh.getRange(2, 1, sh.getLastRow() - 1, 2).getValues();
       for (var i = 0; i < rows.length; i++) if ((rows[i][1] || "").toString() === "Pass@1234") seedPass = true;
     }
+    var pre = securityPreflight();
     return wrap(cb, {status:"ok", enforced: authEnforced_(), tokenActive: !!p._authed,
-      superConfigured: !!(props.getProperty("SUPER_USER") && props.getProperty("SUPER_PASS")), defaultPasswordsPresent: seedPass});
+      superConfigured: !!(props.getProperty("SUPER_USER") && props.getProperty("SUPER_PASS")), defaultPasswordsPresent: seedPass,
+      passwordsHashed: pre.passwordsHashed, plainPasswords: pre.plainPasswords, hashedPasswords: pre.hashedPasswords,
+      rolesNeverLoggedInWithToken: pre.rolesNeverLoggedInWithToken, readyForEnforcement: pre.readyForEnforcement});
   } catch (err) {
     return wrap(cb, {status:"error", message:err.toString()});
   }
@@ -3127,6 +3277,7 @@ function doGetAttendanceAnalytics(p, cb) {
     Object.keys(workByDiv).forEach(function(kk) { workingDays = Math.max(workingDays, Object.keys(workByDiv[kk]).length); });
     var resA = {status:"ok", month: month, iyatta: iyatta, tukdi: tukdi, minRun: minRun, workingDays: workingDays,
       avgPct: counted ? Math.round(totalPct * 10 / counted) / 10 : null, students: students, streaks: streaks};
+    if (archivedFlagMonth_(month)) resA.archived = true;   // V19.53
     cachePutBig_(ckey, resA, 600);
     return wrap(cb, resA);
   } catch (err) {
@@ -3403,7 +3554,8 @@ function elWeekSheetName_(date) { return "EL_" + elWeekStart_(date); }
 function getELWeekSheet_(date, create) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sh = ss.getSheetByName(elWeekSheetName_(date));
-  if (sh || !create) return sh;
+  if (sh) return sh;
+  if (!create) return archiveSheet_(elWeekSheetName_(date));   // V19.53 (फक्त वाचन — लेखनापूर्वी archivedWriteError_ तपासली जाते)
   sh = ss.insertSheet(elWeekSheetName_(date));
   trimNewSheet_(sh, EL_HEADERS.length);
   sh.appendRow(EL_HEADERS);
@@ -3508,7 +3660,9 @@ function doGetEarlyLeave(p, cb) {
     });
     var absent = [];
     if (iyatta) absent = Object.keys(elAbsentSet_(date, iyatta, tukdi));
-    return wrap(cb, {status:"ok", date: date, records: elSort_(out), absentRegNos: absent});
+    var resEl = {status:"ok", date: date, records: elSort_(out), absentRegNos: absent};
+    if (archivedFlagDate_(date)) resEl.archived = true;   // V19.53
+    return wrap(cb, resEl);
   } catch (err) {
     return wrap(cb, {status:"error", message:err.toString()});
   }
@@ -3520,6 +3674,7 @@ function doSaveEarlyLeave(d) {
   var date = (d.date || todayStr()).toString().trim();
   if (!elDateValid_(date)) return {status:"error", message:"तारीख YYYY-MM-DD स्वरूपात हवी."};
   if (date > todayStr()) return {status:"error", message:"भविष्यातील तारखेची नोंद करता येत नाही."};
+  var archErrEl = archivedWriteError_(date); if (archErrEl) return {status:"error", message: archErrEl};   // V19.53
   var iyatta = (d.iyatta || "").toString().trim();
   var tukdi = (d.tukdi || "").toString().trim();
   if (!iyatta || !tukdi) return {status:"error", message:"वर्ग व तुकडी निवडा."};
@@ -3611,6 +3766,7 @@ function doMarkEarlyLeaveOut(d) {
   var date = (role === "peon") ? todayStr() : (d.date || todayStr()).toString().trim();
   var key = (d.regNo || "").toString().trim().toLowerCase();
   if (!key) return {status:"error", message:"RegNo आवश्यक आहे."};
+  var archErrMk = archivedWriteError_(date); if (archErrMk) return {status:"error", message: archErrMk};   // V19.53
   elEnsureMigrated_();
   var lock = LockService.getScriptLock();
   var locked = false;
@@ -3949,7 +4105,8 @@ function getYearSheet_(base, year, headers, create, textCol) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var name = base + "_" + year;
   var sh = ss.getSheetByName(name);
-  if (sh || !create) return sh;
+  if (sh) return sh;
+  if (!create) return archiveSheet_(name);   // V19.53: Archive झालेल्या वर्षाची Sheet (फक्त वाचन)
   sh = ss.insertSheet(name);
   trimNewSheet_(sh, headers.length);
   sh.appendRow(headers);
@@ -4134,7 +4291,8 @@ function attMarksSheet_(date, create) {
   if (!m) return null;
   var ss = SpreadsheetApp.getActiveSpreadsheet(), name = "AttMarks_" + m[1] + "_" + m[2];
   var sh = ss.getSheetByName(name);
-  if (sh || !create) return sh;
+  if (sh) return sh;
+  if (!create) return archiveSheet_(name);   // V19.53
   sh = ss.insertSheet(name);
   trimNewSheet_(sh, ATT_MARKS_HEADERS.length);
   sh.appendRow(ATT_MARKS_HEADERS);
@@ -4149,7 +4307,7 @@ function attMarksRowsForDate_(date) {            // null = त्या मह�
   return sh.getRange(2, 1, sh.getLastRow() - 1, 8).getValues().filter(function(r) { return fmt(r[0]) === date; });
 }
 function attMarksMonthRows_(monthKey) {          // monthKey = "YYYY_MM"
-  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("AttMarks_" + monthKey);
+  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("AttMarks_" + monthKey) || archiveSheet_("AttMarks_" + monthKey);   // V19.53
   if (!sh) return null;
   return sh.getLastRow() < 2 ? [] : sh.getRange(2, 1, sh.getLastRow() - 1, 8).getValues();
 }
@@ -4171,7 +4329,7 @@ function attMarksUpsert_(date, iyatta, tukdi, absentCount, by) {
 // एका तारखेच्या सर्व गैरहजर नोंदी — महिन्याची मोठी Sheet पूर्ण न वाचता (TextFinder). जुनी "DailyAttendance" Sheet असल्यास ती पूर्ण वाचतो.
 function readAttendanceDateRows_(date) {
   var out = [];
-  attMonthSheets_(date, date).forEach(function(sh) {
+  attSheetsForRead_(date, date).forEach(function(sh) {
     if (sh.getName() === ATT_LEGACY_SHEET) {
       if (sh.getLastRow() > 1) sh.getRange(2, 1, sh.getLastRow() - 1, 9).getValues().forEach(function(r) { if (fmt(r[1]) === date) out.push(r); });
     } else {
@@ -4220,6 +4378,7 @@ function doGetAttendanceOverview(p, cb) {
     });
     out.sort(function(a, b) { return classSortKey_(a.iyatta) - classSortKey_(b.iyatta) || (a.tukdi < b.tukdi ? -1 : (a.tukdi > b.tukdi ? 1 : 0)); });
     var res = {status:"ok", month: month, rows: out, hasMarks: rows !== null && rows.length > 0};
+    if (archivedFlagMonth_(month)) res.archived = true;   // V19.53
     cachePutBig_(ckey, res, 300);
     return wrap(cb, res);
   } catch (err) {
@@ -4261,6 +4420,68 @@ function findYearSheet_(base, year) {
   if (sh) return sh;
   var ar = getArchiveSS_(year, false);
   return ar ? ar.getSheetByName(base + "_" + year) : null;
+}
+
+// =====================================================================
+// ===== V19.53 — Archive झालेल्या वर्षांची माहिती अॅपमध्ये फक्त पाहणे =====
+// • वाचन-मार्गात: चालू फाइलमध्ये Sheet नसेल आणि ती Archive झालेल्या वर्षाची असेल तर त्या वर्षाच्या SGS_Archive_<वर्ष> फाइलमधून वाचतो.
+// • लेखन-मार्गात: Archive झालेल्या वर्षात/तारखेत कोणतीही नोंद/बदल/मिटवणे नाकारले जाते (नाहीतर मुख्य फाइलमध्ये अर्धवट दुबार Sheet बनेल).
+// • प्रतिसादात फक्त Archive असल्यास "archived: true" (क्लायंट "📦 Archive — फक्त पाहणे" दाखवतो); इतर वेळी प्रतिसाद पूर्वीसारखाच.
+// =====================================================================
+var _archMemo = {};
+function isArchivedYear_(y) { return !!y && archivedYears_().indexOf(String(y)) !== -1; }
+function archiveSS_(year) {
+  if (_archMemo[year]) return _archMemo[year];
+  var ar = null;
+  try { ar = getArchiveSS_(year, false); } catch (e) { ar = null; }
+  if (ar) _archMemo[year] = ar;
+  return ar;
+}
+function archiveSheet_(name) {
+  var y = sheetYearOf_(name);
+  if (!y || !isArchivedYear_(y)) return null;
+  var ar = archiveSS_(y);
+  return ar ? ar.getSheetByName(name) : null;
+}
+function archivedFlagYear_(y) { return isArchivedYear_((y || "").toString().trim()); }
+function archivedFlagDate_(d) { d = (d || "").toString().trim(); return /^\d{4}-\d{2}-\d{2}$/.test(d) && isArchivedYear_(acYearOfDate_(d)); }
+function archivedFlagMonth_(m) { m = (m || "").toString().trim(); return /^\d{4}-(0[1-9]|1[0-2])$/.test(m) && isArchivedYear_(acYearOfDate_(m + "-15")); }
+function archivedMsg_(y) { return "📦 " + y + " ची माहिती Archive झाली आहे — ती फक्त पाहता येते, बदलता येत नाही."; }
+// लेखनापूर्वी: वर्ष (YYYY-YY) किंवा तारीख (YYYY-MM-DD) Archive झालेल्या वर्षाची असल्यास त्रुटी-संदेश, नाहीतर ""
+function archivedWriteError_(v) {
+  v = (v || "").toString().trim();
+  var y = "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(v)) y = acYearOfDate_(v);
+  else if (/^\d{4}-\d{2}$/.test(v)) y = v;
+  return (y && isArchivedYear_(y)) ? archivedMsg_(y) : "";
+}
+// दिलेल्या तारीख-मर्यादेच्या Archive झालेल्या वर्षांतील महिन्यांच्या हजेरी Sheets (फक्त वाचनासाठी; मर्यादा न दिल्यास कधीही नाही — पूर्ण स्कॅन टाळण्यासाठी)
+function attArchiveSheets_(fromDate, toDate, skipNames) {
+  var fromKey = ISO_DATE_RE.test(fromDate || "") ? fromDate.slice(0, 7).replace("-", "_") : "";
+  var toKey = ISO_DATE_RE.test(toDate || "") ? toDate.slice(0, 7).replace("-", "_") : "";
+  var out = [];
+  if (!fromKey && !toKey) return out;
+  archivedYears_().forEach(function(y) {
+    var ys = acYearStart_(y), yFrom = ys + "_06", yTo = (ys + 1) + "_05";
+    if (fromKey && yTo < fromKey) return;
+    if (toKey && yFrom > toKey) return;
+    var ar = archiveSS_(y);
+    if (!ar) return;
+    ar.getSheets().forEach(function(sh) {
+      var m = ATT_SHEET_RE.exec(sh.getName());
+      if (!m) return;
+      var k = m[1] + "_" + m[2];
+      if (k < yFrom || k > yTo || (fromKey && k < fromKey) || (toKey && k > toKey)) return;
+      if (skipNames && skipNames[sh.getName()]) return;
+      out.push(sh);
+    });
+  });
+  return out;
+}
+function attSheetsForRead_(fromDate, toDate) {
+  var main = attMonthSheets_(fromDate, toDate), names = {};
+  main.forEach(function(sh) { names[sh.getName()] = true; });
+  return main.concat(attArchiveSheets_(fromDate, toDate, names));
 }
 
 // एका शैक्षणिक वर्षाच्या (जून–मे) सर्व Sheets: वार्षिक + महिनावार हजेरी + AttMarks + आठवडानिहाय घरी-जाणारे
@@ -4401,6 +4622,7 @@ function doArchiveYear(d) {
     if (moved.length) {
       var yrs = archivedYears_();
       if (yrs.indexOf(year) === -1) { yrs.push(year); yrs.sort(); PropertiesService.getScriptProperties().setProperty("ARCHIVED_YEARS", yrs.join(",")); }
+      attBump_(); invalidateRosterCache_();   // V19.53: Archive नंतर जुने (cache केलेले) हजेरी-उत्तर वापरले जाऊ नये — "archived" पट्टी लगेच दिसावी
     }
     return {rowIndex: 0, mode: "updated", count: moved.length, ref: "archiveYear " + year,
       extra: {year: year, moved: moved, skipped: skipped, failed: failed, freedCells: freed, url: ar.getUrl()}};

@@ -194,6 +194,15 @@ function doGetCore_(e) {
   if (p.action === "getDiary") {
     return doGetDiary(p, cb);
   }
+  if (p.action === "getStudentYearHistory") {   // V19.56 — एका विद्यार्थ्याचा वर्षागणिक इतिहास (फक्त वाचन)
+    return doGetStudentYearHistory(p, cb);
+  }
+  if (p.action === "getArchiveYears") {     // V19.55 — Archive स्क्रीन (फक्त super/master, Token सह)
+    return doGetArchiveYears(p, cb);
+  }
+  if (p.action === "getArchiveReport") {    // V19.55
+    return doGetArchiveReport(p, cb);
+  }
   if (p.action === "getScholarship") {      // V19.47
     return doGetScholarship(p, cb);
   }
@@ -1222,13 +1231,45 @@ function doSaveTransport(d) {
   }
 }
 
+// ===== V19.54: फी / प्रवास (पैशाची व वैयक्तिक माहिती) वाचन-अधिकार =====
+// Token असल्यास: super/master = सर्व; teacher = फक्त स्वतःच्या वर्गाचे विद्यार्थी (वर्ग Token मधून); deo/cert/peon = नाही.
+// Token नसल्यास (जुना Login, AUTH_ENFORCE बंद असताना) = पूर्वीसारखेच चालते — ही मर्यादा सुरक्षा-टप्प्यात (Token सक्ती) संपते.
+function feeAccessErr_(p, regNo) {
+  if (!p._authed) return "";
+  var r = p.requesterRole;
+  if (r === "super" || r === "master") return "";
+  if (r === "teacher") {
+    var tc = scholarClassOf_(p._tClass);
+    if (!tc.iyatta) return "तुमच्या User ला वर्ग नेमलेला नाही — Master कडून Users मध्ये वर्ग भरून घ्या.";
+    if (!regNo) return "";   // वर्ग-यादी मोड: वर्ग applyAuth_ ने Token मधून आधीच सक्त केला आहे
+    var st = scholarFindStudent_(regNo);
+    if (!st) return "विद्यार्थी सापडला नाही.";
+    if (String(st.iyatta || "").trim() !== tc.iyatta || (tc.tukdi && String(st.tukdi || "").trim() !== tc.tukdi)) return "हा विद्यार्थी आपल्या वर्गाचा नाही.";
+    return "";
+  }
+  return "फी/प्रवास माहिती पाहण्याचा अधिकार Super / Master / वर्ग शिक्षकाला आहे.";
+}
+// Profile वर्ष-dropdown साठी: चालू + Archive + मुख्य फाइलमधील वर्षे (फक्त नावे — कोणतीही Sheet/Archive फाइल उघडत नाही)
+function feeYearList_() {
+  var cur = currentAcYear_(), seen = {}, list = [];
+  function add(y) { if (/^\d{4}-\d{2}$/.test(y) && !seen[y]) { seen[y] = 1; list.push(y); } }
+  add(cur);
+  ["Fees", "Transport"].forEach(function(b) { listYearSheets_(b).forEach(function(sh) { add(sh.getName().slice(b.length + 1)); }); });
+  archivedYears_().forEach(add);
+  list.sort().reverse();
+  return list.map(function(y) { return {year: y, archived: isArchivedYear_(y), current: y === cur}; });
+}
 function doGetTransport(p, cb) {
   try {
     transportEnsureMigrated_();
     var regNo = (p.regNo||"").toString().trim().toLowerCase();
     var iyatta = (p.iyatta||"").toString().trim();
     var tukdi = (p.tukdi||"").toString().trim();
-    var sh = transportSheetForRead_(p.year ? normAcYear_(p.year) : currentAcYear_());
+    var accErr = feeAccessErr_(p, regNo); if (accErr) return wrap(cb, {status:"error", code:"forbidden", message: accErr});   // V19.54
+    var tYear = p.year ? normAcYear_(p.year) : currentAcYear_();
+    var tArch = isArchivedYear_(tYear);
+    var sh = tArch ? getYearSheet_("Transport", tYear, null, false) : transportSheetForRead_(tYear);   // V19.54: Archive वर्षासाठी नेमकी त्याच वर्षाची Sheet (दुसऱ्या वर्षाची नव्हे)
+    if (tArch && !sh && !archiveSS_(tYear)) return wrap(cb, {status:"error", code:"archive_missing", message:"📦 " + tYear + " ची Archive फाइल उघडता आली नाही — रिकामे दाखवत नाही. Archive फाइल/परवानगी तपासा."});
     var out = [];
     if (sh && sh.getLastRow() > 1) {
       var classSet = null;
@@ -1245,9 +1286,287 @@ function doGetTransport(p, cb) {
         out.push({regNo:r[1], studentId:r[2], fullName:r[3], iyatta: cur ? cur.iyatta : r[4], tukdi: cur ? cur.tukdi : r[5], nativeVillage:r[6], travelMode:r[7], transportContact:r[8], updatedBy:r[9]});
       }
     }
-    return wrap(cb, {status:"ok", data: out});
+    var tRes = {status:"ok", data: out};
+    if (tArch) tRes.archived = true;                                           // V19.54: फक्त Archive असल्यास
+    if (sh) { try { var sy = sheetYearOf_(sh.getName()); if (sy && sy !== tYear) tRes.sourceYear = sy; } catch (eSy) {} }   // मागील वर्षाची नोंद दाखवली असल्यास
+    return wrap(cb, tRes);
   } catch(err) {
     return wrap(cb, {status:"error", message:err.toString()});
+  }
+}
+
+
+// =====================================================================
+// ===== V19.55 — "📦 Archive" स्क्रीन: जुन्या वर्षांचे अहवाल (फक्त वाचन; कोणतीही Sheet तयार/बदल/मिटवली जात नाही) =====
+// • अधिकार: फक्त super/master, Token सह (p._authed) — शिक्षक/deo/cert/peon नाही.
+// • फी: त्या वर्षाची "Fees_<वर्ष>" जमा-नोंदवही एकदा वाचून; वर्ग = त्या नोंदीत साठवलेला (आजचा नाही); एकूण फी = त्या वर्षाच्या नोंदीतील TotalFee.
+// • हजेरी / शिष्यवृत्ती: विद्यमान getAttendanceOverview / getScholarship (Archive वर आधीच चालतात) — क्लायंट वापरतो.
+// =====================================================================
+function archAuth_(p) {
+  if (!p._authed) return "📦 Archive स्क्रीनसाठी Token सह Login आवश्यक आहे — कृपया पुन्हा Login करा.";
+  if (p.requesterRole !== "super" && p.requesterRole !== "master") return "📦 Archive स्क्रीनचा अधिकार फक्त Super / Master ला आहे.";
+  return "";
+}
+// फक्त वाचन: कधीही Sheet तयार करत नाही. परत: {sh, from, err}
+function archReadSheet_(base, year) {
+  var name = base + "_" + year;
+  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(name);
+  if (sh) return {sh: sh, from: "main"};
+  if (isArchivedYear_(year)) {
+    var ar = archiveSS_(year);
+    if (!ar) return {sh: null, err: "📦 " + year + " ची Archive फाइल उघडता आली नाही — रिकामे दाखवत नाही. Archive फाइल/परवानगी तपासा."};
+    return {sh: ar.getSheetByName(name), from: "archive"};
+  }
+  return {sh: null, from: "none"};
+}
+function doGetArchiveYears(p, cb) {
+  try {
+    var e = archAuth_(p); if (e) return wrap(cb, {status: "error", code: "forbidden", message: e});
+    var cur = currentAcYear_(), seen = {}, list = [], props = PropertiesService.getScriptProperties();
+    function add(y) { if (/^\d{4}-\d{2}$/.test(y) && !seen[y]) { seen[y] = 1; list.push(y); } }
+    add(cur);
+    ["Fees", "Transport", "Scholarship"].forEach(function(b) { listYearSheets_(b).forEach(function(sh) { add(sh.getName().slice(b.length + 1)); }); });
+    archivedYears_().forEach(add);
+    list.sort().reverse();
+    // Archive फाइल उघडत नाही (प्रत्येकी ~१ से.) — फक्त फाइलची नोंद (Script Property) आहे का ते पाहतो
+    var years = list.map(function(y) { return {year: y, current: y === cur, archived: isArchivedYear_(y), hasFile: !!props.getProperty("ARCHIVE_ID_" + y)}; });
+    return wrap(cb, {status: "ok", years: years, current: cur});
+  } catch (err) {
+    return wrap(cb, {status: "error", message: err.toString()});
+  }
+}
+function arClassCmp_(a, b) { return classSortKey_(a) - classSortKey_(b) || (String(a) < String(b) ? -1 : (String(a) > String(b) ? 1 : 0)); }
+function doGetArchiveReport(p, cb) {
+  try {
+    var e = archAuth_(p); if (e) return wrap(cb, {status: "error", code: "forbidden", message: e});
+    var year = (p.year || "").toString().trim();
+    if (!/^\d{4}-\d{2}$/.test(year)) return wrap(cb, {status: "error", message: "वर्ष YYYY-YY स्वरूपात हवे."});
+    var section = (p.section || "").toString().trim();
+    var archived = isArchivedYear_(year);
+    if (section === "fees") {
+      feesEnsureMigrated_();
+      var rd = archReadSheet_("Fees", year);
+      if (rd.err) return wrap(cb, {status: "error", code: "archive_missing", message: rd.err});
+      var ev = rd.sh, assumedTotal = getTotalFeePerStudent();
+      var vals = (ev && ev.getLastRow() > 1) ? ev.getRange(2, 1, ev.getLastRow() - 1, 11).getValues() : [];
+      var map = {}, order = [];
+      vals.forEach(function(r) {
+        var key = (r[1] || "").toString().trim().toLowerCase(); if (!key) return;
+        var x = map[key];
+        if (!x) { x = map[key] = {reg: r[1], name: r[3], cls: r[4], div: r[5], paid: 0, total: null, opening: 0, n: 0}; order.push(key); }
+        if ((r[10] || "").toString() === "OPENING") { x.opening += parseFloat(r[9]) || 0; if (!x.n) { x.cls = r[4]; x.div = r[5]; x.name = r[3] || x.name; } return; }
+        x.n++; x.paid = parseFloat(r[8]) || 0;
+        var t = parseFloat(r[7]); if (t > 0) x.total = t;
+        x.cls = r[4]; x.div = r[5]; x.name = r[3] || x.name;
+      });
+      var rows = [], byClass = {}, tot = {students: 0, payers: 0, paid: 0, opening: 0, balance: 0, assumed: 0};
+      order.forEach(function(k) {
+        var x = map[k], assumed = x.total === null, total = assumed ? assumedTotal : x.total;
+        var bal = Math.max(0, x.opening + total - x.paid);
+        rows.push([x.reg, x.name, x.cls, x.div, total, x.opening, x.paid, bal, x.n, assumed ? 1 : 0]);
+        var c = byClass[x.cls] || (byClass[x.cls] = {cls: x.cls, students: 0, payers: 0, paid: 0, opening: 0, balance: 0});
+        [c, tot].forEach(function(a) { a.students++; if (x.paid > 0) a.payers++; a.paid += x.paid; a.opening += x.opening; a.balance += bal; });
+        if (assumed) tot.assumed++;
+      });
+      rows.sort(function(a, b) { return arClassCmp_(a[2], b[2]) || (String(a[3]) < String(b[3]) ? -1 : (String(a[3]) > String(b[3]) ? 1 : 0)) || (String(a[1]) < String(b[1]) ? -1 : 1); });
+      var classes = Object.keys(byClass).map(function(k) { return byClass[k]; }).sort(function(a, b) { return arClassCmp_(a.cls, b.cls); });
+      var res = {status: "ok", section: "fees", year: year, classes: classes, total: tot, rows: rows, hasSheet: !!ev};
+      if (archived) res.archived = true;
+      return wrap(cb, res);
+    }
+    if (section === "transport") {
+      transportEnsureMigrated_();
+      var rt = archReadSheet_("Transport", year);
+      if (rt.err) return wrap(cb, {status: "error", code: "archive_missing", message: rt.err});
+      var ts = rt.sh, tv = (ts && ts.getLastRow() > 1) ? ts.getRange(2, 1, ts.getLastRow() - 1, 10).getValues() : [];
+      var trows = tv.filter(function(r) { return (r[1] || "").toString().trim(); }).map(function(r) { return [r[1], r[3], r[4], r[5], r[6], r[7], r[8]]; });
+      trows.sort(function(a, b) { return arClassCmp_(a[2], b[2]) || (String(a[3]) < String(b[3]) ? -1 : (String(a[3]) > String(b[3]) ? 1 : 0)) || (String(a[1]) < String(b[1]) ? -1 : 1); });
+      var tres = {status: "ok", section: "transport", year: year, rows: trows, hasSheet: !!ts};
+      if (archived) tres.archived = true;
+      return wrap(cb, tres);
+    }
+    return wrap(cb, {status: "error", message: "अज्ञात विभाग (fees / transport). हजेरी व शिष्यवृत्तीसाठी विद्यमान action वापरा."});
+  } catch (err) {
+    return wrap(cb, {status: "error", message: err.toString()});
+  }
+}
+
+// =====================================================================
+// ===== V19.56 — एका विद्यार्थ्याचा सर्व वर्षांचा इतिहास (फक्त वाचन) =====
+// • meta=1 → विद्यार्थी-ओळख + वर्ष-यादी (कोणतीही Archive फाइल उघडत नाही). नंतर क्लायंट वर्षागणिक विनंत्या करतो:
+//   part=core (वर्ग, हजेरी, फी, शिष्यवृत्ती, Diary, प्रवास) आणि part=el (घरी गेलेले — आठवडानिहाय EL_ Sheets).
+// • सर्व शोध findRowsByValue_ (TextFinder) ने — पूर्ण Sheet वाचत नाही (AttMarks फक्त त्या महिन्याची छोटी Sheet).
+// • अधिकार: Token सह; super/master सर्व; teacher फक्त आज वर्ग-यादीत असलेल्या स्वतःच्या वर्गाचे; इतर नाही. पूर्वी-उत्तीर्ण (PassedOut_) विद्यार्थी = फक्त super/master.
+// =====================================================================
+function hsAuth_(p, regNo) {
+  if (!p._authed) return "📚 इतिहासासाठी Token सह Login आवश्यक आहे — कृपया पुन्हा Login करा.";
+  var r = p.requesterRole;
+  if (r === "super" || r === "master") return "";
+  if (r === "teacher") {
+    var tc = scholarClassOf_(p._tClass);
+    if (!tc.iyatta) return "तुमच्या User ला वर्ग नेमलेला नाही — Master कडून Users मध्ये वर्ग भरून घ्या.";
+    var st = scholarFindStudent_(regNo);
+    if (!st || String(st.iyatta || "").trim() !== tc.iyatta || (tc.tukdi && String(st.tukdi || "").trim() !== tc.tukdi)) return "हा विद्यार्थी आपल्या वर्गाचा नाही.";
+    return "";
+  }
+  return "सर्व वर्षांचा इतिहास पाहण्याचा अधिकार Super / Master / वर्ग शिक्षकाला आहे.";
+}
+function hsP2_(n) { return ("0" + n).slice(-2); }
+function hsPassedOut_(regNo) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet(), found = null;
+  ss.getSheets().forEach(function(sh) {
+    if (found || sh.getName().indexOf(ARCHIVE_PREFIX) !== 0) return;
+    var rows = findRowsByValue_(sh, 3, regNo);
+    if (!rows.length) return;
+    var r = readRowsAt_(sh, [rows[rows.length - 1]], 11)[0];
+    found = {fullName: r[10], iyatta: (r[6] || "").toString(), tukdi: (r[7] || "").toString(), acYear: normAcYear_(r[1]), sheet: sh.getName()};
+  });
+  return found;
+}
+function hsYearList_() {
+  var seen = {}, list = [];
+  function add(y) { if (/^\d{4}-\d{2}$/.test(y) && !seen[y]) { seen[y] = 1; list.push(y); } }
+  feeYearList_().forEach(function(o) { add(o.year); });
+  ["Diary", "Scholarship"].forEach(function(b) { listYearSheets_(b).forEach(function(sh) { add(sh.getName().slice(b.length + 1)); }); });
+  SpreadsheetApp.getActiveSpreadsheet().getSheets().forEach(function(sh) { var y = sheetYearOf_(sh.getName()); if (y) add(y); });
+  list.sort().reverse();
+  return list;
+}
+function hsClassOfYear_(regNo, year, passed) {
+  var st = scholarFindStudent_(regNo);
+  if (st && st.acYear && normAcYear_(st.acYear) === year) return {iyatta: String(st.iyatta || ""), tukdi: String(st.tukdi || ""), roll: st.rollNo || "", source: "Students"};
+  var pl = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("PromotionLog");
+  if (pl && pl.getLastRow() > 1) {
+    var hit = null;
+    readRowsAt_(pl, findRowsByValue_(pl, 3, regNo), 11).forEach(function(r) {
+      if ((r[10] || "").toString() === "Y") return;
+      if (normAcYear_(r[6]) === year) hit = r;
+    });
+    if (hit) return {iyatta: String(hit[4] || ""), tukdi: String(hit[5] || ""), roll: "", source: "PromotionLog"};
+  }
+  if (passed && passed.acYear === year) return {iyatta: passed.iyatta, tukdi: passed.tukdi, roll: "", source: "PassedOut"};
+  return {iyatta: "", tukdi: "", roll: "", source: ""};
+}
+function hsRows_(base, year, col, regNo, ncols) {
+  var sh = getYearSheet_(base, year, null, false);   // चालू फाइल, नसेल तर Archive (फक्त वाचन; Sheet तयार करत नाही)
+  if (!sh) return {has: false, rows: []};
+  return {has: true, rows: readRowsAt_(sh, findRowsByValue_(sh, col, regNo), ncols)};
+}
+function hsYearCore_(regNo, year, passed) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  feesEnsureMigrated_(); transportEnsureMigrated_(); diaryEnsureMigrated_();   // विद्यमान action प्रमाणेच (flag-नियंत्रित, एकदाच)
+  var out = {year: year, archived: isArchivedYear_(year)};
+  var cls = hsClassOfYear_(regNo, year, passed);
+
+  // फी
+  var f = hsRows_("Fees", year, 2, regNo, 11), inst = [], prev = 0, opening = 0, total = null, paid = 0;
+  f.rows.forEach(function(r) {
+    if ((r[10] || "").toString() === "OPENING") { opening += parseFloat(r[9]) || 0; if (!cls.iyatta) cls = {iyatta: String(r[4] || ""), tukdi: String(r[5] || ""), roll: "", source: "फी-नोंद"}; return; }
+    var cum = parseFloat(r[8]) || 0;
+    inst.push({date: fmt(r[0]) || r[0], amount: cum - prev, by: r[10]});
+    prev = cum; paid = cum;
+    var t = parseFloat(r[7]); if (t > 0) total = t;
+    if (!cls.iyatta) cls = {iyatta: String(r[4] || ""), tukdi: String(r[5] || ""), roll: "", source: "फी-नोंद"};
+  });
+  var assumed = (f.rows.length > 0 && total === null) || (f.rows.length > 0 && !inst.length);
+  var curTotal = getTotalFeePerStudent();
+  var useTotal = total === null ? curTotal : total;
+  out.fees = {has: f.rows.length > 0, total: useTotal, totalAssumed: f.rows.length > 0 && total === null, opening: opening, paid: paid,
+    balance: Math.max(0, opening + useTotal - paid), installments: inst};
+
+  // शिष्यवृत्ती
+  var sc = hsRows_("Scholarship", year, 4, regNo, SCHOLAR_HEADERS.length);
+  out.scholarship = sc.rows.map(function(r) { return scholarRowToObj_(r, null); });
+  if (!cls.iyatta && out.scholarship.length) cls = {iyatta: String(out.scholarship[0].iyatta || ""), tukdi: String(out.scholarship[0].tukdi || ""), roll: "", source: "शिष्यवृत्ती-नोंद"};
+
+  // Diary
+  var dy = hsRows_("Diary", year, 3, regNo, 10);
+  out.diary = dy.rows.map(function(r) { return {date: fmt(r[1]), type: (r[7] || "").toString(), remark: r[8], by: r[9]}; });
+  if (!cls.iyatta && dy.rows.length) cls = {iyatta: String(dy.rows[0][5] || ""), tukdi: String(dy.rows[0][6] || ""), roll: "", source: "Diary-नोंद"};
+
+  // प्रवास
+  var tr = hsRows_("Transport", year, 2, regNo, 10);
+  var tl = tr.rows.length ? tr.rows[tr.rows.length - 1] : null;
+  out.transport = tl ? {nativeVillage: tl[6], travelMode: tl[7], transportContact: tl[8]} : null;
+  if (!cls.iyatta && tl) cls = {iyatta: String(tl[4] || ""), tukdi: String(tl[5] || ""), roll: "", source: "प्रवास-नोंद"};
+
+  // हजेरी — गैरहजर नोंदी (Attendance_YYYY_MM) + त्या वर्गाची हजेरी भरलेले दिवस (AttMarks_YYYY_MM)
+  var ys = acYearStart_(year), months = [], totAbs = 0, totMarked = 0, anyMarked = false, absDates = [];
+  for (var i = 0; i < 12; i++) {
+    var m = 6 + i, yy = ys; if (m > 12) { m -= 12; yy = ys + 1; }
+    var key = yy + "_" + hsP2_(m), nm = "Attendance_" + key;
+    var ash = ss.getSheetByName(nm) || archiveSheet_(nm);
+    var arows = ash ? readRowsAt_(ash, findRowsByValue_(ash, 5, regNo), 9) : [];
+    var seenD = {}, list = [];
+    arows.forEach(function(r) { var d = fmt(r[1]); if (seenD[d]) return; seenD[d] = 1; list.push({date: d, reason: (r[7] || "").toString()}); });
+    var marked = null, mk = attMarksMonthRows_(key);
+    if (mk && cls.iyatta) {
+      var ds = {};
+      mk.forEach(function(r) {
+        if ((r[1] || "").toString().trim() !== cls.iyatta) return;
+        if (cls.tukdi && (r[2] || "").toString().trim() !== cls.tukdi) return;
+        ds[fmt(r[0])] = true;
+      });
+      marked = Object.keys(ds).length; anyMarked = true; totMarked += marked;
+    }
+    totAbs += list.length;
+    list.forEach(function(x) { absDates.push(x); });
+    if (list.length || marked) months.push({month: yy + "-" + hsP2_(m), absent: list.length, markedDays: marked});
+  }
+  out.attendance = {absentDays: totAbs, markedDays: anyMarked ? totMarked : null,
+    pct: (anyMarked && totMarked > 0) ? Math.round(Math.max(0, totMarked - totAbs) * 1000 / totMarked) / 10 : null,
+    months: months, absentDates: absDates};
+  out.cls = cls;
+  return out;
+}
+function hsYearEL_(regNo, year) {
+  elEnsureMigrated_();
+  var y = acYearStart_(year), lo = y + "-06-01", hi = (y + 1) + "-05-31", sheets = [];
+  function collect(book) {
+    book.getSheets().forEach(function(sh) {
+      var m = /^EL_(\d{4}-\d{2}-\d{2})$/.exec(sh.getName());
+      if (m && m[1] >= lo && m[1] <= hi) sheets.push(sh);
+    });
+  }
+  collect(SpreadsheetApp.getActiveSpreadsheet());
+  if (isArchivedYear_(year)) { var ar = archiveSS_(year); if (ar) collect(ar); }
+  var recs = [];
+  sheets.forEach(function(sh) {
+    readRowsAt_(sh, findRowsByValue_(sh, 5, regNo), 14).forEach(function(r) {
+      recs.push({date: fmt(r[1]), type: (r[7] || "").toString(), period: parseInt(r[8], 10) || 0, status: (r[11] || "").toString(), recordedBy: r[9], markedBy: r[12] || ""});
+    });
+  });
+  recs.sort(function(a, b) { return a.date < b.date ? -1 : (a.date > b.date ? 1 : a.period - b.period); });
+  var gone = recs.filter(function(x) { return x.status === "gone"; }).length;
+  return {year: year, archived: isArchivedYear_(year), sheetsScanned: sheets.length, records: recs, gone: gone};
+}
+function doGetStudentYearHistory(p, cb) {
+  try {
+    var regNo = (p.regNo || "").toString().trim();
+    if (!regNo) return wrap(cb, {status: "error", message: "Reg No आवश्यक आहे."});
+    var e = hsAuth_(p, regNo); if (e) return wrap(cb, {status: "error", code: "forbidden", message: e});
+    if (p.meta === "1") {
+      var st = scholarFindStudent_(regNo), student;
+      if (st) student = {status: "active", regNo: st.regNo, fullName: st.fullName, iyatta: st.iyatta, tukdi: st.tukdi, acYear: st.acYear, rollNo: st.rollNo || ""};
+      else {
+        var po = hsPassedOut_(regNo);
+        student = po ? {status: "passedout", regNo: regNo, fullName: po.fullName, iyatta: po.iyatta, tukdi: po.tukdi, acYear: po.acYear} : {status: "unknown", regNo: regNo};
+      }
+      return wrap(cb, {status: "ok", student: student, years: hsYearList_(), current: currentAcYear_()});
+    }
+    var year = (p.year || "").toString().trim();
+    if (!/^\d{4}-\d{2}$/.test(year)) return wrap(cb, {status: "error", message: "वर्ष YYYY-YY स्वरूपात हवे."});
+    if (isArchivedYear_(year) && !archiveSS_(year)) return wrap(cb, {status: "error", code: "archive_missing", message: "📦 " + year + " ची Archive फाइल उघडता आली नाही — रिकामे दाखवत नाही. Archive फाइल/परवानगी तपासा."});
+    var res;
+    if ((p.part || "core") === "el") res = hsYearEL_(regNo, year);
+    else {
+      var passed = scholarFindStudent_(regNo) ? null : hsPassedOut_(regNo);
+      res = hsYearCore_(regNo, year, passed);
+    }
+    res.status = "ok"; res.part = (p.part === "el") ? "el" : "core";
+    return wrap(cb, res);
+  } catch (err) {
+    return wrap(cb, {status: "error", message: err.toString()});
   }
 }
 
@@ -1305,11 +1624,15 @@ function doGetFees(p, cb) {
     var regNo = (p.regNo||"").toString().trim().toLowerCase();
     var iyatta = (p.iyatta||"").toString().trim();
     var tukdi = (p.tukdi||"").toString().trim();
+    var accErr = feeAccessErr_(p, regNo); if (accErr) return wrap(cb, {status:"error", code:"forbidden", message: accErr});   // V19.54
+    if (p.yearsOnly === "1") return wrap(cb, {status:"ok", data: [], years: feeYearList_(), currentYear: currentAcYear_()});   // V19.54: Profile चे वर्ष-dropdown
     var year = normAcYear_(p.acYear);
     var out = [];
     if (regNo) {
       // एका विद्यार्थ्याचा जमा-इतिहास (प्रत्येक installment) — फक्त त्याच्या ओळी वाचल्या जातात
       var ev = findYearSheet_("Fees", year);          // चालू फाइल, नसेल तर त्या वर्षाची Archive फाइल
+      var fArch = isArchivedYear_(year);
+      if (fArch && !ev && !archiveSS_(year)) return wrap(cb, {status:"error", code:"archive_missing", message:"📦 " + year + " ची Archive फाइल उघडता आली नाही — रिकामे दाखवत नाही. Archive फाइल/परवानगी तपासा."});   // V19.54
       var openingH = 0;
       if (ev) {
         readRowsAt_(ev, findRowsByValue_(ev, 2, regNo), 11).forEach(function(r) {
@@ -1318,8 +1641,17 @@ function doGetFees(p, cb) {
             acYear:r[6], totalFee:r[7], feePaid:r[8], pendingFee:r[9], updatedBy:r[10]});
         });
       }
+      // V19.54: त्या वर्षाची एकूण फी = त्या वर्षातील सर्वात अलीकडच्या जमा-नोंदीतील TotalFee (सध्याचे Setting नव्हे). नोंदच नसेल तर सध्याचे Setting — तसे स्पष्ट सांगतो.
+      var haveRow = out.length > 0;
+      var yearTotal = haveRow ? (parseFloat(out[out.length - 1].totalFee) || total) : total;
+      var paidNow = haveRow ? (parseFloat(out[out.length - 1].feePaid) || 0) : 0;
+      var fRes = {status:"ok", data: [], totalFeePerStudent: total, openingDue: openingH,
+        acYear: year, yearTotalFee: yearTotal, totalFeeAssumed: !haveRow && year !== currentAcYear_(),
+        balance: Math.max(0, openingH + yearTotal - paidNow)};
       out.reverse();   // नवीन-ते-जुने
-      return wrap(cb, {status:"ok", data: out, totalFeePerStudent: total, openingDue: openingH});
+      fRes.data = out;
+      if (fArch) fRes.archived = true;
+      return wrap(cb, fRes);
     } else {
       // वर्ग / संपूर्ण शाळा: प्रत्येक विद्यार्थ्याची सर्वात अलीकडची (cumulative) नोंद — सारांश Sheet मधून
       var classSet = null;
@@ -2933,7 +3265,7 @@ var VALID_ROLES = ["super","master","deo","cert","teacher","peon"];
 // Users sheet मध्ये "Peon" / " Teacher " असे मोठ्या अक्षरात किंवा space सह लिहिले तरी लहान अक्षरात बदलून तपासतो.
 function normRole_(r) { return (r || "").toString().trim().toLowerCase(); }
 var AUTH_PUBLIC_ACTIONS = {ping:1, login:1, verify:1};
-var TEACHER_CLASS_ACTIONS = {getClassStudents:1, getTeacherDashboard:1, saveAttendance:1, getAttendance:1, getAttendanceAnalytics:1, getEarlyLeave:1, saveEarlyLeave:1, getScholarship:1, saveScholarship:1};
+var TEACHER_CLASS_ACTIONS = {getClassStudents:1, getTeacherDashboard:1, saveAttendance:1, getAttendance:1, getAttendanceAnalytics:1, getEarlyLeave:1, saveEarlyLeave:1, getScholarship:1, saveScholarship:1, getFees:1, getTransport:1};   // V19.54: getFees/getTransport जोडले — शिक्षक वर्ग-यादी मोडमध्ये दुसऱ्या वर्गाची/संपूर्ण शाळेची फी मागवू शकत नाही
 // Peon (शिपाई) फक्त हेच करू शकतो: विद्यार्थी शोध/प्रोफाइल (getAll), घरी जाणाऱ्यांची यादी, मार्क-आउट, स्वतःचा Password बदल
 var PEON_ACTIONS = {getAll:1, getEarlyLeavePeon:1, markEarlyLeaveOut:1, changePassword:1, getPhotoData:1, getClassTeachers:1};
 var _authSecretMem = null;

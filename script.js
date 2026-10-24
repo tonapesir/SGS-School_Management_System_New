@@ -32,7 +32,7 @@ window.androidBackPressed = function() {
 
 
 // URL persistence
-var DEFAULT_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbzluvax6iYbEqXX39F43gKnLgHK3ihYgVfsrmlKI0f1ZCTzFEEtnCECzFu9KTa1VVSQ/exec';
+var DEFAULT_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbz6CL7xPok_BGxzLOvynEep3ObXe7yRPku25gmxdXfr22hiu336B3Yx0vo60O9Te5qm/exec';
 
 // =====================================================
 // 🔐 LOGIN + ROLE PERMISSIONS
@@ -63,10 +63,10 @@ function handleAuthExpired() {
   setTimeout(function() { _authExpiredHandled = false; }, 2000);
 }
 var USER_ALLOWED_PAGES = {
-  master: ['dashboard','student','lc','bonafide','attendance','search','history','users','profile','stats','maintenance','classinfo','report','attanalytics','earlyleave','scholarship','teacherlist'],
+  master: ['dashboard','student','lc','bonafide','attendance','search','history','users','profile','stats','maintenance','classinfo','report','attanalytics','earlyleave','scholarship','teacherlist','archive'],
   deo:    ['student','search','history','users','profile','teacherlist'],
   cert:   ['bonafide','attendance','search','history','users','profile'],
-  super:  ['dashboard','student','lc','bonafide','attendance','search','history','users','profile','stats','maintenance','classinfo','report','superadmin','attanalytics','earlyleave','scholarship','teacherlist'],
+  super:  ['dashboard','student','lc','bonafide','attendance','search','history','users','profile','stats','maintenance','classinfo','report','superadmin','attanalytics','earlyleave','scholarship','teacherlist','archive'],
   teacher:['teacher','profile','report','earlyleave','scholarship'],
   peon:   ['search','profile','earlyleave','teacherlist']   // शिपाई: विद्यार्थी शोध, प्रोफाइल, घरी जाणाऱ्यांची मार्क-आउट यादी
 };
@@ -332,6 +332,7 @@ function applyFormPermissions() {
     if (el.id.indexOf('tch_') === 0) { el.disabled=false; el.classList.remove('locked-input'); return; }
     if (el.id.indexOf('el_') === 0) { el.disabled=false; el.classList.remove('locked-input'); return; }
     if (el.id.indexOf('sch_') === 0) { el.disabled=false; el.classList.remove('locked-input'); return; }
+    if (el.id.indexOf('ar_') === 0) { el.disabled=false; el.classList.remove('locked-input'); return; }
     if (el.id.indexOf('tl_') === 0) { el.disabled=false; el.classList.remove('locked-input'); return; }
     if (el.id.indexOf('rp_') === 0) { el.disabled=false; el.classList.remove('locked-input'); return; }
     if (el.id.indexOf('um_') === 0) {
@@ -733,7 +734,7 @@ var clientPerf = [];
 // नियम: पैसा/थकबाकी/फी जमा स्क्रीनवर कधीही जुना डेटा नाही • २४ तासांहून जुना cache वापरत नाही • अॅप-आवृत्ती बदलल्यास रद्द •
 //       प्रत्येकी ~300 KB / एकूण ~1 MB मर्यादा • Logout वर पूर्ण पुसले जाते • Token कधीही साठवत नाही (फक्त उत्तर).
 // =====================================================================
-var APP_VERSION = 'V19.53';
+var APP_VERSION = 'V19.56';
 var SWR_PREFIX = 'sgs_swr:';
 var SWR_MAX_AGE_MS = 24 * 3600 * 1000, SWR_MAX_ENTRY = 300 * 1024, SWR_MAX_TOTAL = 1024 * 1024;
 var SWR_NEVER = /fee|thakbaki|arrear|payment|receipt/i;   // action किंवा key मध्ये आढळल्यास कधीही stale नाही, साठवतही नाही
@@ -3515,6 +3516,8 @@ function buildProfileFields(d) {
 
 function renderStudentProfile(d) {
   window._lastProfileData = d;
+  try { pmReset(d); } catch (ePm) {}
+  try { hsReset(d); } catch (eHs) {}   // V19.56   // V19.54: फी/प्रवास विभाग रीसेट (नवीन विद्यार्थ्याचा जुना डेटा दिसू नये)
   var empty = document.getElementById('profile_empty');
   var content = document.getElementById('profile_content');
   if (empty) empty.style.display = 'none';
@@ -3784,6 +3787,9 @@ showPage = function(name, btn) {
   }
   if (name === 'teacherlist') {
     tlInit();
+  }
+  if (name === 'archive') {
+    arInit();
   }
   if (name === 'stats') {
     mstLoadStatsReport();
@@ -6615,4 +6621,367 @@ function saYearArchive() {
       saLoadYear(); setTimeout(saLoadSizes, 800);
     } else st.textContent = '❌ ' + friendlyMsg((r && r.message) || 'Failed');
   });
+}
+
+
+// =====================================================================
+// ===== V19.54 — Student Profile मध्ये फी / प्रवास (वर्ष-निवडीसह, फक्त पाहणे) =====
+// • Profile उघडताच कोणतीही विनंती नाही; "फी / प्रवास पहा" → फक्त वर्ष-यादी (कोणतीही Sheet वाचत नाही); "फी दाखवा"/"प्रवास दाखवा" → एक-एक विनंती.
+// • पैशाची माहिती — Cache/stale नाही (jsonpRequest थेट). अधिकार server वर (Token): super/master सर्व; teacher फक्त स्वतःचा वर्ग.
+// =====================================================================
+var _pm = {reg: '', seq: 0};
+function pmEsc(s) { return String(s === null || s === undefined ? '' : s).replace(/[&<>"']/g, function(ch) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]; }); }
+function pmRoleOk() { return !!currentUser && (currentUser.role === 'super' || currentUser.role === 'master' || currentUser.role === 'teacher'); }
+function pmReset(d) {
+  _pm.reg = (d && d.regNo) ? String(d.regNo) : '';
+  _pm.seq++;
+  var card = document.getElementById('pmCard'); if (!card) return;
+  card.style.display = (pmRoleOk() && _pm.reg) ? '' : 'none';
+  var panel = document.getElementById('pmPanel'), btn = document.getElementById('pmOpenBtn');
+  if (panel) panel.style.display = 'none';
+  if (btn) { btn.style.display = ''; btn.disabled = false; }
+  ['pm_fees', 'pm_transport', 'pm_status'].forEach(function(id) { var e = document.getElementById(id); if (e) e.innerHTML = ''; });
+  archBanner('pm_anchor', false);
+}
+function pmYear() { var s = document.getElementById('pm_year'); return s ? s.value : ''; }
+function pmSetStatus(t) { var e = document.getElementById('pm_status'); if (e) e.textContent = t || ''; }
+function pmOpen() {
+  if (!_pm.reg) return;
+  var reg = _pm.reg, seq = ++_pm.seq, btn = document.getElementById('pmOpenBtn');
+  if (btn) btn.disabled = true;
+  pmSetStatus('⏳ वर्षे Load होत आहेत...');
+  document.getElementById('pmPanel').style.display = '';
+  jsonpRequest({action: 'getFees', yearsOnly: '1', regNo: reg}, function(r) {
+    if (seq !== _pm.seq || reg !== _pm.reg) return;   // दरम्यान दुसरा विद्यार्थी उघडला
+    if (btn) btn.disabled = false;
+    if (!r || r.status !== 'ok' || !r.years) {
+      pmSetStatus(errTxt(r));
+      document.getElementById('pmPanel').style.display = r && r.code === 'forbidden' ? 'none' : '';
+      return;
+    }
+    if (btn) btn.style.display = 'none';
+    var sel = document.getElementById('pm_year');
+    sel.innerHTML = r.years.map(function(y) { return '<option value="' + pmEsc(y.year) + '"' + (y.current ? ' selected' : '') + '>' + pmEsc(y.year) + (y.archived ? ' 📦' : '') + (y.current ? ' (चालू)' : '') + '</option>'; }).join('');
+    pmSetStatus('वर्ष निवडून "फी दाखवा" / "प्रवास दाखवा" दाबा.');
+  });
+}
+function pmYearChanged() {   // वर्ष बदलल्यावर जुना (दुसऱ्या वर्षाचा) डेटा दिसू नये
+  _pm.seq++;
+  ['pm_fees', 'pm_transport'].forEach(function(id) { var e = document.getElementById(id); if (e) e.innerHTML = ''; });
+  archBanner('pm_anchor', false);
+  pmSetStatus('');
+}
+function pmMoney(n) { return '₹' + (Math.round((parseFloat(n) || 0) * 100) / 100); }
+function pmLoadFees() {
+  var reg = _pm.reg, yr = pmYear(); if (!reg || !yr) return;
+  var seq = ++_pm.seq, box = document.getElementById('pm_fees');
+  document.getElementById('pm_transport').innerHTML = '';
+  box.innerHTML = ''; pmSetStatus('⏳ फी Load होत आहे...');
+  jsonpRequest({action: 'getFees', regNo: reg, acYear: yr}, function(r) {
+    if (seq !== _pm.seq || reg !== _pm.reg || yr !== pmYear()) return;
+    if (!r || r.status !== 'ok') { pmSetStatus(errTxt(r)); archBanner('pm_anchor', false); return; }
+    pmSetStatus('');
+    archBanner('pm_anchor', !!r.archived);
+    var asc = (r.data || []).slice().reverse(), prev = 0;
+    var rows = asc.map(function(f) {
+      var cum = parseFloat(f.feePaid) || 0, inst = cum - prev; prev = cum;
+      return '<tr><td>' + pmEsc(tchFmtDate(f.date)) + '</td><td>' + pmMoney(inst) + '</td><td>' + pmEsc(f.updatedBy || '') + '</td></tr>';
+    });
+    var paid = asc.length ? (parseFloat(asc[asc.length - 1].feePaid) || 0) : 0;
+    var opening = parseFloat(r.openingDue) || 0;
+    var total = (r.yearTotalFee !== undefined) ? r.yearTotalFee : r.totalFeePerStudent;
+    var html = '<div class="pm-sum">' +
+      '<div>एकूण फी<b>' + pmMoney(total) + '</b></div>' +
+      '<div>मागील थकबाकी<b>' + pmMoney(opening) + '</b></div>' +
+      '<div>एकूण भरलेले<b>' + pmMoney(paid) + '</b></div>' +
+      '<div>बाकी<b>' + pmMoney(r.balance) + '</b></div></div>';
+    if (r.totalFeeAssumed) html += '<div class="pm-note">⚠️ या वर्षाची जमा-नोंद नसल्याने "एकूण फी" सध्याच्या सेटिंगनुसार (' + pmMoney(total) + ') धरली आहे — जुन्या वर्षासाठी ती अचूक नसू शकते, म्हणून "बाकी" वर पूर्ण विश्वास ठेवू नका.</div>';
+    else if (asc.length && r.archived) html += '<div class="pm-note" style="background:#eef4ff;border-color:#9bb8e6;color:#1a3a6a">ℹ️ एकूण फी त्या वर्षाच्या शेवटच्या जमा-नोंदीतील आहे (आजचे सेटिंग नव्हे).</div>';
+    html += rows.length
+      ? '<div style="margin-top:10px"><b>जमा इतिहास (installments)</b></div><table><tr><th>तारीख</th><th>रक्कम</th><th>नोंदवले</th></tr>' + rows.join('') + '</table>'
+      : '<div style="margin-top:10px">या वर्षाची कोणतीही जमा नोंद नाही.</div>';
+    box.innerHTML = html;
+  });
+}
+function pmLoadTransport() {
+  var reg = _pm.reg, yr = pmYear(); if (!reg || !yr) return;
+  var seq = ++_pm.seq, box = document.getElementById('pm_transport');
+  document.getElementById('pm_fees').innerHTML = '';
+  box.innerHTML = ''; pmSetStatus('⏳ प्रवास माहिती Load होत आहे...');
+  jsonpRequest({action: 'getTransport', regNo: reg, year: yr}, function(r) {
+    if (seq !== _pm.seq || reg !== _pm.reg || yr !== pmYear()) return;
+    if (!r || r.status !== 'ok') { pmSetStatus(errTxt(r)); archBanner('pm_anchor', false); return; }
+    pmSetStatus('');
+    archBanner('pm_anchor', !!r.archived);
+    var t = (r.data || [])[0];
+    var html = t
+      ? '<table><tr><th>गाव</th><td>' + pmEsc(t.nativeVillage || '—') + '</td></tr><tr><th>प्रवासाचे साधन</th><td>' + pmEsc(t.travelMode || '—') + '</td></tr><tr><th>संपर्क</th><td>' + pmEsc(t.transportContact || '—') + '</td></tr></table>'
+      : '<div>या वर्षाची प्रवास नोंद नाही.</div>';
+    if (t && r.sourceYear) html += '<div class="pm-note">ℹ️ ही नोंद ' + pmEsc(r.sourceYear) + ' ची आहे (' + pmEsc(yr) + ' साठी नवीन नोंद अजून केलेली नाही).</div>';
+    box.innerHTML = html;
+  });
+}
+
+
+// =====================================================================
+// ===== V19.55 — 📦 Archive स्क्रीन (Super / Master) — फक्त पाहणे + CSV =====
+// • पान उघडल्यावर फक्त वर्ष-यादी; "लोड करा" दाबल्यावरच डेटा; प्रत्येक टॅब उघडल्यावरच Load. Cache/stale नाही (jsonpRequest थेट).
+// =====================================================================
+var arS = {years: null, year: '', tab: 'fees', data: {}, seq: 0};
+function arE(s) { return escRpHtml(s === null || s === undefined ? '' : s); }
+function arN(n) { return fmtIN(Math.round((parseFloat(n) || 0) * 100) / 100); }
+function arSt(t) { var e = document.getElementById('ar_status'); if (e) e.textContent = t || ''; }
+function arCsv(filename, rows) {
+  var csv = rows.map(function(r) { return r.map(function(v) {
+    var s = (v === null || v === undefined) ? '' : String(v);
+    if (/^[=+@]/.test(s)) s = "'" + s;
+    return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  }).join(','); }).join('\r\n');
+  var blob = new Blob(['\uFEFF' + csv], {type: 'text/csv;charset=utf-8'});
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = filename;
+  document.body.appendChild(a); a.click();
+  setTimeout(function() { URL.revokeObjectURL(a.href); if (a.parentNode) a.parentNode.removeChild(a); }, 500);
+}
+function arCsvBtn(key, label) { return '<button class="btn btn-blue btn-sm" onclick="arDoCsv(\'' + key + '\')">⬇️ CSV — ' + label + '</button> '; }
+var arCsvStore = {};
+function arDoCsv(key) { var x = arCsvStore[key]; if (x) arCsv(x.name, x.rows); }
+function arTbl(head, rows, totalRow) {
+  return '<div class="ar-scroll"><table class="ar-tbl"><thead><tr>' + head.map(function(h) { return '<th>' + arE(h) + '</th>'; }).join('') + '</tr></thead><tbody>' +
+    rows.map(function(r) { return '<tr>' + r.map(function(v) { return '<td>' + arE(v) + '</td>'; }).join('') + '</tr>'; }).join('') +
+    (totalRow ? '<tr class="ar-total">' + totalRow.map(function(v) { return '<td>' + arE(v) + '</td>'; }).join('') + '</tr>' : '') + '</tbody></table></div>';
+}
+function arInit() {
+  if (!canUsePage('archive')) return;
+  if (arS.years) return;
+  arSt('⏳ वर्षे Load होत आहेत...');
+  jsonpRequest({action: 'getArchiveYears', requesterRole: currentUser.role}, function(r) {
+    if (!r || r.status !== 'ok' || !r.years) { arSt(errTxt(r)); return; }
+    arS.years = r.years;
+    var sel = document.getElementById('ar_year');
+    sel.innerHTML = r.years.map(function(y) {
+      return '<option value="' + arE(y.year) + '"' + (y.current ? ' selected' : '') + '>' + (y.archived ? '📦 ' : '') + arE(y.year) + (y.current ? ' (चालू)' : '') + (y.archived && !y.hasFile ? ' ⚠️ फाइल नोंद नाही' : '') + '</option>';
+    }).join('');
+    arSt('वर्ष निवडून "लोड करा" दाबा.');
+  });
+}
+function arLoad() {
+  var yr = (document.getElementById('ar_year') || {}).value;
+  if (!yr) { arSt('⚠️ आधी वर्ष निवडा.'); return; }
+  arS.year = yr; arS.data = {}; arS.seq++;
+  arSt('');
+  arTab(arS.tab, true);
+}
+function arTab(name, force) {
+  arS.tab = name;
+  document.querySelectorAll('.ar-tabbtn').forEach(function(b) { b.className = 'btn ' + (b.getAttribute('data-tab') === name ? 'btn-gold' : 'btn-gray') + ' ar-tabbtn'; });
+  var body = document.getElementById('ar_body');
+  archBanner('ar_anchor', false);
+  if (!arS.year) { body.innerHTML = '<div>👆 आधी वर्ष निवडून "लोड करा" दाबा.</div>'; return; }
+  if (arS.data[name]) { arRender(name); return; }
+  var seq = ++arS.seq, yr = arS.year;
+  function done(r, build) {
+    if (seq !== arS.seq || yr !== arS.year) return;
+    if (!r || r.status !== 'ok') { arSt(errTxt(r)); body.innerHTML = ''; return; }
+    arSt(''); arS.data[name] = build(r); arRender(name);
+  }
+  if (name === 'fees' || name === 'transport') {
+    arSt('⏳ Load होत आहे...'); body.innerHTML = '';
+    jsonpRequest({action: 'getArchiveReport', year: yr, section: name, requesterRole: currentUser.role}, function(r) { done(r, function(x) { return x; }); });
+  } else if (name === 'sch') {
+    arSt('⏳ Load होत आहे...'); body.innerHTML = '';
+    jsonpRequest({action: 'getScholarship', year: yr, requesterRole: currentUser.role}, function(r) { done(r, function(x) { return x; }); });
+  } else if (name === 'att') {
+    arS.data.att = arS.data.att || {months: {}, picked: null};
+    arRender('att');
+  }
+}
+function arRender(name) {
+  var body = document.getElementById('ar_body'), d = arS.data[name], yr = arS.year;
+  if (name !== 'att') archBanner('ar_anchor', !!(d && d.archived));
+  if (name === 'fees') {
+    var T = d.total, cls = d.classes;
+    var h1 = ['वर्ग', 'विद्यार्थी (नोंद असलेले)', 'भरणारे', 'एकूण जमा', 'मागील थकबाकी', 'बाकी'];
+    var r1 = cls.map(function(c) { return [classToMr(c.cls), c.students, c.payers, c.paid, c.opening, c.balance]; });
+    var t1 = ['एकूण', T.students, T.payers, T.paid, T.opening, T.balance];
+    var h2 = ['Reg No', 'नाव', 'वर्ग', 'तुकडी', 'एकूण फी', 'मागील थकबाकी', 'भरलेले', 'बाकी', 'हप्ते', 'एकूण फी अंदाजित?'];
+    var r2 = d.rows.map(function(x) { return [x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7], x[8], x[9] ? 'होय' : '']; });
+    arCsvStore.f1 = {name: 'Archive_' + yr + '_fee_class.csv', rows: [h1].concat(r1.map(function(r) { return [r[0]].concat(r.slice(1)); }), [t1])};
+    arCsvStore.f2 = {name: 'Archive_' + yr + '_fee_students.csv', rows: [h2].concat(r2)};
+    body.innerHTML = (!d.hasSheet ? '<div class="pm-note">ℹ️ ' + arE(yr) + ' ची फी-नोंदवही (Fees_' + arE(yr) + ') सापडली नाही — या वर्षात फी नोंद नाही.</div>' : '') +
+      '<b>वर्गनिहाय सारांश — ' + arE(yr) + '</b> ' + arCsvBtn('f1', 'वर्ग') + arCsvBtn('f2', 'विद्यार्थी') +
+      arTbl(h1, r1, t1) +
+      '<div class="pm-note">ℹ️ वर्ग = त्या वर्षी नोंदीत साठवलेला (आजचा नाही). यादीत फक्त त्या वर्षी फी/थकबाकी नोंद असलेले विद्यार्थी येतात — ज्याची कोणतीही नोंद नाही तो येत नाही.' +
+      (T.assumed ? '<br>⚠️ ' + T.assumed + ' विद्यार्थ्यांना जमा-नोंद नसल्याने "एकूण फी" सध्याच्या सेटिंगनुसार धरली आहे — त्यांची "बाकी" अंदाजित.' : '') + '</div>' +
+      '<b>विद्यार्थीनिहाय यादी</b>' + arTbl(h2, r2);
+  } else if (name === 'transport') {
+    var rows = d.rows, byMode = {}, byVil = {};
+    rows.forEach(function(x) { var m = (x[5] || '—').toString().trim() || '—'; byMode[m] = (byMode[m] || 0) + 1; var v = (x[4] || '—').toString().trim() || '—'; byVil[v] = (byVil[v] || 0) + 1; });
+    var modeRows = Object.keys(byMode).sort(function(a, b) { return byMode[b] - byMode[a]; }).map(function(k) { return [k, byMode[k]]; });
+    var vilRows = Object.keys(byVil).sort(function(a, b) { return byVil[b] - byVil[a]; }).map(function(k) { return [k, byVil[k]]; });
+    var hl = ['Reg No', 'नाव', 'वर्ग', 'तुकडी', 'गाव', 'प्रवासाचे साधन', 'संपर्क'];
+    arCsvStore.t1 = {name: 'Archive_' + yr + '_transport_mode.csv', rows: [['प्रवासाचे साधन', 'संख्या']].concat(modeRows)};
+    arCsvStore.t2 = {name: 'Archive_' + yr + '_transport_village.csv', rows: [['गाव', 'संख्या']].concat(vilRows)};
+    arCsvStore.t3 = {name: 'Archive_' + yr + '_transport_students.csv', rows: [hl].concat(rows)};
+    body.innerHTML = (!d.hasSheet ? '<div class="pm-note">ℹ️ ' + arE(yr) + ' ची प्रवास-नोंदवही सापडली नाही.</div>' : '') +
+      '<b>साधननिहाय संख्या</b> ' + arCsvBtn('t1', 'साधन') + arTbl(['प्रवासाचे साधन', 'संख्या'], modeRows, ['एकूण', rows.length]) +
+      '<b>गावनिहाय संख्या</b> ' + arCsvBtn('t2', 'गाव') + arTbl(['गाव', 'संख्या'], vilRows) +
+      '<b>विद्यार्थीनिहाय यादी</b> ' + arCsvBtn('t3', 'विद्यार्थी') + arTbl(hl, rows);
+  } else if (name === 'sch') {
+    var list = d.data || [], byS = {}, byC = {}, sts = d.statuses || ['प्रलंबित', 'मंजूर', 'वितरित'];
+    list.forEach(function(x) {
+      var s = x.status || '—'; (byS[s] = byS[s] || {n: 0, amt: 0}); byS[s].n++; byS[s].amt += parseFloat(x.amount) || 0;
+      var k = x.iyatta || '—'; var c = byC[k] || (byC[k] = {n: 0, amt: 0, s: {}}); c.n++; c.amt += parseFloat(x.amount) || 0; c.s[s] = (c.s[s] || 0) + 1;
+    });
+    var sRows = Object.keys(byS).map(function(k) { return [k, byS[k].n, byS[k].amt]; });
+    var cRows = Object.keys(byC).sort(function(a, b) { return (parseInt(a, 10) || 99) - (parseInt(b, 10) || 99); }).map(function(k) { return [classToMr(k), byC[k].n, byC[k].amt].concat(sts.map(function(s) { return byC[k].s[s] || 0; })); });
+    var hl2 = ['Reg No', 'नाव', 'वर्ग', 'तुकडी', 'शिष्यवृत्ती', 'योजना', 'रक्कम', 'स्थिती'];
+    var lRows = list.map(function(x) { return [x.regNo, x.fullName, x.iyatta, x.tukdi, x.scholarshipName, x.scheme, x.amount, x.status]; });
+    var totAmt = list.reduce(function(a, x) { return a + (parseFloat(x.amount) || 0); }, 0);
+    arCsvStore.s1 = {name: 'Archive_' + yr + '_scholarship_status.csv', rows: [['स्थिती', 'संख्या', 'रक्कम']].concat(sRows)};
+    arCsvStore.s2 = {name: 'Archive_' + yr + '_scholarship_class.csv', rows: [['वर्ग', 'संख्या', 'रक्कम'].concat(sts)].concat(cRows)};
+    arCsvStore.s3 = {name: 'Archive_' + yr + '_scholarship_list.csv', rows: [hl2].concat(lRows)};
+    body.innerHTML = '<b>स्थितीनिहाय</b> ' + arCsvBtn('s1', 'स्थिती') + arTbl(['स्थिती', 'संख्या', 'रक्कम (₹)'], sRows, ['एकूण', list.length, totAmt]) +
+      '<b>वर्गनिहाय</b> ' + arCsvBtn('s2', 'वर्ग') + arTbl(['वर्ग', 'संख्या', 'रक्कम (₹)'].concat(sts), cRows) +
+      '<b>यादी</b> ' + arCsvBtn('s3', 'यादी') + arTbl(hl2, lRows);
+  } else if (name === 'att') {
+    var ys = parseInt(yr.slice(0, 4), 10), months = [];
+    for (var i = 0; i < 12; i++) { var m = 6 + i, yy = ys; if (m > 12) { m -= 12; yy = ys + 1; } months.push(yy + '-' + (m < 10 ? '0' : '') + m); }
+    var checks = months.map(function(m) { return '<label style="margin-right:10px;white-space:nowrap"><input type="checkbox" class="ar_mchk" value="' + m + '" checked> ' + m + '</label>'; }).join('');
+    body.innerHTML = '<div><b>महिने निवडा</b> (प्रत्येक महिना वेगळी विनंती):<br>' + checks + '</div><button class="btn btn-gold" style="margin:8px 0" onclick="arLoadAtt()">✅ हजेरी लोड करा</button><div id="ar_attOut"></div>';
+    if (d.shown) arShowAtt();
+  }
+}
+function arLoadAtt() {
+  var picked = [].slice.call(document.querySelectorAll('.ar_mchk')).filter(function(c) { return c.checked; }).map(function(c) { return c.value; });
+  if (!picked.length) { arSt('⚠️ किमान एक महिना निवडा.'); return; }
+  var d = arS.data.att, seq = ++arS.seq, yr = arS.year, i = 0, out = document.getElementById('ar_attOut');
+  d.months = {}; d.picked = picked; d.shown = false;
+  (function next() {
+    if (seq !== arS.seq || yr !== arS.year) return;
+    if (i >= picked.length) { arSt(''); d.shown = true; arShowAtt(); return; }
+    var m = picked[i];
+    arSt('⏳ ' + m + ' (' + (i + 1) + '/' + picked.length + ')...');
+    jsonpRequest({action: 'getAttendanceOverview', month: m, requesterRole: currentUser.role}, function(r) {
+      if (seq !== arS.seq || yr !== arS.year) return;
+      if (!r || r.status !== 'ok' || !r.rows) { arSt(errTxt(r)); return; }
+      d.months[m] = r; i++; next();
+    });
+  })();
+}
+function arShowAtt() {
+  var d = arS.data.att, out = document.getElementById('ar_attOut'); if (!out || !d.picked) return;
+  var anyArch = false, html = '', csv = [['महिना', 'वर्ग', 'तुकडी', 'विद्यार्थी (सध्याचे)', 'हजेरी दिवस', 'सरासरी उपस्थिती %', 'गैरहजर-दिवस']];
+  d.picked.forEach(function(m) {
+    var r = d.months[m]; if (!r) return;
+    if (r.archived) anyArch = true;
+    var rows = r.rows.filter(function(x) { return x.days > 0; }).map(function(x) {
+      csv.push([m, x.iyatta, x.tukdi, x.students, x.days, x.avgPct === null ? '' : x.avgPct, x.absentDays]);
+      return [classToMr(x.iyatta) + ' ' + x.tukdi, x.students, x.days, x.avgPct === null ? '—' : x.avgPct + '%', x.absentDays];
+    });
+    html += '<b>' + arE(m) + '</b>' + (rows.length ? arTbl(['वर्ग', 'विद्यार्थी', 'दिवस', 'उपस्थिती', 'गैरहजर-दिवस'], rows) : '<div style="opacity:.7;margin:4px 0 10px">या महिन्यात हजेरी नोंद नाही.</div>');
+  });
+  arCsvStore.a1 = {name: 'Archive_' + arS.year + '_attendance.csv', rows: csv};
+  archBanner('ar_anchor', anyArch);
+  out.innerHTML = arCsvBtn('a1', 'हजेरी') + '<div class="pm-note">ℹ️ "विद्यार्थी" संख्या आजच्या वर्ग-यादीनुसार आहे (त्या वर्षीची नव्हे); दिवस व उपस्थिती % त्या महिन्याच्या हजेरीतून.</div>' + html;
+}
+
+
+// =====================================================================
+// ===== V19.56 — Profile: 📚 सर्व वर्षांचा इतिहास (फक्त पाहणे) =====
+// • बटण दाबल्यावरच: प्रथम विद्यार्थी-ओळख + वर्ष-यादी (कोणतीही Archive फाइल उघडत नाही), मग वर्षागणिक क्रमाने (नवे → जुने): core, नंतर घरी-गेलेले (el).
+// • "थांबवा" किंवा दुसरा विद्यार्थी उघडल्यावर पुढच्या विनंत्या थांबतात. Cache/stale नाही.
+// =====================================================================
+var _hs = {reg: '', seq: 0, running: false};
+function hsReset(d) {
+  _hs.reg = (d && d.regNo) ? String(d.regNo) : ''; _hs.seq++; _hs.running = false;
+  var card = document.getElementById('hsCard'); if (!card) return;
+  card.style.display = (pmRoleOk() && _hs.reg) ? '' : 'none';
+  var b = document.getElementById('hsBtn'), s = document.getElementById('hsStopBtn');
+  if (b) { b.disabled = false; b.style.display = ''; }
+  if (s) s.style.display = 'none';
+  var o = document.getElementById('hs_out'); if (o) o.innerHTML = '';
+  var st = document.getElementById('hs_status'); if (st) st.textContent = '';
+}
+function hsSt(t) { var e = document.getElementById('hs_status'); if (e) e.textContent = t || ''; }
+function hsStop() { _hs.seq++; _hs.running = false; document.getElementById('hsStopBtn').style.display = 'none'; document.getElementById('hsBtn').disabled = false; hsSt('⏹ थांबवले.'); }
+function hsEnd(msg) { _hs.running = false; document.getElementById('hsStopBtn').style.display = 'none'; document.getElementById('hsBtn').disabled = false; hsSt(msg || ''); }
+function hsStart() {
+  var reg = _hs.reg; if (!reg || _hs.running) return;
+  var seq = ++_hs.seq; _hs.running = true;
+  document.getElementById('hsBtn').disabled = true;
+  document.getElementById('hsStopBtn').style.display = '';
+  document.getElementById('hs_out').innerHTML = '';
+  hsSt('⏳ विद्यार्थी-ओळख व वर्ष-यादी Load होत आहे...');
+  jsonpRequest({action: 'getStudentYearHistory', regNo: reg, meta: '1', requesterRole: currentUser.role}, function(m) {
+    if (seq !== _hs.seq || reg !== _hs.reg) return;
+    if (!m || m.status !== 'ok') { hsEnd(errTxt(m)); return; }
+    var s = m.student || {}, note = '';
+    if (s.status === 'passedout') note = '<div class="pm-note">ℹ️ हा विद्यार्थी पूर्वी उत्तीर्ण/Archive झालेला आहे (' + pmEsc(s.fullName || '') + ', इयत्ता ' + pmEsc(s.iyatta || '') + ' ' + pmEsc(s.tukdi || '') + ', ' + pmEsc(s.acYear || '') + '). इतिहास Reg No वरून वाचतो.</div>';
+    else if (s.status === 'unknown') note = '<div class="pm-note">⚠️ हा Reg No सध्याच्या Students मध्ये किंवा Pass-out Archive मध्ये सापडला नाही; फक्त Reg No शी जुळणाऱ्या नोंदी दिसतील. (Delete केलेले विद्यार्थी कव्हर होत नाहीत.)</div>';
+    document.getElementById('hs_out').innerHTML = note;
+    var years = m.years || [], i = 0;
+    if (!years.length) { hsEnd('या विद्यार्थ्यासाठी कोणतेही वर्ष सापडले नाही.'); return; }
+    function stale() { return seq !== _hs.seq || reg !== _hs.reg; }
+    function nextYear() {
+      if (stale()) return;
+      if (i >= years.length) { hsEnd('✅ पूर्ण (' + years.length + ' वर्षे तपासली).'); return; }
+      var y = years[i], pos = (i + 1) + '/' + years.length;
+      hsSt('⏳ ' + y + ' (' + pos + ') — हजेरी, फी, Diary...');
+      jsonpRequest({action: 'getStudentYearHistory', regNo: reg, year: y, part: 'core', requesterRole: currentUser.role}, function(core) {
+        if (stale()) return;
+        if (!core || core.status !== 'ok') { hsBlockErr(y, errTxt(core)); i++; nextYear(); return; }
+        hsSt('⏳ ' + y + ' (' + pos + ') — घरी गेलेले...');
+        jsonpRequest({action: 'getStudentYearHistory', regNo: reg, year: y, part: 'el', requesterRole: currentUser.role}, function(el) {
+          if (stale()) return;
+          hsBlock(core, (el && el.status === 'ok') ? el : null, (!el || el.status !== 'ok') ? errTxt(el) : '');
+          i++; nextYear();
+        });
+      });
+    }
+    nextYear();
+  });
+}
+function hsBlockErr(y, msg) {
+  var o = document.getElementById('hs_out');
+  o.insertAdjacentHTML('beforeend', '<div class="hs-year"><h4>' + pmEsc(y) + '</h4><div class="pm-note">❌ ' + pmEsc(msg) + '</div></div>');
+}
+var HS_DIARY = {positive: '👍 Positive', warning: '⚠️ Warning', scholarship: '🎓 Scholarship', personal: '📝 वैयक्तिक'};
+function hsBlock(c, el, elErr) {
+  var cls = c.cls || {}, a = c.attendance || {}, f = c.fees || {}, sch = c.scholarship || [], dy = c.diary || [], tr = c.transport;
+  var hasAtt = (a.absentDays > 0) || (a.markedDays > 0), hasFee = !!f.has, hasEl = el && el.records && el.records.length > 0;
+  var any = hasAtt || hasFee || hasEl || sch.length || dy.length || tr || cls.iyatta;
+  var head = '<h4>' + (c.archived ? '📦 ' : '') + pmEsc(c.year) + (cls.iyatta ? ' — इयत्ता ' + pmEsc(cls.iyatta) + (cls.tukdi ? '-' + pmEsc(cls.tukdi) : '') + (cls.roll ? ' | हजेरी क्र. ' + pmEsc(cls.roll) : '') : '') + '</h4>';
+  var h = '<div class="hs-year">' + head;
+  if (c.archived) h += '<div class="arch-banner">📦 Archive — फक्त पाहणे.</div>';
+  if (!any) { h += '<div class="hs-empty">या वर्षाची कोणतीही नोंद नाही.</div></div>'; document.getElementById('hs_out').insertAdjacentHTML('beforeend', h); return; }
+  if (cls.source && cls.source !== 'Students') h += '<div class="hs-empty">वर्ग-स्रोत: ' + pmEsc(cls.source) + (cls.roll ? '' : ' (त्या वर्षीचा हजेरी क्रमांक साठवलेला नाही)') + '</div>';
+  else if (!cls.iyatta) h += '<div class="hs-empty">या वर्षाचा वर्ग निश्चित करता आला नाही — उपस्थिती % काढता आला नाही.</div>';
+  // हजेरी
+  h += '<div style="margin-top:6px"><b>✅ हजेरी:</b> गैरहजर <b>' + (a.absentDays || 0) + '</b> दिवस' + (a.markedDays !== null && a.markedDays !== undefined ? ' / हजेरी भरलेले ' + a.markedDays + ' दिवस' : '') + (a.pct !== null && a.pct !== undefined ? ' → उपस्थिती <b>' + a.pct + '%</b>' : '') + '</div>';
+  if (a.months && a.months.length) {
+    h += '<details><summary>महिनावार / गैरहजर तारखा</summary>' + a.months.map(function(m) { return pmEsc(m.month) + ': ' + m.absent + ' गैरहजर' + (m.markedDays !== null ? ' / ' + m.markedDays + ' दिवस' : ''); }).join('<br>') +
+      ((a.absentDates && a.absentDates.length) ? '<div style="margin-top:6px">' + a.absentDates.map(function(x) { return pmEsc(tchFmtDate(x.date)) + (x.reason ? ' (' + pmEsc(x.reason) + ')' : ''); }).join(', ') + '</div>' : '') + '</details>';
+  }
+  // फी
+  if (hasFee) {
+    h += '<div style="margin-top:6px"><b>💰 फी:</b> एकूण ' + pmMoney(f.total) + ', मागील थकबाकी ' + pmMoney(f.opening) + ', जमा ' + pmMoney(f.paid) + ', बाकी <b>' + pmMoney(f.balance) + '</b></div>';
+    if (f.totalAssumed) h += '<div class="pm-note">⚠️ या वर्षाची एकूण फी नोंदीत नसल्याने सध्याच्या सेटिंगनुसार धरली आहे — "बाकी" अंदाजित.</div>';
+    if (f.installments && f.installments.length) h += '<details><summary>' + f.installments.length + ' installments</summary>' + f.installments.map(function(x) { return pmEsc(tchFmtDate(x.date)) + ' — ' + pmMoney(x.amount) + ' (' + pmEsc(x.by || '') + ')'; }).join('<br>') + '</details>';
+  } else h += '<div class="hs-empty" style="margin-top:6px">💰 फी: नोंद नाही</div>';
+  // घरी गेलेले
+  if (el) {
+    h += '<div style="margin-top:6px"><b>🚪 घरी जाण्याच्या नोंदी:</b> ' + (el.records.length ? el.records.length + ' (गेले: ' + el.gone + ')' : 'नाही') + '</div>';
+    if (el.records.length) h += '<details><summary>तारखा</summary>' + el.records.map(function(x) { return pmEsc(tchFmtDate(x.date)) + (x.period ? ' — तास ' + x.period : '') + ' — ' + (x.status === 'gone' ? 'गेला ✅' : (x.status === 'notgone' ? 'गेला नाही' : 'परवानगी/बाकी')); }).join('<br>') + '</details>';
+  } else if (elErr) h += '<div class="pm-note">❌ घरी-जाण्याच्या नोंदी Load झाल्या नाहीत: ' + pmEsc(elErr) + '</div>';
+  // शिष्यवृत्ती
+  h += '<div style="margin-top:6px"><b>🎓 शिष्यवृत्ती:</b> ' + (sch.length ? sch.map(function(x) { return pmEsc(x.scholarshipName || '') + (x.scheme ? ' (' + pmEsc(x.scheme) + ')' : '') + ' — ' + pmMoney(x.amount) + ' — ' + pmEsc(x.status || ''); }).join('; ') : 'नाही') + '</div>';
+  // Diary
+  var pos = dy.filter(function(x) { return x.type === 'positive'; }).length, warn = dy.filter(function(x) { return x.type === 'warning'; }).length;
+  h += '<div style="margin-top:6px"><b>📔 Diary:</b> 👍 ' + pos + ' / ⚠️ ' + warn + (dy.length - pos - warn ? ' / इतर ' + (dy.length - pos - warn) : '') + '</div>';
+  if (dy.length) h += '<details><summary>नोंदी</summary>' + dy.map(function(x) { return '<b>' + pmEsc(HS_DIARY[x.type] || x.type) + '</b> (' + pmEsc(tchFmtDate(x.date)) + ') ' + pmEsc(x.remark || ''); }).join('<br>') + '</details>';
+  // प्रवास
+  h += '<div style="margin-top:6px"><b>🚌 प्रवास:</b> ' + (tr ? pmEsc(tr.nativeVillage || '—') + ' | ' + pmEsc(tr.travelMode || '—') + ' | ' + pmEsc(tr.transportContact || '—') : 'नोंद नाही') + '</div>';
+  h += '</div>';
+  document.getElementById('hs_out').insertAdjacentHTML('beforeend', h);
 }

@@ -1,17 +1,7 @@
-SGS School Management System — V19.56 (अंतिम)
+SGS School Management System — V19.57
 
-१) Apps Script (Code.gs)  — आधी हे करा
-   - Spreadsheet ची प्रत (Make a copy) घ्या.
-   - Extensions > Apps Script मध्ये जुना Code.gs बदलून apps_script/Code.gs चा मजकूर paste करा.
-   - Deploy > Manage deployments > Edit (पेन्सिल) > Version: New version > Deploy.
-   - Web app URL तोच राहतो.
-
-२) GitHub (फक्त github_pages फोल्डरमधील फाइल्स)
-   - Repository मध्ये या फाइल्स जुन्या फाइल्सवर replace करा:
-     index.html, script.js, style.css   (हे तीन बदललेले आहेत)
-   - sw.js, manifest.json, privacy-policy.html, icon-192.png, icon-512.png बदललेले नाहीत
-     (सोयीसाठी दिल्या आहेत; आधीच्या तशाच ठेवल्या तरी चालते).
-   - Commit केल्यावर GitHub Pages ~१-२ मिनिटांत अपडेट होते.
-   - अॅपमध्ये Hard refresh (Ctrl+Shift+R) / PWA बंद करून पुन्हा उघडा. sw.js नेटवर्क-आधी असल्याने नवी आवृत्ती आपोआप येते.
-
-३) तपासणी: Footer/आवृत्ती V19.56 दिसते का; Profile मध्ये "फी व प्रवास" व "सर्व वर्षांचा इतिहास"; Super/Master ला मेनूत "📦 Archive".
+१) Apps Script (आधी): Spreadsheet ची प्रत घ्या → apps_script/Code.gs paste करा → Deploy > Manage deployments > Edit > New version.
+   नंतर Editor मध्ये एकदा diagRosterCacheSize चालवा (View > Logs) — विद्यार्थी-यादी Cache मध्ये बसते का ते कळेल.
+२) GitHub: github_pages मधील index.html, script.js, style.css, sw.js replace करा (बाकी फाइल्स न बदललेल्या).
+   sw.js मधील cache नाव sgs-v19.57-1 आहे; जुना cache आपोआप जाईल.
+३) tests/ फोल्डर: चाचणी-साधन (mock + Playwright). Repository मध्ये ठेवू शकता; खऱ्या Sheet वर चालत नाही.

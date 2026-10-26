@@ -32,7 +32,7 @@ window.androidBackPressed = function() {
 
 
 // URL persistence
-var DEFAULT_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbz6CL7xPok_BGxzLOvynEep3ObXe7yRPku25gmxdXfr22hiu336B3Yx0vo60O9Te5qm/exec';
+var DEFAULT_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbx4L5YpSHTDtfbtl2MMAeKbyW3oomPWDl_Fp659NGsh7OlyHCP-0OSqaE6cfyxcy_EC/exec';
 
 // =====================================================
 // 🔐 LOGIN + ROLE PERMISSIONS
@@ -734,7 +734,7 @@ var clientPerf = [];
 // नियम: पैसा/थकबाकी/फी जमा स्क्रीनवर कधीही जुना डेटा नाही • २४ तासांहून जुना cache वापरत नाही • अॅप-आवृत्ती बदलल्यास रद्द •
 //       प्रत्येकी ~300 KB / एकूण ~1 MB मर्यादा • Logout वर पूर्ण पुसले जाते • Token कधीही साठवत नाही (फक्त उत्तर).
 // =====================================================================
-var APP_VERSION = 'V19.56';
+var APP_VERSION = 'V19.57';
 var SWR_PREFIX = 'sgs_swr:';
 var SWR_MAX_AGE_MS = 24 * 3600 * 1000, SWR_MAX_ENTRY = 300 * 1024, SWR_MAX_TOTAL = 1024 * 1024;
 var SWR_NEVER = /fee|thakbaki|arrear|payment|receipt/i;   // action किंवा key मध्ये आढळल्यास कधीही stale नाही, साठवतही नाही
@@ -6597,13 +6597,15 @@ function saYearStart() {
   if (document.getElementById('sa_yrConfirm1').value.trim() !== 'NEWYEAR') { st.textContent = '⚠️ खात्रीसाठी NEWYEAR टाइप करा.'; return; }
   if (!confirm('नवे शैक्षणिक वर्ष ' + yr + ' सुरू करायचे?\\n\\n' + (carry ? 'मागील थकबाकी (' + (saYear ? saYear.dues.count : '?') + ' विद्यार्थी, ₹' + fmtIN(saYear ? saYear.dues.total : 0) + ') नव्या वर्षात "सुरुवातीची बाकी" म्हणून पुढे येईल.\\n' : 'मागील थकबाकी पुढे नेली जाणार नाही.\\n') + '\\nहे लगेच पूर्ववत करता येत नाही; आधी Spreadsheet ची प्रत केल्याची खात्री करा.')) return;
   st.textContent = '⏳ चालू आहे — कृपया थांबा...';
-  smartSaveRaw({action: 'startNewYear', newYear: yr, carry: carry ? '1' : '0', confirm: 'NEWYEAR', requesterUser: currentUser.username, requesterRole: currentUser.role}, function(r) {
+  saBackupGate(function(ack) {
+  smartSaveRaw({action: 'startNewYear', ackNoBackup: ack, newYear: yr, carry: carry ? '1' : '0', confirm: 'NEWYEAR', requesterUser: currentUser.username, requesterRole: currentUser.role}, function(r) {
     if (r && r.status === 'ok') {
       st.textContent = '✅ चालू वर्ष आता ' + r.extra.newYear + ' आहे. ' + r.extra.carried + ' विद्यार्थ्यांची ₹' + fmtIN(r.extra.carriedTotal) + ' बाकी पुढे आणली.';
       document.getElementById('sa_yrConfirm1').value = ''; document.getElementById('sa_yrNew').value = '';
       try { clearStudentCache(); } catch (e) {}
       saLoadYear();
     } else st.textContent = '❌ ' + friendlyMsg((r && r.message) || 'Failed');
+  });
   });
 }
 function saYearArchive() {
@@ -6613,13 +6615,15 @@ function saYearArchive() {
   if (document.getElementById('sa_yrConfirm2').value.trim() !== 'ARCHIVEYEAR') { st.textContent = '⚠️ खात्रीसाठी ARCHIVEYEAR टाइप करा.'; return; }
   if (!confirm(yr + ' ची सर्व Sheets (फी, डायरी, प्रवास, हजेरी, घरी जाणारे) मुख्य फाइलमधून SGS_Archive_' + yr + ' फाइलमध्ये हलवायची?\\n\\nप्रत बनवून पडताळणी झाल्यावरच मूळ Sheet काढली जाते. अॅपमध्ये त्या वर्षाची हजेरी/घरी-जाणारे नंतर दिसणार नाही (Archive फाइलमध्ये उघडून पाहता येईल).')) return;
   st.textContent = '⏳ चालू आहे (मोठ्या वर्षासाठी १-२ मिनिटे लागू शकतात)...';
-  smartSaveRaw({action: 'archiveYear', year: yr, confirm: 'ARCHIVEYEAR', requesterUser: currentUser.username, requesterRole: currentUser.role}, function(r) {
+  saBackupGate(function(ack) {
+  smartSaveRaw({action: 'archiveYear', ackNoBackup: ack, year: yr, confirm: 'ARCHIVEYEAR', requesterUser: currentUser.username, requesterRole: currentUser.role}, function(r) {
     if (r && r.status === 'ok') {
       var x = r.extra;
       st.innerHTML = '✅ ' + x.moved.length + ' Sheets हलवल्या, ' + fmtIN(x.freedCells) + ' cells मोकळे.' + (x.skipped.length ? '<br>ℹ️ वगळल्या: ' + escRpHtml(x.skipped.join('; ')) : '') + (x.failed.length ? '<br>⚠️ जमल्या नाहीत (मूळ तशाच): ' + escRpHtml(x.failed.join(', ')) : '');
       document.getElementById('sa_yrConfirm2').value = '';
       saLoadYear(); setTimeout(saLoadSizes, 800);
     } else st.textContent = '❌ ' + friendlyMsg((r && r.message) || 'Failed');
+  });
   });
 }
 
@@ -6731,12 +6735,15 @@ var arS = {years: null, year: '', tab: 'fees', data: {}, seq: 0};
 function arE(s) { return escRpHtml(s === null || s === undefined ? '' : s); }
 function arN(n) { return fmtIN(Math.round((parseFloat(n) || 0) * 100) / 100); }
 function arSt(t) { var e = document.getElementById('ar_status'); if (e) e.textContent = t || ''; }
-function arCsv(filename, rows) {
-  var csv = rows.map(function(r) { return r.map(function(v) {
+function arCsvText(rows) {
+  return rows.map(function(r) { return r.map(function(v) {
     var s = (v === null || v === undefined) ? '' : String(v);
     if (/^[=+@]/.test(s)) s = "'" + s;
     return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
   }).join(','); }).join('\r\n');
+}
+function arCsv(filename, rows) {
+  var csv = arCsvText(rows);
   var blob = new Blob(['\uFEFF' + csv], {type: 'text/csv;charset=utf-8'});
   var a = document.createElement('a');
   a.href = URL.createObjectURL(blob); a.download = filename;
@@ -6746,13 +6753,50 @@ function arCsv(filename, rows) {
 function arCsvBtn(key, label) { return '<button class="btn btn-blue btn-sm" onclick="arDoCsv(\'' + key + '\')">⬇️ CSV — ' + label + '</button> '; }
 var arCsvStore = {};
 function arDoCsv(key) { var x = arCsvStore[key]; if (x) arCsv(x.name, x.rows); }
-function arTbl(head, rows, totalRow) {
+function arTbl(head, rows, totalRow, opt) {
+  if (opt && opt.id) {
+    var trs = rows.map(function(r) {
+      var s = r.join(' ').toLowerCase().replace(/"/g, '&quot;');
+      var cv = opt.clsIdx !== undefined ? String(r[opt.clsIdx] === null || r[opt.clsIdx] === undefined ? '' : r[opt.clsIdx]) : '';
+      var bal = opt.balIdx !== undefined && (parseFloat(r[opt.balIdx]) || 0) > 0 ? '1' : '0';
+      return '<tr data-s="' + s + '" data-c="' + arE(cv) + '" data-b="' + bal + '">' + r.map(function(v) { return '<td>' + arE(v) + '</td>'; }).join('') + '</tr>';
+    }).join('');
+    return '<div class="ar-scroll"><table class="ar-tbl" id="' + opt.id + '"><thead><tr>' + head.map(function(x) { return '<th>' + arE(x) + '</th>'; }).join('') + '</tr></thead><tbody>' + trs + '</tbody></table></div>';
+  }
   return '<div class="ar-scroll"><table class="ar-tbl"><thead><tr>' + head.map(function(h) { return '<th>' + arE(h) + '</th>'; }).join('') + '</tr></thead><tbody>' +
     rows.map(function(r) { return '<tr>' + r.map(function(v) { return '<td>' + arE(v) + '</td>'; }).join('') + '</tr>'; }).join('') +
     (totalRow ? '<tr class="ar-total">' + totalRow.map(function(v) { return '<td>' + arE(v) + '</td>'; }).join('') + '</tr>' : '') + '</tbody></table></div>';
 }
+function arFilterBar(id, rows, clsIdx, hasBal, csvName) {
+  var cls = {}; rows.forEach(function(r) { var v = String(r[clsIdx] === null || r[clsIdx] === undefined ? '' : r[clsIdx]); if (v) cls[v] = 1; });
+  var opts = '<option value="">सर्व वर्ग</option>' + Object.keys(cls).sort(function(a, b) { return (parseInt(a, 10) || 99) - (parseInt(b, 10) || 99); }).map(function(v) { return '<option value="' + arE(v) + '">' + arE(classToMr(v)) + '</option>'; }).join('');
+  return '<div class="ar-filter"><input type="text" id="arq_' + id + '" placeholder="🔎 नाव / Reg No / गाव..." oninput="arFilt(\'' + id + '\')">' +
+    '<select id="arc_' + id + '" onchange="arFilt(\'' + id + '\')">' + opts + '</select>' +
+    (hasBal ? '<label style="font-size:13px"><input type="checkbox" id="arb_' + id + '" onchange="arFilt(\'' + id + '\')"> फक्त बाकी असलेले</label>' : '') +
+    '<span id="arn_' + id + '" style="font-size:12px;color:#555"></span>' +
+    '<button class="btn btn-blue btn-sm" onclick="arCsvVisible(\'' + id + '\',\'' + csvName + '\')">⬇️ दिसणारी यादी CSV</button></div>';
+}
+function arFilt(id) {
+  var tb = document.getElementById(id); if (!tb) return;
+  var q = ((document.getElementById('arq_' + id) || {}).value || '').trim().toLowerCase();
+  var c = (document.getElementById('arc_' + id) || {}).value || '';
+  var b = document.getElementById('arb_' + id), onlyBal = !!(b && b.checked), n = 0, t = 0;
+  [].forEach.call(tb.querySelectorAll('tbody tr'), function(tr) {
+    t++;
+    var ok = (!q || tr.getAttribute('data-s').indexOf(q) > -1) && (!c || tr.getAttribute('data-c') === c) && (!onlyBal || tr.getAttribute('data-b') === '1');
+    tr.style.display = ok ? '' : 'none'; if (ok) n++;
+  });
+  var l = document.getElementById('arn_' + id); if (l) l.textContent = n + ' / ' + t;
+}
+function arCsvVisible(id, name) {
+  var tb = document.getElementById(id); if (!tb) return;
+  var rows = [[].map.call(tb.querySelectorAll('thead th'), function(th) { return th.textContent; })];
+  [].forEach.call(tb.querySelectorAll('tbody tr'), function(tr) { if (tr.style.display !== 'none') rows.push([].map.call(tr.children, function(td) { return td.textContent; })); });
+  arCsv('Archive_' + arS.year + '_' + name + '_filtered.csv', rows);
+}
 function arInit() {
   if (!canUsePage('archive')) return;
+  try { arBackupLine(); } catch (eBk) {}
   if (arS.years) return;
   arSt('⏳ वर्षे Load होत आहेत...');
   jsonpRequest({action: 'getArchiveYears', requesterRole: currentUser.role}, function(r) {
@@ -6813,7 +6857,7 @@ function arRender(name) {
       arTbl(h1, r1, t1) +
       '<div class="pm-note">ℹ️ वर्ग = त्या वर्षी नोंदीत साठवलेला (आजचा नाही). यादीत फक्त त्या वर्षी फी/थकबाकी नोंद असलेले विद्यार्थी येतात — ज्याची कोणतीही नोंद नाही तो येत नाही.' +
       (T.assumed ? '<br>⚠️ ' + T.assumed + ' विद्यार्थ्यांना जमा-नोंद नसल्याने "एकूण फी" सध्याच्या सेटिंगनुसार धरली आहे — त्यांची "बाकी" अंदाजित.' : '') + '</div>' +
-      '<b>विद्यार्थीनिहाय यादी</b>' + arTbl(h2, r2);
+      '<b>विद्यार्थीनिहाय यादी</b>' + arFilterBar('arT_fee', r2, 2, true, 'fee_students') + arTbl(h2, r2, null, {id: 'arT_fee', clsIdx: 2, balIdx: 7});
   } else if (name === 'transport') {
     var rows = d.rows, byMode = {}, byVil = {};
     rows.forEach(function(x) { var m = (x[5] || '—').toString().trim() || '—'; byMode[m] = (byMode[m] || 0) + 1; var v = (x[4] || '—').toString().trim() || '—'; byVil[v] = (byVil[v] || 0) + 1; });
@@ -6826,7 +6870,7 @@ function arRender(name) {
     body.innerHTML = (!d.hasSheet ? '<div class="pm-note">ℹ️ ' + arE(yr) + ' ची प्रवास-नोंदवही सापडली नाही.</div>' : '') +
       '<b>साधननिहाय संख्या</b> ' + arCsvBtn('t1', 'साधन') + arTbl(['प्रवासाचे साधन', 'संख्या'], modeRows, ['एकूण', rows.length]) +
       '<b>गावनिहाय संख्या</b> ' + arCsvBtn('t2', 'गाव') + arTbl(['गाव', 'संख्या'], vilRows) +
-      '<b>विद्यार्थीनिहाय यादी</b> ' + arCsvBtn('t3', 'विद्यार्थी') + arTbl(hl, rows);
+      '<b>विद्यार्थीनिहाय यादी</b> ' + arCsvBtn('t3', 'विद्यार्थी') + arFilterBar('arT_tr', rows, 2, false, 'transport') + arTbl(hl, rows, null, {id: 'arT_tr', clsIdx: 2});
   } else if (name === 'sch') {
     var list = d.data || [], byS = {}, byC = {}, sts = d.statuses || ['प्रलंबित', 'मंजूर', 'वितरित'];
     list.forEach(function(x) {
@@ -6843,7 +6887,7 @@ function arRender(name) {
     arCsvStore.s3 = {name: 'Archive_' + yr + '_scholarship_list.csv', rows: [hl2].concat(lRows)};
     body.innerHTML = '<b>स्थितीनिहाय</b> ' + arCsvBtn('s1', 'स्थिती') + arTbl(['स्थिती', 'संख्या', 'रक्कम (₹)'], sRows, ['एकूण', list.length, totAmt]) +
       '<b>वर्गनिहाय</b> ' + arCsvBtn('s2', 'वर्ग') + arTbl(['वर्ग', 'संख्या', 'रक्कम (₹)'].concat(sts), cRows) +
-      '<b>यादी</b> ' + arCsvBtn('s3', 'यादी') + arTbl(hl2, lRows);
+      '<b>यादी</b> ' + arCsvBtn('s3', 'यादी') + arFilterBar('arT_sc', lRows, 2, false, 'scholarship') + arTbl(hl2, lRows, null, {id: 'arT_sc', clsIdx: 2});
   } else if (name === 'att') {
     var ys = parseInt(yr.slice(0, 4), 10), months = [];
     for (var i = 0; i < 12; i++) { var m = 6 + i, yy = ys; if (m > 12) { m -= 12; yy = ys + 1; } months.push(yy + '-' + (m < 10 ? '0' : '') + m); }
@@ -6902,44 +6946,55 @@ function hsReset(d) {
   if (s) s.style.display = 'none';
   var o = document.getElementById('hs_out'); if (o) o.innerHTML = '';
   var st = document.getElementById('hs_status'); if (st) st.textContent = '';
+  var pb = document.getElementById('hsPdfBtn'); if (pb) pb.style.display = 'none';
+  _hs.data = null;
 }
 function hsSt(t) { var e = document.getElementById('hs_status'); if (e) e.textContent = t || ''; }
 function hsStop() { _hs.seq++; _hs.running = false; document.getElementById('hsStopBtn').style.display = 'none'; document.getElementById('hsBtn').disabled = false; hsSt('⏹ थांबवले.'); }
 function hsEnd(msg) { _hs.running = false; document.getElementById('hsStopBtn').style.display = 'none'; document.getElementById('hsBtn').disabled = false; hsSt(msg || ''); }
 function hsStart() {
   var reg = _hs.reg; if (!reg || _hs.running) return;
-  var seq = ++_hs.seq; _hs.running = true;
+  var seq = ++_hs.seq; _hs.running = true; _hs.data = {student: null, list: []};
   document.getElementById('hsBtn').disabled = true;
   document.getElementById('hsStopBtn').style.display = '';
+  document.getElementById('hsPdfBtn').style.display = 'none';
   document.getElementById('hs_out').innerHTML = '';
   hsSt('⏳ विद्यार्थी-ओळख व वर्ष-यादी Load होत आहे...');
+  function stale() { return seq !== _hs.seq || reg !== _hs.reg; }
   jsonpRequest({action: 'getStudentYearHistory', regNo: reg, meta: '1', requesterRole: currentUser.role}, function(m) {
-    if (seq !== _hs.seq || reg !== _hs.reg) return;
+    if (stale()) return;
     if (!m || m.status !== 'ok') { hsEnd(errTxt(m)); return; }
     var s = m.student || {}, note = '';
+    _hs.data.student = s;
     if (s.status === 'passedout') note = '<div class="pm-note">ℹ️ हा विद्यार्थी पूर्वी उत्तीर्ण/Archive झालेला आहे (' + pmEsc(s.fullName || '') + ', इयत्ता ' + pmEsc(s.iyatta || '') + ' ' + pmEsc(s.tukdi || '') + ', ' + pmEsc(s.acYear || '') + '). इतिहास Reg No वरून वाचतो.</div>';
     else if (s.status === 'unknown') note = '<div class="pm-note">⚠️ हा Reg No सध्याच्या Students मध्ये किंवा Pass-out Archive मध्ये सापडला नाही; फक्त Reg No शी जुळणाऱ्या नोंदी दिसतील. (Delete केलेले विद्यार्थी कव्हर होत नाहीत.)</div>';
     document.getElementById('hs_out').innerHTML = note;
-    var years = m.years || [], i = 0;
-    if (!years.length) { hsEnd('या विद्यार्थ्यासाठी कोणतेही वर्ष सापडले नाही.'); return; }
-    function stale() { return seq !== _hs.seq || reg !== _hs.reg; }
-    function nextYear() {
-      if (stale()) return;
-      if (i >= years.length) { hsEnd('✅ पूर्ण (' + years.length + ' वर्षे तपासली).'); return; }
-      var y = years[i], pos = (i + 1) + '/' + years.length;
-      hsSt('⏳ ' + y + ' (' + pos + ') — हजेरी, फी, Diary...');
-      jsonpRequest({action: 'getStudentYearHistory', regNo: reg, year: y, part: 'core', requesterRole: currentUser.role}, function(core) {
-        if (stale()) return;
-        if (!core || core.status !== 'ok') { hsBlockErr(y, errTxt(core)); i++; nextYear(); return; }
-        hsSt('⏳ ' + y + ' (' + pos + ') — घरी गेलेले...');
-        jsonpRequest({action: 'getStudentYearHistory', regNo: reg, year: y, part: 'el', requesterRole: currentUser.role}, function(el) {
-          if (stale()) return;
-          hsBlock(core, (el && el.status === 'ok') ? el : null, (!el || el.status !== 'ok') ? errTxt(el) : '');
-          i++; nextYear();
-        });
-      });
+    var years = m.years || [], N = years.length;
+    if (!N) { hsEnd('या विद्यार्थ्यासाठी कोणतेही वर्ष सापडले नाही.'); return; }
+    // दोन वर्षे एकाच वेळी (प्रत्येक वर्षाचे core व el समांतर); निकाल मात्र नवे→जुने क्रमानेच दाखवतो
+    var results = new Array(N), started = 0, inflight = 0, flushed = 0, MAXP = 2;
+    function fetchYear(i) {
+      var y = years[i], got = {}, pend = 2;
+      function fin() { if (--pend > 0) return; results[i] = got; inflight--; flush(); pump(); }
+      jsonpRequest({action: 'getStudentYearHistory', regNo: reg, year: y, part: 'core', requesterRole: currentUser.role}, function(r) { if (stale()) return; got.core = r; fin(); });
+      jsonpRequest({action: 'getStudentYearHistory', regNo: reg, year: y, part: 'el', requesterRole: currentUser.role}, function(r) { if (stale()) return; got.el = r; fin(); });
     }
-    nextYear();
+    function pump() { while (inflight < MAXP && started < N) { inflight++; fetchYear(started++); } }
+    function flush() {
+      while (flushed < N && results[flushed]) {
+        var g = results[flushed], y = years[flushed];
+        if (!g.core || g.core.status !== 'ok') hsBlockErr(y, errTxt(g.core));
+        else {
+          var elOk = g.el && g.el.status === 'ok';
+          hsBlock(g.core, elOk ? g.el : null, elOk ? '' : errTxt(g.el));
+          _hs.data.list.push({core: g.core, el: elOk ? g.el : null});
+        }
+        flushed++;
+      }
+      if (flushed >= N) { hsEnd('✅ पूर्ण (' + N + ' वर्षे).'); if (_hs.data.list.length) document.getElementById('hsPdfBtn').style.display = ''; }
+      else hsSt('⏳ ' + flushed + '/' + N + ' वर्षे पूर्ण...');
+    }
+    pump();
   });
 }
 function hsBlockErr(y, msg) {
@@ -6984,4 +7039,200 @@ function hsBlock(c, el, elErr) {
   h += '<div style="margin-top:6px"><b>🚌 प्रवास:</b> ' + (tr ? pmEsc(tr.nativeVillage || '—') + ' | ' + pmEsc(tr.travelMode || '—') + ' | ' + pmEsc(tr.transportContact || '—') : 'नोंद नाही') + '</div>';
   h += '</div>';
   document.getElementById('hs_out').insertAdjacentHTML('beforeend', h);
+}
+
+
+// =====================================================================
+// ===== V19.57 — Archive: सर्व CSV एका ZIP मध्ये; Archive आरोग्य तपासणी; Backup-गेट =====
+// =====================================================================
+function arAttCsvOnly() {
+  var d = arS.data.att; if (!d || !d.picked) return;
+  var csv = [['महिना', 'वर्ग', 'तुकडी', 'विद्यार्थी (सध्याचे)', 'हजेरी दिवस', 'सरासरी उपस्थिती %', 'गैरहजर-दिवस']];
+  d.picked.forEach(function(m) { var r = d.months[m]; if (!r) return; r.rows.filter(function(x) { return x.days > 0; }).forEach(function(x) { csv.push([m, x.iyatta, x.tukdi, x.students, x.days, x.avgPct === null ? '' : x.avgPct, x.absentDays]); }); });
+  arCsvStore.a1 = {name: 'Archive_' + arS.year + '_attendance.csv', rows: csv};
+}
+function arDownloadAll() {
+  if (!arS.year) { arSt('⚠️ आधी वर्ष निवडून "लोड करा" दाबा.'); return; }
+  var yr = arS.year, seq = ++arS.seq, steps = ['fees', 'transport', 'sch', 'att'], i = 0, prevTab = arS.tab;
+  function fail(r) { arSt(errTxt(r)); }
+  function finish() {
+    var items = Object.keys(arCsvStore).map(function(k) { return arCsvStore[k]; }).filter(function(x) { return x.name.indexOf('Archive_' + yr + '_') === 0; });
+    if (!items.length) { arSt('⚠️ डाउनलोड करण्यासाठी काहीच नाही.'); return; }
+    arTab(prevTab);
+    arSt('✅ ' + items.length + ' CSV तयार.');
+    try {
+      if (!window.PizZip) throw new Error('nozip');
+      var zip = new PizZip();
+      items.forEach(function(x) { zip.file(x.name, '\uFEFF' + arCsvText(x.rows)); });
+      var blob = zip.generate({type: 'blob', mimeType: 'application/zip'});
+      if (window.saveAs) saveAs(blob, 'Archive_' + yr + '_all_csv.zip');
+      else { var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'Archive_' + yr + '_all_csv.zip'; document.body.appendChild(a); a.click(); setTimeout(function() { URL.revokeObjectURL(a.href); a.remove(); }, 500); }
+    } catch (e) { items.forEach(function(x, k) { setTimeout(function() { arCsv(x.name, x.rows); }, k * 400); }); }   // ZIP जमले नाही तर एक-एक फाइल
+  }
+  function next() {
+    if (seq !== arS.seq || yr !== arS.year) return;
+    if (i >= steps.length) { finish(); return; }
+    var n = steps[i++];
+    if (n === 'att') {
+      arS.data.att = arS.data.att || {months: {}, picked: null};
+      var d = arS.data.att, ys = parseInt(yr.slice(0, 4), 10), months = [];
+      for (var k = 0; k < 12; k++) { var m = 6 + k, yy = ys; if (m > 12) { m -= 12; yy = ys + 1; } months.push(yy + '-' + (m < 10 ? '0' : '') + m); }
+      if (d.shown && d.picked && d.picked.length === 12) { arAttCsvOnly(); next(); return; }
+      d.months = {}; d.picked = months; var q = 0;
+      (function nm() {
+        if (seq !== arS.seq || yr !== arS.year) return;
+        if (q >= months.length) { d.shown = true; arAttCsvOnly(); next(); return; }
+        arSt('⏳ हजेरी ' + months[q] + ' (' + (q + 1) + '/12)...');
+        jsonpRequest({action: 'getAttendanceOverview', month: months[q], requesterRole: currentUser.role}, function(r) {
+          if (seq !== arS.seq || yr !== arS.year) return;
+          if (!r || r.status !== 'ok' || !r.rows) { fail(r); return; }
+          d.months[months[q]] = r; q++; nm();
+        });
+      })();
+      return;
+    }
+    if (arS.data[n]) { arRender(n); next(); return; }
+    arSt('⏳ ' + n + ' Load होत आहे...');
+    var req = n === 'sch' ? {action: 'getScholarship', year: yr} : {action: 'getArchiveReport', year: yr, section: n};
+    req.requesterRole = currentUser.role;
+    jsonpRequest(req, function(r) {
+      if (seq !== arS.seq || yr !== arS.year) return;
+      if (!r || r.status !== 'ok') { fail(r); return; }
+      arS.data[n] = r; arRender(n); next();
+    });
+  }
+  next();
+}
+
+// ---- #9: Archive आरोग्य तपासणी ----
+function arHealth() {
+  var box = document.getElementById('ar_health');
+  box.innerHTML = '⏳ Archive वर्षांची यादी...';
+  jsonpRequest({action: 'getArchiveHealth', requesterRole: currentUser.role}, function(L) {
+    if (!L || L.status !== 'ok') { box.innerHTML = '<div class="pm-note">❌ ' + arE(errTxt(L)) + '</div>'; return; }
+    var yrs = L.years || [];
+    if (!yrs.length) { box.innerHTML = '<div>ℹ️ अजून कोणतेही वर्ष Archive झालेले नाही.</div>'; return; }
+    box.innerHTML = '<b>🩺 Archive तपासणी</b>' + (L.orphanIds && L.orphanIds.length ? '<div class="pm-note">⚠️ Archive-यादीत नसलेल्या पण फाइल-नोंद असलेल्या वर्षांच्या नोंदी: ' + arE(L.orphanIds.join(', ')) + '</div>' : '') +
+      yrs.map(function(y) { return '<div class="ar-hcard" id="arh_' + y.year + '"><b>📦 ' + arE(y.year) + '</b> — ⏳ तपासत आहे...</div>'; }).join('');
+    var i = 0;
+    (function next() {
+      if (i >= yrs.length) return;
+      var y = yrs[i++].year;
+      jsonpRequest({action: 'getArchiveHealth', year: y, requesterRole: currentUser.role}, function(r) {
+        var el = document.getElementById('arh_' + y); if (!el) return;
+        if (!r || r.status !== 'ok') { el.innerHTML = '<b>📦 ' + arE(y) + '</b> — ❌ ' + arE(errTxt(r)); next(); return; }
+        var g = r.groups ? Object.keys(r.groups).map(function(k) { return arE(k) + ' ' + r.groups[k]; }).join(', ') : '';
+        var rw = r.rows ? Object.keys(r.rows).map(function(k) { return arE(k) + ': ' + (r.rows[k] === null ? '—' : r.rows[k]); }).join(' | ') : '';
+        el.innerHTML = '<b>📦 ' + arE(y) + '</b> — ' + (r.ok ? '✅ ठीक' : '❌ समस्या') +
+          (r.problems || []).map(function(p) { return '<div class="pm-note" style="background:#ffe5e5;border-color:#e08a8a;color:#7a1a1a">❌ ' + arE(p) + '</div>'; }).join('') +
+          (r.opened ? '<div style="font-size:12.5px;margin-top:4px">Sheets: ' + r.sheetCount + ' (' + g + ')<br>नोंदी — ' + rw + (r.lastUpdated ? '<br>शेवटचा बदल: ' + arE(String(r.lastUpdated).slice(0, 10)) : '') + '</div>' : '') +
+          (r.warnings || []).map(function(w) { return '<div class="pm-note">⚠️ ' + arE(w) + '</div>'; }).join('') +
+          '<div style="font-size:12.5px;margin-top:4px">Backup यादीत: <b>' + (r.inBackupList ? 'होय' : 'नाही') + '</b>' +
+          (currentUser.role === 'super' && r.hasId ? ' <button class="btn btn-blue btn-sm" onclick="arBackupFile(\'' + arE(y) + '\')">📥 एकदाची प्रत बनवा</button>' : '') +
+          (r.url ? ' <a href="' + arE(r.url) + '" target="_blank" rel="noopener">फाइल उघडा</a>' : '') + '</div>';
+        next();
+      });
+    })();
+  });
+}
+function arBackupFile(y) {
+  if (!confirm(y + ' च्या Archive फाइलची एक प्रत Drive च्या "SGS_Auto_Backups" फोल्डरमध्ये बनवायची?')) return;
+  arSt('⏳ प्रत बनवत आहे...');
+  smartSaveRaw({action: 'backupArchiveFile', year: y, requesterUser: currentUser.username, requesterRole: currentUser.role}, function(r) {
+    arSt(r && r.status === 'ok' ? '✅ प्रत बनली: ' + ((r.extra && r.extra.name) || '') : '❌ ' + friendlyMsg((r && r.message) || 'Failed'));
+  });
+}
+
+// ---- #10: Archive / नवे वर्ष करण्यापूर्वी ताजा Backup ----
+function saBackupGate(proceed) {
+  jsonpRequest({action: 'getBackupStatus', requesterRole: currentUser.role}, function(r) {
+    var t = (r && r.status === 'ok' && r.last && r.last.ok && r.last.time) ? new Date(r.last.time).getTime() : 0;
+    if (t && (Date.now() - t) <= 48 * 3600 * 1000) { proceed(''); return; }
+    var age = t ? Math.round((Date.now() - t) / 3600000) + ' तासांपूर्वी' : 'एकही यशस्वी Backup नाही / स्थिती कळली नाही';
+    if (confirm('⚠️ ताजा Backup नाही (' + age + ').\n\nOK = आत्ता Backup घ्या व मग पुढे जा.\nCancel = पुढचा पर्याय पाहा.')) {
+      smartSaveRaw({action: 'runBackup', requesterUser: currentUser.username, requesterRole: currentUser.role}, function(rb) {
+        if (rb && rb.status === 'ok') proceed(''); else alert('❌ Backup अयशस्वी: ' + ((rb && rb.message) || '') + '\nपुढे जात नाही.');
+      });
+    } else if (confirm('Backup शिवाय पुढे जायचे? (धोकादायक — चूक झाल्यास परत मिळवता येणार नाही)')) proceed('1');
+  });
+}
+function arBackupLine() {
+  var el = document.getElementById('ar_bk'); if (!el || currentUser.role !== 'super') return;
+  jsonpRequest({action: 'getBackupStatus', requesterRole: currentUser.role}, function(r) {
+    if (!r || r.status !== 'ok') return;
+    var t = (r.last && r.last.ok && r.last.time) ? new Date(r.last.time).getTime() : 0;
+    var h = t ? Math.round((Date.now() - t) / 3600000) : null;
+    el.innerHTML = t ? ((h <= 48 ? '✅' : '⚠️') + ' शेवटचा यशस्वी Backup: ' + (h < 48 ? h + ' तासांपूर्वी' : Math.round(h / 24) + ' दिवसांपूर्वी') + (h > 48 ? ' — Archive करण्यापूर्वी Backup घ्या.' : '')) : '⚠️ अजून एकही यशस्वी Backup नाही.';
+  });
+}
+
+
+// ---- #5: इतिहास सारांश PDF (A4) — विद्यमान html2canvas + jsPDF पद्धत (मराठी फॉन्ट बरोबर दिसतो) ----
+function hsPdfYearHtml(c, el) {
+  var cls = c.cls || {}, a = c.attendance || {}, f = c.fees || {}, sch = c.scholarship || [], dy = c.diary || [], tr = c.transport;
+  var cap = function(arr, n, fn) { return arr.slice(0, n).map(fn).join(', ') + (arr.length > n ? ' … +' + (arr.length - n) : ''); };
+  var h = '<div style="border:0.3mm solid #bbb;border-radius:2mm;padding:3mm 4mm;margin-bottom:3mm;font-size:9pt;line-height:1.45">' +
+    '<div style="font-weight:800;font-size:10.5pt;color:#1a2a4a">' + (c.archived ? '📦 ' : '') + pmEsc(c.year) + (cls.iyatta ? ' — इयत्ता ' + pmEsc(cls.iyatta) + (cls.tukdi ? '-' + pmEsc(cls.tukdi) : '') + (cls.roll ? ' | हजेरी क्र. ' + pmEsc(cls.roll) : '') : '') + '</div>';
+  var any = (a.absentDays > 0) || (a.markedDays > 0) || f.has || (el && el.records && el.records.length) || sch.length || dy.length || tr || cls.iyatta;
+  if (!any) return h + '<div style="color:#777">या वर्षाची कोणतीही नोंद नाही.</div></div>';
+  h += '<div><b>हजेरी:</b> गैरहजर ' + (a.absentDays || 0) + ' दिवस' + (a.markedDays !== null && a.markedDays !== undefined ? ' / हजेरी भरलेले ' + a.markedDays : '') + (a.pct !== null && a.pct !== undefined ? ' → उपस्थिती ' + a.pct + '%' : '') + '</div>';
+  if (a.absentDates && a.absentDates.length) h += '<div style="color:#444">गैरहजर तारखा: ' + cap(a.absentDates, 40, function(x) { return pmEsc(tchFmtDate(x.date)); }) + '</div>';
+  h += f.has ? '<div><b>फी:</b> एकूण ' + pmMoney(f.total) + ', मागील थकबाकी ' + pmMoney(f.opening) + ', जमा ' + pmMoney(f.paid) + ', बाकी <b>' + pmMoney(f.balance) + '</b>' + (f.totalAssumed ? ' <i>(एकूण फी अंदाजित)</i>' : '') + '</div>' +
+    ((f.installments && f.installments.length) ? '<div style="color:#444">हप्ते: ' + cap(f.installments, 12, function(x) { return pmEsc(tchFmtDate(x.date)) + ' ' + pmMoney(x.amount); }) + '</div>' : '') : '<div style="color:#777"><b>फी:</b> नोंद नाही</div>';
+  if (el) h += '<div><b>घरी जाण्याच्या नोंदी:</b> ' + (el.records.length ? el.records.length + ' (गेले: ' + el.gone + ') — ' + cap(el.records, 20, function(x) { return pmEsc(tchFmtDate(x.date)); }) : 'नाही') + '</div>';
+  h += '<div><b>शिष्यवृत्ती:</b> ' + (sch.length ? sch.map(function(x) { return pmEsc(x.scholarshipName || '') + ' ' + pmMoney(x.amount) + ' (' + pmEsc(x.status || '') + ')'; }).join('; ') : 'नाही') + '</div>';
+  var pos = dy.filter(function(x) { return x.type === 'positive'; }).length, warn = dy.filter(function(x) { return x.type === 'warning'; }).length;
+  h += '<div><b>Diary:</b> Positive ' + pos + ' / Warning ' + warn + '</div>';
+  var rem = dy.filter(function(x) { return x.type === 'positive' || x.type === 'warning'; });
+  if (rem.length) h += '<div style="color:#444">' + cap(rem, 10, function(x) { var t = String(x.remark || ''); return (x.type === 'warning' ? '⚠ ' : '👍 ') + pmEsc(tchFmtDate(x.date)) + ' ' + pmEsc(t.length > 70 ? t.slice(0, 70) + '…' : t); }) + '</div>';
+  h += '<div><b>प्रवास:</b> ' + (tr ? pmEsc(tr.nativeVillage || '—') + ' | ' + pmEsc(tr.travelMode || '—') + ' | ' + pmEsc(tr.transportContact || '—') : 'नोंद नाही') + '</div></div>';
+  return h;
+}
+function hsPdf() {
+  if (!_hs.data || !_hs.data.list.length) return;
+  var btn = document.getElementById('hsPdfBtn'), orig = btn.textContent, s = _hs.data.student || {};
+  btn.disabled = true; btn.textContent = '⏳ PDF तयार होत आहे...';
+  var pdfW = 210, MAXH = 1020;   // px: (297 − 2×12) मिमी ≈ 1032px (96dpi) — थोडी जागा सोडली
+  var container = document.createElement('div');
+  container.style.cssText = 'position:fixed;left:-99999px;top:0;';
+  document.body.appendChild(container);
+  var pages = [];
+  function newPage(first) {
+    var page = document.createElement('div');
+    page.style.cssText = 'width:' + pdfW + 'mm;min-height:297mm;padding:12mm;box-sizing:border-box;background:#fff;font-family:"Kokila","Noto Sans Devanagari","Mukta",sans-serif;color:#111;position:relative';
+    var inner = document.createElement('div'); page.appendChild(inner);
+    if (first) inner.innerHTML = '<div style="text-align:center;margin-bottom:4mm"><div style="font-size:16pt;font-weight:800;color:#1a2a4a">श्री. गो. से. हायस्कूल, पाचोरा</div>' +
+      '<div style="font-size:11pt;font-weight:700;margin-top:1mm">विद्यार्थी — सर्व वर्षांचा इतिहास सारांश</div>' +
+      '<div style="font-size:9.5pt;margin-top:1.5mm">' + pmEsc(s.fullName || '') + ' | Reg No: ' + pmEsc(s.regNo || _hs.reg) + (s.iyatta ? ' | सध्याचा वर्ग: ' + pmEsc(s.iyatta) + (s.tukdi ? '-' + pmEsc(s.tukdi) : '') : '') + ' | दिनांक: ' + todayDate() + '</div></div>';
+    container.appendChild(page); pages.push({page: page, inner: inner});
+    return pages[pages.length - 1];
+  }
+  var cur = newPage(true);
+  _hs.data.list.forEach(function(x) {
+    var d = document.createElement('div'); d.innerHTML = hsPdfYearHtml(x.core, x.el);
+    cur.inner.appendChild(d);
+    if (cur.inner.offsetHeight > MAXH && cur.inner.children.length > 1) { cur.inner.removeChild(d); cur = newPage(false); cur.inner.appendChild(d); }
+  });
+  pages.forEach(function(p, i) { p.inner.insertAdjacentHTML('beforeend', '<div style="text-align:right;font-size:8pt;color:#777;margin-top:2mm">पान ' + (i + 1) + '/' + pages.length + '</div>'); });
+  var doc = null, idx = 0, pdfH = 297;
+  function done(err) {
+    if (container.parentNode) container.parentNode.removeChild(container);
+    btn.disabled = false; btn.textContent = orig;
+    if (err) { alert('❌ PDF त्रुटी: ' + err.message); return; }
+    doc.save('Student_History_' + String(s.regNo || _hs.reg).replace(/[^\w-]/g, '_') + '_' + new Date().toISOString().slice(0, 10) + '.pdf');
+  }
+  function renderNext() {
+    if (idx >= pages.length) { done(null); return; }
+    html2canvas(pages[idx].page, {scale: 2.5, useCORS: true, backgroundColor: '#ffffff', logging: false}).then(function(canvas) {
+      var asp = canvas.width / canvas.height, w = pdfW, h = pdfW / asp;
+      if (h > pdfH) { h = pdfH; w = pdfH * asp; }
+      if (!doc) doc = new window.jspdf.jsPDF({orientation: 'portrait', unit: 'mm', format: 'a4', compress: true});
+      else doc.addPage('a4', 'portrait');
+      doc.addImage(canvas.toDataURL('image/jpeg', 0.95), 'JPEG', (pdfW - w) / 2, 0, w, h);
+      idx++; renderNext();
+    }).catch(done);
+  }
+  var go = function() { requestAnimationFrame(function() { requestAnimationFrame(renderNext); }); };
+  if (document.fonts && document.fonts.ready) Promise.all([document.fonts.load('400 12pt "Noto Sans Devanagari"'), document.fonts.load('700 12pt "Noto Sans Devanagari"'), document.fonts.ready]).then(go).catch(go);
+  else go();
 }

@@ -907,6 +907,7 @@
         <div class="sec-title" style="font-size:14px;margin-bottom:8px">📚 सर्व वर्षांचा इतिहास — फक्त पाहणे</div>
         <button class="btn btn-gold" id="hsBtn" onclick="hsStart()">📚 सर्व वर्षांचा इतिहास</button>
         <button class="btn btn-gray" id="hsStopBtn" style="display:none" onclick="hsStop()">⏹ थांबवा</button>
+        <button class="btn btn-blue" id="hsPdfBtn" style="display:none" onclick="hsPdf()">📄 PDF (A4)</button>
         <div id="hs_status" style="font-size:12.5px;margin-top:8px;color:#555"></div>
         <div id="hs_out" class="pm-box"></div>
       </div>
@@ -1282,7 +1283,10 @@
     <div class="frow" style="gap:10px;flex-wrap:wrap;align-items:flex-end">
       <div class="fg" style="min-width:180px;flex:0 0 auto"><label>शैक्षणिक वर्ष</label><select id="ar_year"></select></div>
       <button class="btn btn-gold" onclick="arLoad()">📥 लोड करा</button>
+      <button class="btn btn-blue" onclick="arDownloadAll()">🗜️ सर्व CSV (ZIP)</button>
+      <button class="btn btn-gray" onclick="arHealth()">🩺 Archive तपासणी</button>
     </div>
+    <div id="ar_bk" style="font-size:12px;margin-top:6px;color:#555"></div>
     <div id="ar_status" style="font-size:12.5px;margin-top:8px;color:#555"></div>
   </div></div>
   <div class="frow" style="gap:6px;flex-wrap:wrap;margin-bottom:10px">
@@ -1293,6 +1297,7 @@
   </div>
   <div id="ar_anchor"></div>
   <div id="ar_body" class="pm-box"></div>
+  <div id="ar_health" class="pm-box"></div>
 </div>
 
 <div id="pg-earlyleave" class="page">

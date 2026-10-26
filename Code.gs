@@ -194,6 +194,9 @@ function doGetCore_(e) {
   if (p.action === "getDiary") {
     return doGetDiary(p, cb);
   }
+  if (p.action === "getArchiveHealth") {      // V19.57 — Archive आरोग्य तपासणी (super/master, फक्त वाचन)
+    return doGetArchiveHealth(p, cb);
+  }
   if (p.action === "getStudentYearHistory") {   // V19.56 — एका विद्यार्थ्याचा वर्षागणिक इतिहास (फक्त वाचन)
     return doGetStudentYearHistory(p, cb);
   }
@@ -275,7 +278,7 @@ function doGetCore_(e) {
       p.action === "archivePassedOut" || p.action === "restorePassedOut" ||
       p.action === "renumberRolls" || p.action === "archiveLogNow" ||
       p.action === "saveEarlyLeave" || p.action === "markEarlyLeaveOut" || p.action === "shrinkSheets" || p.action === "rebuildFeesSummary" ||
-      p.action === "startNewYear" || p.action === "archiveYear") {
+      p.action === "startNewYear" || p.action === "archiveYear" || p.action === "backupArchiveFile") {
     return handleAction(p, cb);
   }
   var a = p.action || "";
@@ -397,6 +400,8 @@ function handleAction(d, cb) {
       result = doStartNewYear(d);
     } else if (action === "archiveYear") {
       result = doArchiveYear(d);
+    } else if (action === "backupArchiveFile") {
+      result = doBackupArchiveFile(d);
     } else if (action === "rebuildFeesSummary") {
       result = doRebuildFeesSummary(d);
     } else if (action === "shrinkSheets") {
@@ -1343,6 +1348,8 @@ function doGetArchiveReport(p, cb) {
     if (!/^\d{4}-\d{2}$/.test(year)) return wrap(cb, {status: "error", message: "वर्ष YYYY-YY स्वरूपात हवे."});
     var section = (p.section || "").toString().trim();
     var archived = isArchivedYear_(year);
+    var arCk = (archived && (section === "fees" || section === "transport")) ? "arr_" + archCacheVer_() + "_" + section + "_" + year : "";   // V19.57
+    if (arCk) { var hit = cacheGetGz_(arCk); if (hit) { try { var ho = JSON.parse(hit); ho.cached = true; return wrap(cb, ho); } catch (eH) {} } }
     if (section === "fees") {
       feesEnsureMigrated_();
       var rd = archReadSheet_("Fees", year);
@@ -1372,6 +1379,7 @@ function doGetArchiveReport(p, cb) {
       var classes = Object.keys(byClass).map(function(k) { return byClass[k]; }).sort(function(a, b) { return arClassCmp_(a.cls, b.cls); });
       var res = {status: "ok", section: "fees", year: year, classes: classes, total: tot, rows: rows, hasSheet: !!ev};
       if (archived) res.archived = true;
+      if (arCk) cachePutGz_(arCk, JSON.stringify(res));
       return wrap(cb, res);
     }
     if (section === "transport") {
@@ -1383,6 +1391,7 @@ function doGetArchiveReport(p, cb) {
       trows.sort(function(a, b) { return arClassCmp_(a[2], b[2]) || (String(a[3]) < String(b[3]) ? -1 : (String(a[3]) > String(b[3]) ? 1 : 0)) || (String(a[1]) < String(b[1]) ? -1 : 1); });
       var tres = {status: "ok", section: "transport", year: year, rows: trows, hasSheet: !!ts};
       if (archived) tres.archived = true;
+      if (arCk) cachePutGz_(arCk, JSON.stringify(tres));
       return wrap(cb, tres);
     }
     return wrap(cb, {status: "error", message: "अज्ञात विभाग (fees / transport). हजेरी व शिष्यवृत्तीसाठी विद्यमान action वापरा."});
@@ -1557,14 +1566,121 @@ function doGetStudentYearHistory(p, cb) {
     var year = (p.year || "").toString().trim();
     if (!/^\d{4}-\d{2}$/.test(year)) return wrap(cb, {status: "error", message: "वर्ष YYYY-YY स्वरूपात हवे."});
     if (isArchivedYear_(year) && !archiveSS_(year)) return wrap(cb, {status: "error", code: "archive_missing", message: "📦 " + year + " ची Archive फाइल उघडता आली नाही — रिकामे दाखवत नाही. Archive फाइल/परवानगी तपासा."});
+    var part0 = (p.part === "el") ? "el" : "core";
+    var hsCk = isArchivedYear_(year) ? "hs_" + archCacheVer_() + "_" + rosterVer_() + "_" + part0 + "_" + year + "_" + regNo.toLowerCase().replace(/[^a-z0-9_-]/g, "_") : "";   // V19.57
+    if (hsCk) { var hh = cacheGetGz_(hsCk); if (hh) { try { var ho2 = JSON.parse(hh); ho2.cached = true; return wrap(cb, ho2); } catch (eH2) {} } }
     var res;
     if ((p.part || "core") === "el") res = hsYearEL_(regNo, year);
     else {
       var passed = scholarFindStudent_(regNo) ? null : hsPassedOut_(regNo);
       res = hsYearCore_(regNo, year, passed);
     }
-    res.status = "ok"; res.part = (p.part === "el") ? "el" : "core";
+    res.status = "ok"; res.part = part0;
+    if (hsCk) cachePutGz_(hsCk, JSON.stringify(res));
     return wrap(cb, res);
+  } catch (err) {
+    return wrap(cb, {status: "error", message: err.toString()});
+  }
+}
+
+// =====================================================================
+// ===== V19.57 — मोठे Cache (gzip+base64, तुकड्यांत), Archive आरोग्य तपासणी, Backup-गेट, Archive फाइलची प्रत =====
+// =====================================================================
+// CacheService ची 100KB/key मर्यादा टाळण्यासाठी: gzip → base64 → ९०,००० अक्षरांचे तुकडे. फक्त Archive झालेल्या (न बदलणाऱ्या) वर्षांसाठी वापरतो.
+function cacheGetGz_(key) {
+  try {
+    var c = CacheService.getScriptCache(), head = c.get(key + "#n");
+    if (!head) return null;
+    var n = parseInt(head, 10), keys = [];
+    for (var i = 0; i < n; i++) keys.push(key + "#" + i);
+    var got = c.getAll(keys), b64 = "";
+    for (var j = 0; j < n; j++) { var part = got[key + "#" + j]; if (!part) return null; b64 += part; }
+    return Utilities.ungzip(Utilities.newBlob(Utilities.base64Decode(b64), "application/x-gzip")).getDataAsString();
+  } catch (e) { return null; }
+}
+function cachePutGz_(key, str, ttl) {
+  try {
+    var b64 = Utilities.base64Encode(Utilities.gzip(Utilities.newBlob(str, "text/plain")).getBytes());
+    var CH = 90000, n = Math.ceil(b64.length / CH);
+    if (n > 20) return false;   // ~१.८ MB पेक्षा मोठे — cache करत नाही
+    var o = {};
+    for (var i = 0; i < n; i++) o[key + "#" + i] = b64.substr(i * CH, CH);
+    o[key + "#n"] = String(n);
+    CacheService.getScriptCache().putAll(o, ttl || 21600);
+    return true;
+  } catch (e) { return false; }
+}
+function archCacheVer_() { return PropertiesService.getScriptProperties().getProperty("ARCH_CACHE_VER") || "0"; }
+function archCacheBump_() { PropertiesService.getScriptProperties().setProperty("ARCH_CACHE_VER", String(Date.now())); }
+
+// Archive / नवे-वर्ष करण्यापूर्वी ताजा Backup हवा (शेवटचा यशस्वी Backup ४८ तासांच्या आत). Super ने जाणीवपूर्वक पुढे जायचे असेल तर ackNoBackup=1.
+function backupStaleErr_(d) {
+  if ((d.ackNoBackup || "") === "1") return "";
+  var last = null;
+  try { last = JSON.parse(PropertiesService.getScriptProperties().getProperty("LAST_BACKUP") || "null"); } catch (e) {}
+  var t = (last && last.ok && last.time) ? new Date(last.time).getTime() : 0;
+  if (t && (Date.now() - t) <= 48 * 3600 * 1000) return "";
+  return "⚠️ ताजा Backup सापडला नाही" + (t ? " (शेवटचा यशस्वी Backup " + Math.round((Date.now() - t) / 3600000) + " तासांपूर्वी)" : " (एकही यशस्वी Backup नाही)") + ". आधी Backup घ्या, किंवा जाणीवपूर्वक पुढे जा.";
+}
+function doBackupArchiveFile(d) {
+  if (d.requesterRole !== "super") return {status:"error", message:"अधिकार फक्त Super Master ला आहे."};
+  var year = (d.year || "").toString().trim();
+  if (!/^\d{4}-\d{2}$/.test(year) || !isArchivedYear_(year)) return {status:"error", message:"हे Archive झालेले वर्ष नाही."};
+  var id = PropertiesService.getScriptProperties().getProperty("ARCHIVE_ID_" + year);
+  if (!id) return {status:"error", message:"📦 " + year + " च्या Archive फाइलची नोंद (ID) सापडली नाही."};
+  try {
+    var stamp = Utilities.formatDate(new Date(), "Asia/Kolkata", "yyyy-MM-dd_HHmm");
+    var file = DriveApp.getFileById(id);
+    var copy = file.makeCopy("SGS_Archive_" + year + "_ARCHIVECOPY_" + stamp, getBackupFolder_());   // स्वयंचलित pruning नावातील "_BACKUP_" वर चालते; ही प्रत त्यात येत नाही
+    return {rowIndex: 0, mode: "updated", count: 1, ref: "backupArchiveFile " + year, extra: {name: copy.getName(), url: copy.getUrl()}};
+  } catch (err) {
+    return {status:"error", message:"प्रत बनवता आली नाही: " + err.toString()};
+  }
+}
+function doGetArchiveHealth(p, cb) {
+  try {
+    var e = archAuth_(p); if (e) return wrap(cb, {status: "error", code: "forbidden", message: e});
+    var props = PropertiesService.getScriptProperties(), bk = getBackupSpreadsheetIds_();
+    var year = (p.year || "").toString().trim();
+    if (!year) {   // यादी: कोणतीही फाइल उघडत नाही
+      var yrs = archivedYears_(), all = props.getProperties(), orphans = [];
+      Object.keys(all).forEach(function(k) { if (k.indexOf("ARCHIVE_ID_") === 0) { var y = k.slice(11); if (yrs.indexOf(y) === -1) orphans.push(y); } });
+      return wrap(cb, {status: "ok", years: yrs.map(function(y) { var id = props.getProperty("ARCHIVE_ID_" + y); return {year: y, hasId: !!id, inBackupList: !!id && bk.indexOf(id) !== -1}; }), orphanIds: orphans});
+    }
+    if (!/^\d{4}-\d{2}$/.test(year)) return wrap(cb, {status: "error", message: "वर्ष YYYY-YY स्वरूपात हवे."});
+    var id2 = props.getProperty("ARCHIVE_ID_" + year);
+    var out = {status: "ok", year: year, hasId: !!id2, inBackupList: !!id2 && bk.indexOf(id2) !== -1, opened: false, problems: [], warnings: []};
+    // मुख्य फाइलमध्ये त्या वर्षाच्या Sheets अजून राहिल्या आहेत का
+    var left = [];
+    SpreadsheetApp.getActiveSpreadsheet().getSheets().forEach(function(sh) { if (sheetYearOf_(sh.getName()) === year) left.push(sh.getName()); });
+    out.leftoverInMain = left;
+    if (left.length) out.warnings.push("मुख्य फाइलमध्ये या वर्षाच्या " + left.length + " Sheets अजून आहेत (Archive अर्धवट किंवा हेतुपुरस्सर).");
+    if (!id2) { out.problems.push("Archive फाइलची नोंद (ARCHIVE_ID_" + year + ") नाही."); out.ok = false; return wrap(cb, out); }
+    var ar;
+    try { ar = SpreadsheetApp.openById(id2); out.opened = true; }
+    catch (eo) { out.problems.push("Archive फाइल उघडता आली नाही: " + eo.toString()); out.ok = false; return wrap(cb, out); }
+    var names = ar.getSheets().map(function(sh) { return sh.getName(); });
+    var groups = {};
+    names.forEach(function(n) { var m = /^([A-Za-z]+)_/.exec(n); var g = m ? m[1] : n; groups[g] = (groups[g] || 0) + 1; });
+    out.sheetCount = names.length; out.groups = groups;
+    var ys = acYearStart_(year), missing = [];
+    for (var i = 0; i < 12; i++) { var m2 = 6 + i, yy = ys; if (m2 > 12) { m2 -= 12; yy = ys + 1; } var key = yy + "_" + ("0" + m2).slice(-2); if (names.indexOf("Attendance_" + key) === -1) missing.push(yy + "-" + ("0" + m2).slice(-2)); }
+    out.attendanceMissingMonths = missing;
+    if (missing.length === 12) out.warnings.push("हजेरीच्या एकही महिन्याची Sheet नाही.");
+    else if (missing.length) out.warnings.push("हजेरी Sheet नसलेले महिने: " + missing.join(", ") + " (त्या महिन्यात हजेरी नसेल तर ठीक).");
+    var rows = {};
+    ["Fees", "FeesSummary", "Transport", "Diary", "Scholarship"].forEach(function(b) {
+      var sh = ar.getSheetByName(b + "_" + year);
+      rows[b] = sh ? Math.max(0, sh.getLastRow() - 1) : null;
+    });
+    out.rows = rows;
+    if (rows.Fees === null) out.warnings.push("Fees_" + year + " नाही.");
+    if (!names.length) out.problems.push("Archive फाइलमध्ये एकही Sheet नाही.");
+    try { out.lastUpdated = DriveApp.getFileById(id2).getLastUpdated().toISOString(); } catch (eL) {}
+    try { out.url = ar.getUrl(); } catch (eU) {}
+    if (!out.inBackupList) out.warnings.push("ही Archive फाइल स्वयंचलित Backup यादीत नाही — एकदाची प्रत बनवा.");
+    out.ok = out.problems.length === 0;
+    return wrap(cb, out);
   } catch (err) {
     return wrap(cb, {status: "error", message: err.toString()});
   }
@@ -1872,36 +1988,16 @@ function rosterVer_() {
 function invalidateRosterCache_() {
   try { CacheService.getScriptCache().put("roster_ver", String(Date.now()), 21600); } catch (e) {}
 }
+// V19.57: gzip + base64 (cacheGetGz_/cachePutGz_) वर आधारित. आधी: ३०,००० अक्षरे × १२ तुकडे = ३,६०,००० अक्षरांची मर्यादा होती;
+// प्रत्यक्ष विद्यार्थी-यादी (२,१२२ विद्यार्थी) ६,५६,८५८ अक्षरांची असल्याने ती Cache होतच नव्हती व प्रत्येक विनंतीत Students Sheet वाचली जात होती.
+// नवे key-नाव ("z:" उपसर्ग) असल्याने जुन्या स्वरूपातील नोंदी फक्त miss होतात — कोणताही गोंधळ नाही. Signature तोच (वस्तू आत, वस्तू बाहेर).
 function cacheGetBig_(key) {
-  try {
-    var c = CacheService.getScriptCache();
-    var meta = c.get(key);
-    if (!meta) return null;
-    var n = parseInt(meta, 10);
-    if (!n || n < 1) return null;
-    var keys = [];
-    for (var i = 0; i < n; i++) keys.push(key + "_" + i);
-    var parts = c.getAll(keys);
-    var s = "";
-    for (var j = 0; j < n; j++) {
-      var part = parts[key + "_" + j];
-      if (part === null || part === undefined) return null;
-      s += part;
-    }
-    return JSON.parse(s);
-  } catch (e) { return null; }
+  var s = cacheGetGz_("z:" + key);
+  if (s === null || s === undefined) return null;
+  try { return JSON.parse(s); } catch (e) { return null; }
 }
 function cachePutBig_(key, obj, ttl) {
-  try {
-    var s = JSON.stringify(obj);
-    var CH = 30000; // देवनागरी ३ bytes/अक्षर — एका value साठी 100KB मर्यादेत राहण्यासाठी
-    var n = Math.ceil(s.length / CH) || 1;
-    if (n > 12) return; // खूपच मोठे — Cache करू नका
-    var bag = {};
-    for (var i = 0; i < n; i++) bag[key + "_" + i] = s.substr(i * CH, CH);
-    bag[key] = String(n);
-    CacheService.getScriptCache().putAll(bag, ttl);
-  } catch (e) {}
+  try { cachePutGz_("z:" + key, JSON.stringify(obj), ttl); } catch (e) {}
 }
 
 function buildRoster_(iyatta, tukdi) {
@@ -2392,12 +2488,23 @@ function scholarAuth_(p, forWrite) {
   }
   return {role: r, teacherClass: null};
 }
+var SCH_MEMO_ = {};   // V19.57: एका execution मध्ये एकाच Reg No साठी roster पुन्हा पुन्हा शोधू नये (इतिहास/फी अधिकार-तपासणी अनेकदा बोलावते)
 function scholarFindStudent_(regNo) {
   var key = scholarNorm_(regNo);
   if (!key) return null;
-  var list = getRosterCached_("", "", false).data || [];
-  for (var i = 0; i < list.length; i++) if (scholarNorm_(list[i].regNo) === key) return list[i];
-  return null;
+  if (SCH_MEMO_.hasOwnProperty(key)) return SCH_MEMO_[key];
+  var list = getRosterCached_("", "", false).data || [], found = null;
+  for (var i = 0; i < list.length; i++) if (scholarNorm_(list[i].regNo) === key) { found = list[i]; break; }
+  SCH_MEMO_[key] = found;
+  return found;
+}
+// Editor मधून Run करा (फक्त वाचन): पूर्ण विद्यार्थी-यादी Cache मध्ये बसते का? (मर्यादा: ३०,००० अक्षरे × १२ तुकडे = ३,६०,००० अक्षरे)
+function diagRosterCacheSize() {
+  var data = buildRoster_("", ""), str = JSON.stringify(data);
+  var b64 = Utilities.base64Encode(Utilities.gzip(Utilities.newBlob(str, "text/plain")).getBytes());
+  var chunks = Math.ceil(b64.length / 90000);
+  var msg = "विद्यार्थी: " + data.length + " | JSON अक्षरे: " + str.length + " | gzip+base64: " + b64.length + " | तुकडे: " + chunks + " (मर्यादा 20) → " + (chunks <= 20 ? "✅ Cache मध्ये बसते" : "❌ बसत नाही");
+  Logger.log(msg); return msg;
 }
 function scholarRowToObj_(r, cur) {
   return {id: r[0], timestamp: r[1], acYear: r[2], regNo: r[3], studentId: r[4], fullName: r[5],
@@ -4888,6 +4995,7 @@ function doStartNewYear(d) {
   var prev = currentAcYear_();
   if (acYearStart_(newYear) <= acYearStart_(prev)) return {status:"error", message:"नवे वर्ष चालू वर्षापेक्षा (" + prev + ") पुढचे हवे."};
   if (acYearStart_(newYear) > acYearStart_(prev) + 1) return {status:"error", message:"एकावेळी फक्त पुढचेच वर्ष (" + nextAcYear_(prev) + ") सुरू करता येते."};
+  var bkErr = backupStaleErr_(d); if (bkErr) return {status:"error", code:"backup_stale", message: bkErr};   // V19.57
   var carry = (d.carry || "1") !== "0";
   feesEnsureMigrated_(); diaryEnsureMigrated_(); transportEnsureMigrated_();
   var lock = LockService.getScriptLock();
@@ -4924,6 +5032,7 @@ function doArchiveYear(d) {
   if (!/^\d{4}-\d{2}$/.test(year)) return {status:"error", message:"वर्ष 2026-27 या स्वरूपात टाका."};
   var cur = currentAcYear_();
   if (acYearStart_(year) >= acYearStart_(cur)) return {status:"error", message:"चालू (" + cur + ") किंवा पुढचे वर्ष Archive करता येत नाही."};
+  var bkErr = backupStaleErr_(d); if (bkErr) return {status:"error", code:"backup_stale", message: bkErr};   // V19.57
   var lock = LockService.getScriptLock();
   var locked = false;
   try {
@@ -4954,6 +5063,7 @@ function doArchiveYear(d) {
     if (moved.length) {
       var yrs = archivedYears_();
       if (yrs.indexOf(year) === -1) { yrs.push(year); yrs.sort(); PropertiesService.getScriptProperties().setProperty("ARCHIVED_YEARS", yrs.join(",")); }
+      archCacheBump_();   // V19.57: Archive वर्षांचे cache केलेले अहवाल/इतिहास रद्द
       attBump_(); invalidateRosterCache_();   // V19.53: Archive नंतर जुने (cache केलेले) हजेरी-उत्तर वापरले जाऊ नये — "archived" पट्टी लगेच दिसावी
     }
     return {rowIndex: 0, mode: "updated", count: moved.length, ref: "archiveYear " + year,

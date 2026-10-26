@@ -454,3 +454,8 @@ body.role-deo .dcard[data-page="archive"],body.role-cert .dcard[data-page="archi
 .hs-year details{margin:4px 0}
 .hs-year summary{cursor:pointer;font-weight:600}
 .hs-empty{opacity:.7;font-size:12.5px}
+
+/* V19.57 */
+.ar-filter{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:6px 0}
+.ar-filter input[type=text],.ar-filter select{padding:6px 8px;border:1px solid #ccc;border-radius:6px;font-size:13px;max-width:100%}
+.ar-hcard{border:1px solid #e0d5bd;border-radius:10px;padding:8px 12px;margin:8px 0;background:#fffdf7}

@@ -603,15 +603,17 @@
         <div class="fg w120"><label>प्रवेशावेळी इयत्ता</label><select id="lc_stxt58"><option value="">-</option><option>1st</option><option>2nd</option><option>3rd</option><option>4th</option><option>5th</option><option>6th</option><option>7th</option><option>8th</option><option>9th</option><option>10th</option></select></div>
         <div class="fg w150"><label>शाळा सोडल्याची तारीख</label><input type="date" id="lc_stxt65"></div>
         <div class="fg w120"><label>सोडताना इयत्ता</label><select id="lc_stxt66"><option value="">-</option><option>5th</option><option>6th</option><option>7th</option><option>8th</option><option>9th</option><option>10th</option></select></div>
-        <div class="fg w180"><label>शै. वर्ष सुरुवात दिनांक</label><input type="date" id="lc_stxt82"></div>
+        <div class="fg w180"><label>या वर्गात कधीपासून शिकत होता <small>(महिना / वर्ष)</small></label>
+<div style="display:flex;gap:6px;align-items:center"><select id="lc_stxt82_m" onchange="lcClassStartCompose()" style="flex:1 1 auto;min-width:0"><option value="">महिना</option><option value="01">January</option><option value="02">February</option><option value="03">March</option><option value="04">April</option><option value="05">May</option><option value="06">June</option><option value="07">July</option><option value="08">August</option><option value="09">September</option><option value="10">October</option><option value="11">November</option><option value="12">December</option></select><input type="number" id="lc_stxt82_y" inputmode="numeric" min="1980" max="2100" step="1" placeholder="वर्ष (उदा. 2023)" oninput="lcClassStartCompose()" style="width:120px;flex:0 0 auto"></div>
+<input type="hidden" id="lc_stxt82"></div>
       </div>
       <div class="frow">
         <div class="fg w180"><label>LC क्रमांक (LC No.)</label><input id="lc_stxt72" placeholder="LC Number"></div>
         <div class="fg w150"><label>LC दिनांक</label><input type="date" id="lc_stxt71"></div>
-        <div class="fg w180"><label>TC / Conduct</label><input id="lc_stxt21" value="चांगला"></div>
+        <div class="fg w180"><label>TC / Conduct (वर्तणूक)</label><input id="lc_stxt73" value="चांगला"></div>
       </div>
       <div class="frow">
-        <div class="fg w180"><label>Progress (प्रगती)</label><input id="lc_stxt21" value="चांगली"></div>
+        <div class="fg w180"><label>Progress (प्रगती)</label><input id="lc_stxt74" value="चांगली"></div>
         <div class="fg w150"><label>सर्टिफिकेट मिळालेले? (Stxt75)</label><input id="lc_stxt75" placeholder="Yes/No"></div>
         <div class="fg w150"><label>Stxt76</label><input id="lc_stxt76" placeholder=""></div>
       </div>

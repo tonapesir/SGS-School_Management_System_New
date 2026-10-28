@@ -101,6 +101,7 @@ function doPostCore_(e) {
   return handleAction(p, ""); // "" = JSON response — serial परत frontend ला येतो
 }
 
+var SERVER_VERSION = "V19.58";   // V19.58: ॲप (script.js APP_VERSION) शी जुळते का हे क्लायंट ping वरून तपासतो
 function doGetCore_(e) {
   var p = e.parameter || {};
   var cb = p.callback || "";
@@ -116,7 +117,7 @@ function doGetCore_(e) {
   if (p.action === "ping") {
     try {
       var ssName = SpreadsheetApp.getActiveSpreadsheet().getName();
-      return wrap(cb, {status:"ok", message:"Connected! Sheet: " + ssName});
+      return wrap(cb, {status:"ok", message:"Connected! Sheet: " + ssName, version: SERVER_VERSION});
     } catch(ex) {
       return wrap(cb, {status:"error", message:"Script is deployed but NOT BOUND to a Sheet! Re-deploy from inside the Sheet."});
     }

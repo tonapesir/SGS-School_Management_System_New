@@ -32,7 +32,7 @@ window.androidBackPressed = function() {
 
 
 // URL persistence
-var DEFAULT_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbx4L5YpSHTDtfbtl2MMAeKbyW3oomPWDl_Fp659NGsh7OlyHCP-0OSqaE6cfyxcy_EC/exec';
+var DEFAULT_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbwHz21AVN63w_LTB3XsIurtWFLwph1IYa0381gQ6S0WlyqZ9ZAy4lnxe7A5SNVIkqbi/exec';
 
 // =====================================================
 // 🔐 LOGIN + ROLE PERMISSIONS
@@ -734,7 +734,7 @@ var clientPerf = [];
 // नियम: पैसा/थकबाकी/फी जमा स्क्रीनवर कधीही जुना डेटा नाही • २४ तासांहून जुना cache वापरत नाही • अॅप-आवृत्ती बदलल्यास रद्द •
 //       प्रत्येकी ~300 KB / एकूण ~1 MB मर्यादा • Logout वर पूर्ण पुसले जाते • Token कधीही साठवत नाही (फक्त उत्तर).
 // =====================================================================
-var APP_VERSION = 'V19.57';
+var APP_VERSION = 'V19.58';
 var SWR_PREFIX = 'sgs_swr:';
 var SWR_MAX_AGE_MS = 24 * 3600 * 1000, SWR_MAX_ENTRY = 300 * 1024, SWR_MAX_TOTAL = 1024 * 1024;
 var SWR_NEVER = /fee|thakbaki|arrear|payment|receipt/i;   // action किंवा key मध्ये आढळल्यास कधीही stale नाही, साठवतही नाही
@@ -1329,6 +1329,7 @@ function fillModule(pfx,d) {
     set('lc_stxt7',d.iyatta); set('lc_stxt16',d.religion); set('lc_stxt17',d.caste);
     set('lc_stxt21',d.nationality||'Indian'); set('lc_stxt22',d.motherTongue);
     set('lc_stxt57',d.admissionDate); set('lc_stxt58',d.admissionClass);
+    set('lc_stxt82_m',''); set('lc_stxt82_y',''); set('lc_stxt82',''); set('lc_stxt73','चांगला'); set('lc_stxt74','चांगली');   // V19.58
     set('lc_stxt___aadhar',d.aadhar); set('lc_stxt___mother',d.motherName);
     set('lc_stxt___village',d.birthVillage); set('lc_stxt___village_show',d.birthVillage||'');
     set('lc_stxt___district',d.birthDistrict); set('lc_stxt___state',d.state);
@@ -2329,7 +2330,7 @@ function showLCCert() {
           <td class="sep">–</td>
           <td class="val">${g('lc_stxt74')||'चांगली'}
             <span style="margin-left:10mm;font-weight:600">वर्तणूक</span>
-            <span style="margin-left:2mm">${g('lc_stxt73')||'चांगली'}</span>
+            <span style="margin-left:2mm">${g('lc_stxt73')||'चांगला'}</span>
           </td>
         </tr>
         <tr>
@@ -2939,7 +2940,7 @@ function buildLCWordData() {
     prev_school:   g('lc_stxt___prevSchool'),
     adm_date:      fmtDate(g('lc_stxt57')),
     adm_class:     classToMr(g('lc_stxt58')),
-    class_start_date: fmtDate(g('lc_stxt82')),
+    class_start_date: lcClassStartMr(),   // V19.58: फक्त महिना व वर्ष (दिवस माहीत नसतो)
     leave_date:    fmtDate(g('lc_stxt65')),
     leave_class:   classToMr(g('lc_stxt66')),
     leave_class_words: classWords(g('lc_stxt66')),
@@ -2948,7 +2949,7 @@ function buildLCWordData() {
     class_start_month_mr: leaveMonthMr,
     class_start_year: leaveYear,
     progress:      g('lc_stxt74')||'\u091a\u093e\u0902\u0917\u0932\u0940',
-    conduct:       g('lc_stxt73')||'\u091a\u093e\u0902\u0917\u0932\u0940',
+    conduct:       g('lc_stxt73')||'\u091a\u093e\u0902\u0917\u0932\u093e',
     reason:        g('lc_stxt64'),
     lc_type:       (g('lc_stxt78')&&parseInt(g('lc_stxt78'))>1)?'\u0926\u0941\u092f\u094d\u092f\u092e\u092a\u094d\u0930\u0924':'\u092e\u0941\u0933\u092a\u094d\u0930\u0924',
     medium:        g('lc_stxt59')||'\u092e\u0930\u093e\u0920\u0940',
@@ -4229,7 +4230,7 @@ function mstLoadTodayBirthdays(done) {
       var links = actionLinks(s.whatsappMobile) || actionLinks(s.alternateMobile) || actionLinks(s.contact);
       var photo = s.photoUrl ? '<img src="' + s.photoUrl + '" style="width:40px;height:40px;border-radius:50%;object-fit:cover;vertical-align:middle;margin-right:8px">' : '🎂 ';
       return '<div style="margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid rgba(0,0,0,.08)">' +
-        photo + '<b>' + s.fullName + '</b>' + (s.age ? ' <span style="opacity:.7">(आज ' + s.age + ' वर्षे पूर्ण)</span>' : '') +
+        photo + '<b>' + pmEsc(s.fullName) + '</b>' + (s.age ? ' <span style="opacity:.7">(आज ' + s.age + ' वर्षे पूर्ण)</span>' : '') +
         '<br><span style="font-size:12px;opacity:.75">वर्ग: ' + (s.iyatta||'—') + ' ' + (s.tukdi||'') + ' &nbsp;|&nbsp; Roll No: ' + (s.rollNo||'—') + ' &nbsp;|&nbsp; Reg No: ' + (s.regNo||'—') + '</span>' +
         (links ? '<br>' + links : ' <br><span style="opacity:.6;font-size:12px">(मोबाईल क्रमांक नोंदवलेला नाही)</span>') +
         '</div>';
@@ -4289,7 +4290,7 @@ function mstLoadRecentNotices(done) {
     if (!r || r.status !== 'ok' || !r.data.length) { el.innerHTML = 'अद्याप कोणतीही सूचना पाठवलेली नाही.'; return; }
     el.innerHTML = r.data.map(function(n) {
       var tcLabel = n.targetClass ? n.targetClass.replace('|',' ') : 'सर्व वर्ग';
-      return '<div style="margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid rgba(0,0,0,.08)"><b>' + n.title + '</b> <span style="opacity:.6;font-size:11px">(' + tchFmtDate(n.date) + ' — ' + n.postedBy + ' — 🎯 ' + tcLabel + ')</span><br>' + n.message + '</div>';
+      return '<div style="margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid rgba(0,0,0,.08)"><b>' + pmEsc(n.title) + '</b> <span style="opacity:.6;font-size:11px">(' + tchFmtDate(n.date) + ' — ' + pmEsc(n.postedBy) + ' — 🎯 ' + pmEsc(tcLabel) + ')</span><br>' + pmEsc(n.message) + '</div>';
     }).join('');
   });
 }
@@ -4540,7 +4541,7 @@ function tchLoadDashboard() {
     }).join('<br>') : 'आज कोणाचाही वाढदिवस नाही.';
     var nl = document.getElementById('tch_dashNotices');
     nl.innerHTML = r.notices.length ? r.notices.map(function(n){
-      return '<div style="margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid rgba(255,255,255,.1)"><b>' + n.title + '</b> <span style="opacity:.6;font-size:11px">(' + tchFmtDate(n.date) + ')</span><br>' + n.message + '</div>';
+      return '<div style="margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid rgba(255,255,255,.1)"><b>' + pmEsc(n.title) + '</b> <span style="opacity:.6;font-size:11px">(' + tchFmtDate(n.date) + ')</span><br>' + pmEsc(n.message) + '</div>';
     }).join('') : 'सध्या कोणतीही सूचना नाही.';
 
     // आज गैरहजर — मुली/मुले/एकूण (tchRoster सोबत जोडून लिंग शोधले जाते)
@@ -4599,7 +4600,7 @@ function tchLoadSummary() {
     });
     rows.sort(function(a,b){ return b.count - a.count; });
     tbody.innerHTML = rows.map(function(x) {
-      return '<tr><td>' + x.rollNo + '</td><td>' + x.fullName + '</td><td>' + x.daysStr + '</td></tr>';
+      return '<tr><td>' + pmEsc(x.rollNo) + '</td><td>' + pmEsc(x.fullName) + '</td><td>' + pmEsc(x.daysStr) + '</td></tr>';
     }).join('');
   });
 }
@@ -4680,7 +4681,7 @@ function tchRenderAttContactList(list) {
     var altLinks = actionLinks(s.alternateMobile);
     var linksHtml = (waLinks || altLinks) ? (waLinks + altLinks) : ' <span style="opacity:.6">(WhatsApp/Alternate क्रमांक नोंदवलेला नाही)</span>';
     return '<div style="margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid rgba(255,255,255,.1)">' +
-      '<b>' + a.fullName + '</b> (Roll: ' + (s.rollNo||'') + ')' + (a.reason ? ' — ' + a.reason : '') +
+      '<b>' + pmEsc(a.fullName) + '</b> (Roll: ' + pmEsc(s.rollNo||'') + ')' + (a.reason ? ' — ' + pmEsc(a.reason) : '') +
       linksHtml +
       '</div>';
   }).join('');
@@ -4694,7 +4695,7 @@ function tchLoadReport() {
     var tbody = document.getElementById('tch_rptTbody');
     if (!r || r.status !== 'ok' || !r.data.length) { tbody.innerHTML = '<tr><td colspan="3">या कालावधीत कोणीही अनुपस्थित नाही.</td></tr>'; return; }
     tbody.innerHTML = r.data.map(function(a) {
-      return '<tr><td>' + tchFmtDate(a.date) + '</td><td>' + a.fullName + ' (' + a.regNo + ')</td><td>' + (a.reason||'—') + '</td></tr>';
+      return '<tr><td>' + tchFmtDate(a.date) + '</td><td>' + pmEsc(a.fullName) + ' (' + pmEsc(a.regNo) + ')</td><td>' + pmEsc(a.reason||'—') + '</td></tr>';
     }).join('');
   });
 }
@@ -4704,7 +4705,7 @@ function tchPopulateDiaryStudentSelect() {
   var sel = document.getElementById('tch_diaryStudent');
   if (!sel) return;
   sel.innerHTML = '<option value="">-- विद्यार्थी निवडा --</option>' +
-    tchRoster.map(function(s){ return '<option value="' + s.regNo + '">' + (s.rollNo||'') + ' - ' + s.fullName + '</option>'; }).join('');
+    tchRoster.map(function(s){ return '<option value="' + pmEsc(s.regNo) + '">' + pmEsc(s.rollNo||'') + ' - ' + pmEsc(s.fullName) + '</option>'; }).join('');
 }
 
 function tchInitDiaryTab() {
@@ -4736,7 +4737,7 @@ function tchLoadDiaryForStudent(withArchive) {
     var typeLabel = {positive:'👍 Positive', warning:'⚠️ Warning', scholarship:'🎓 Scholarship', personal:'📝 वैयक्तिक नोंदी'};
     el.innerHTML = r.data.map(function(d) {
       return '<div style="margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid rgba(255,255,255,.1)">' +
-        '<b>' + (typeLabel[d.type]||d.type) + '</b> <span style="opacity:.6;font-size:11px">(' + tchFmtDate(d.date) + ')</span><br>' + d.remark + '</div>';
+        '<b>' + pmEsc(typeLabel[d.type]||d.type) + '</b> <span style="opacity:.6;font-size:11px">(' + tchFmtDate(d.date) + ')</span><br>' + pmEsc(d.remark) + '</div>';
     }).join('') + archLink;
   });
 }
@@ -4788,7 +4789,7 @@ function tchPopulateFeesStudentSelect() {
   var sel = document.getElementById('tch_feesStudent');
   if (!sel) return;
   sel.innerHTML = '<option value="">-- विद्यार्थी निवडा --</option>' +
-    tchRoster.map(function(s){ return '<option value="' + s.regNo + '">' + (s.rollNo||'') + ' - ' + s.fullName + '</option>'; }).join('');
+    tchRoster.map(function(s){ return '<option value="' + pmEsc(s.regNo) + '">' + pmEsc(s.rollNo||'') + ' - ' + pmEsc(s.fullName) + '</option>'; }).join('');
 }
 
 function tchLoadFeesForStudent() {
@@ -4871,7 +4872,7 @@ function tchLoadFeesTable(reselectRegNo) {
         var pending = Math.max(0, opening + tchTotalFeePerStudent - paid); // सध्याच्या (चालू) एकूण फी सेटिंगनुसार नेहमी ताजी गणना
         classTotal += paid;
         var pendingStyle = pending > 0 ? 'color:#ff9090;font-weight:700' : 'color:#7be08a';
-        return '<tr><td>' + (s.rollNo||'') + '</td><td>' + s.fullName + '</td><td>₹' + paid + '</td><td style="' + pendingStyle + '">₹' + pending + '</td></tr>';
+        return '<tr><td>' + pmEsc(s.rollNo||'') + '</td><td>' + pmEsc(s.fullName) + '</td><td>₹' + paid + '</td><td style="' + pendingStyle + '">₹' + pending + '</td></tr>';
       }).join('');
     }
     document.getElementById('tch_classFeesTotal').textContent = '₹' + classTotal;
@@ -4886,7 +4887,7 @@ function tchLoadNoticesFull() {
     if (!r || r.status !== 'ok' || !r.data.length) { el.innerHTML = 'सध्या कोणतीही सूचना नाही.'; return; }
     el.innerHTML = r.data.map(function(n) {
       return '<div class="card" style="margin-bottom:10px"><div class="card-body">' +
-        '<b>' + n.title + '</b> <span style="opacity:.6;font-size:11px">(' + tchFmtDate(n.date) + ' — ' + n.postedBy + ')</span><br>' + n.message + '</div></div>';
+        '<b>' + pmEsc(n.title) + '</b> <span style="opacity:.6;font-size:11px">(' + tchFmtDate(n.date) + ' — ' + pmEsc(n.postedBy) + ')</span><br>' + pmEsc(n.message) + '</div></div>';
     }).join('');
   });
 }
@@ -7236,3 +7237,55 @@ function hsPdf() {
   if (document.fonts && document.fonts.ready) Promise.all([document.fonts.load('400 12pt "Noto Sans Devanagari"'), document.fonts.load('700 12pt "Noto Sans Devanagari"'), document.fonts.ready]).then(go).catch(go);
   else go();
 }
+
+
+// =====================================================================
+// ===== V19.58 — LC: "या वर्गात कधीपासून शिकत होता" = महिना (dropdown, English) + वर्ष (manual) =====
+// • लपवलेला lc_stxt82 मध्ये "YYYY-MM-01" (महिना+वर्ष) किंवा "YYYY" (फक्त वर्ष) साठवतो — छापील/Word/सर्व्हर कोड तोच राहतो.
+// • महिना न निवडता फक्त वर्ष दिल्यास वर्षच छापले जाते; वर्ष चुकीचे/रिकामे असल्यास मूल्य रिकामे (लाल किनार).
+// =====================================================================
+function lcClassStartCompose() {
+  var mEl = document.getElementById('lc_stxt82_m'), yEl = document.getElementById('lc_stxt82_y'), hid = document.getElementById('lc_stxt82');
+  if (!mEl || !yEl || !hid) return;
+  var m = mEl.value, y = (yEl.value || '').trim();
+  var ok = /^\d{4}$/.test(y) && +y >= 1980 && +y <= 2100;
+  yEl.style.borderColor = ((y && !ok) || (m && !y)) ? '#c0392b' : '';
+  hid.value = ok ? (m ? y + '-' + m + '-01' : y) : '';
+}
+function lcClassStartMr() {
+  var v = (document.getElementById('lc_stxt82') || {}).value || '';
+  if (!v) return '';
+  var p = v.split('-'), mr = ['', 'जानेवारी', 'फेब्रुवारी', 'मार्च', 'एप्रिल', 'मे', 'जून', 'जुलै', 'ऑगस्ट', 'सप्टेंबर', 'ऑक्टोबर', 'नोव्हेंबर', 'डिसेंबर'];
+  return [mr[parseInt(p[1], 10)] || '', p[0] || ''].filter(Boolean).join(' ');
+}
+
+// =====================================================================
+// ===== V19.58 — आवृत्ती-जुळणी: ॲप (GitHub) व सर्व्हर (Apps Script) यांच्या आवृत्त्या =====
+// • सर्व्हर नवा, ॲप जुना  → "ॲप Refresh करा" (सर्वांना)   • ॲप नवा, सर्व्हर जुना → "Apps Script Deploy करा" (फक्त Super/Master)
+// =====================================================================
+function verParts(v) { var m = /(\d+)\.(\d+)(?:\.(\d+))?/.exec(String(v || '')); return m ? [+m[1], +m[2], +(m[3] || 0)] : null; }
+function verCmp(a, b) { var x = verParts(a), y = verParts(b); if (!x || !y) return 0; for (var i = 0; i < 3; i++) { if (x[i] !== y[i]) return x[i] > y[i] ? 1 : -1; } return 0; }
+var _srvVer = null, _verAsked = false;
+function verBanner(html) {
+  var b = document.getElementById('verBanner');
+  if (!b) { b = document.createElement('div'); b.id = 'verBanner'; b.style.cssText = 'position:fixed;left:8px;right:8px;bottom:8px;z-index:99999;background:#fff4d6;border:1px solid #e0c46a;color:#6a4a00;border-radius:10px;padding:8px 12px;font-size:13px;box-shadow:0 2px 8px rgba(0,0,0,.25)'; document.body.appendChild(b); }
+  b.innerHTML = html;
+}
+function verRefreshNow() {
+  try { if (window.caches) caches.keys().then(function(ks) { return Promise.all(ks.map(function(k) { return caches.delete(k); })); }).then(function() { location.reload(); }); else location.reload(); } catch (e) { location.reload(); }
+}
+function verShowIfNeeded() {
+  if (!_srvVer) return;
+  var c = verCmp(_srvVer, APP_VERSION);
+  if (c > 0) verBanner('🔄 नवी आवृत्ती (' + pmEsc(_srvVer) + ') उपलब्ध आहे; तुमचे ॲप ' + pmEsc(APP_VERSION) + ' आहे. <button class="btn btn-gold btn-sm" onclick="verRefreshNow()">Refresh करा</button>');
+  else if (c < 0 && currentUser && (currentUser.role === 'super' || currentUser.role === 'master')) verBanner('⚠️ सर्व्हर (Apps Script) जुना आहे: ' + pmEsc(_srvVer) + ' (ॲप ' + pmEsc(APP_VERSION) + '). Apps Script मध्ये Deploy → New version करा. <button class="btn btn-gray btn-sm" onclick="document.getElementById(\'verBanner\').remove()">ठीक</button>');
+}
+function verCheck() {
+  if (_verAsked) { verShowIfNeeded(); return; }
+  _verAsked = true;
+  try { jsonpRequest({action: 'ping'}, function(r) { if (r && r.status === 'ok' && r.version) { _srvVer = r.version; verShowIfNeeded(); } }); } catch (e) {}
+}
+(function() {
+  var _aru = applyRoleUI;
+  applyRoleUI = function() { var rv = _aru.apply(this, arguments); try { setTimeout(verCheck, 1500); } catch (e) {} return rv; };
+})();

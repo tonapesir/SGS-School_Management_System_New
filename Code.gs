@@ -101,7 +101,7 @@ function doPostCore_(e) {
   return handleAction(p, ""); // "" = JSON response — serial परत frontend ला येतो
 }
 
-var SERVER_VERSION = "V19.58";   // V19.58: ॲप (script.js APP_VERSION) शी जुळते का हे क्लायंट ping वरून तपासतो
+var SERVER_VERSION = "V19.59";   // V19.58: ॲप (script.js APP_VERSION) शी जुळते का हे क्लायंट ping वरून तपासतो
 function doGetCore_(e) {
   var p = e.parameter || {};
   var cb = p.callback || "";
@@ -194,6 +194,9 @@ function doGetCore_(e) {
   }
   if (p.action === "getDiary") {
     return doGetDiary(p, cb);
+  }
+  if (p.action === "getLCByReg") {            // V19.59 — LC Sheet मधून त्या Reg No ची शेवटची LC नोंद (फक्त वाचन)
+    return doGetLCByReg(p, cb);
   }
   if (p.action === "getArchiveHealth") {      // V19.57 — Archive आरोग्य तपासणी (super/master, फक्त वाचन)
     return doGetArchiveHealth(p, cb);
@@ -1682,6 +1685,36 @@ function doGetArchiveHealth(p, cb) {
     if (!out.inBackupList) out.warnings.push("ही Archive फाइल स्वयंचलित Backup यादीत नाही — एकदाची प्रत बनवा.");
     out.ok = out.problems.length === 0;
     return wrap(cb, out);
+  } catch (err) {
+    return wrap(cb, {status: "error", message: err.toString()});
+  }
+}
+
+// =====================================================================
+// ===== V19.59 — LC पानावर Reg No टाकल्यावर "LC" Sheet मधील पूर्वीची नोंद शोधून LC विशेष माहिती आपोआप भरणे =====
+// • शोध Student ID/Reg No स्तंभ (३) वर TextFinder ने — पूर्ण Sheet वाचत नाही. एकाच Reg No ला अनेक नोंदी असू शकतात
+//   (प्रत्येक Save नवी ओळ) → सर्वात शेवटची (खालची) ओळ वापरतो; एकूण नोंदी संख्या सांगतो. फक्त वाचन — काहीही लिहीत/तयार करत नाही.
+// • अधिकार: Token असल्यास फक्त super/master (LC पान तेवढ्यांनाच आहे). Token नसलेला जुना Login = पूर्वीसारखाच (सुरक्षा-टप्प्यात संपेल).
+// =====================================================================
+function lcCellText_(v) { return (v === null || v === undefined) ? "" : (fmt(v) || "").toString().trim(); }
+function doGetLCByReg(p, cb) {
+  try {
+    if (p._authed && p.requesterRole !== "super" && p.requesterRole !== "master") return wrap(cb, {status: "error", code: "forbidden", message: "LC माहिती पाहण्याचा अधिकार Super / Master ला आहे."});
+    var keys = [], seen = {};
+    [p.regNo, p.studentId].forEach(function(k) { k = (k || "").toString().trim(); if (k && !seen[k.toLowerCase()]) { seen[k.toLowerCase()] = 1; keys.push(k); } });
+    if (!keys.length) return wrap(cb, {status: "error", message: "Reg No आवश्यक आहे."});
+    var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("LC");
+    if (!sh || sh.getLastRow() < 2) return wrap(cb, {status: "ok", found: false, count: 0});
+    var rowsSeen = {}, all = [];
+    keys.forEach(function(k) { findRowsByValue_(sh, 3, k).forEach(function(r) { if (!rowsSeen[r]) { rowsSeen[r] = 1; all.push(r); } }); });
+    if (!all.length) return wrap(cb, {status: "ok", found: false, count: 0});
+    var last = Math.max.apply(null, all);
+    var r = readRowsAt_(sh, [last], LC_HEADERS.length)[0], t = lcCellText_;
+    var data = {admissionDate: t(r[12]), admissionClass: t(r[13]), lcLeaveDate: t(r[14]), lcLeaveClass: t(r[15]), classStartDate: t(r[16]),
+      lcNo: t(r[17]), lcDate: t(r[18]), conduct: t(r[19]), progress: t(r[20]), stxt75: t(r[21]), stxt76: t(r[22]), remarks: t(r[23]),
+      medium: t(r[24]), nextSchool: t(r[25]), lcCount: t(r[26]), feeStatus: t(r[27]),
+      stxt60: t(r[28]), stxt61: t(r[29]), stxt62: t(r[30]), stxt63: t(r[31]), stxt67: t(r[32]), stxt68: t(r[33]), stxt69: t(r[34]), stxt70: t(r[35]), nationalityType: t(r[36])};
+    return wrap(cb, {status: "ok", found: true, count: all.length, serial: t(r[1]), timestamp: t(r[0]), data: data});
   } catch (err) {
     return wrap(cb, {status: "error", message: err.toString()});
   }

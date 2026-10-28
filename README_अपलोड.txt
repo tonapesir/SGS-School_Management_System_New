@@ -1,16 +1,15 @@
-SGS School Management System — V19.58
+SGS School Management System — V19.59
 
-बदल (V19.57.1 नंतर)
-1. LC: "शै. वर्ष सुरुवात दिनांक" -> "या वर्गात कधीपासून शिकत होता (महिना / वर्ष)": English महिन्याचा dropdown + manual वर्ष.
-   छापील: "इयत्ता 7 त जून 2023 पासून" (मराठी महिना). Word डेटामध्ये खोटा "01" दिवस नाही — "जून 2023".
-2. LC: Conduct = चांगला, Progress = चांगली. (आधीचा दोष: या दोन चौकटींना चुकीचा/डुप्लिकेट id होता, म्हणून टाकलेले मूल्य वाचले जात नव्हते.
-   आता टाकलेले मूल्य छापले जाते व सर्व्हरला जाते. विद्यार्थी बदलल्यावर ही मूल्ये व "कधीपासून" रीसेट होतात.)
-3. आवृत्ती-जुळणी: सर्व्हर/ॲप आवृत्ती जुळत नसल्यास सूचना (ॲप जुना -> Refresh; सर्व्हर जुना -> फक्त Super/Master ला "Deploy करा").
-4. सुरक्षा (escape): नोटीस (title/message/postedBy), Diary remark, हजेरी कारण, विद्यार्थ्यांची नावे/Reg No (dropdown, याद्या) आता escape होतात.
-5. tests/ + .github/workflows/tests.yml: प्रत्येक push वर आपोआप चाचण्या.
+बदल: LC पान
+1. Reg No शोधल्यावर "मूळ विद्यार्थी माहिती" आधीप्रमाणे Students मधून येते.
+   त्याचबरोबर "LC" Sheet मध्ये त्या Reg No ची नोंद शोधली जाते:
+   - सापडल्यास: LC विशेष माहिती + "इतर शैक्षणिक माहिती" चे सर्व फील्ड आपोआप भरतात (शेवटची नोंद; एकाहून अधिक असल्यास संख्या सांगते).
+   - न सापडल्यास: LC-विशेष माहिती रिकामी. (मागील विद्यार्थ्याची मूल्ये आता राहत नाहीत.)
+     प्रवेश दिनांक / प्रवेशावेळी इयत्ता Students मधून येतात; Conduct/Progress = चांगला/चांगली (फक्त डीफॉल्ट).
+2. Clear: संपूर्ण फॉर्म रिकामा; फक्त राष्ट्रीयत्व=भारतीय, मातृभाषा=मराठी, Conduct=चांगला, Progress=चांगली हे डीफॉल्ट परत येतात.
+   Clear नंतर उशिरा आलेले LC-उत्तर फॉर्म पुन्हा भरत नाही.
 
-Deploy
+Deploy (दोन्ही आवश्यक — नवा सर्व्हर action getLCByReg)
 1) Spreadsheet ची प्रत -> apps_script/Code.gs paste -> Deploy > Manage deployments > Edit > New version.
-2) GitHub: github_pages मधील index.html, script.js, style.css, sw.js replace करा (बाकी फाइल्स न बदललेल्या).
-3) (ऐच्छिक) tests/ फोल्डर व .github/ फोल्डर repository च्या root मध्ये ठेवा. स्थानिक चाचणी: bash tests/run_all.sh
-   (Node + Playwright हवे; खऱ्या Sheet/Drive वर चालत नाही.)
+2) GitHub: github_pages मधील index.html, script.js, style.css, sw.js replace करा.
+3) चाचण्या: bash tests/run_all.sh

@@ -32,7 +32,7 @@ window.androidBackPressed = function() {
 
 
 // URL persistence
-var DEFAULT_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbwHz21AVN63w_LTB3XsIurtWFLwph1IYa0381gQ6S0WlyqZ9ZAy4lnxe7A5SNVIkqbi/exec';
+var DEFAULT_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbwu5zRDH5yV1QNW3Ln7jPOlFK_-_RgDqursU98rZiQJkWBDo33x-H6MPgjonIe9R79E/exec';
 
 // =====================================================
 // 🔐 LOGIN + ROLE PERMISSIONS
@@ -734,7 +734,7 @@ var clientPerf = [];
 // नियम: पैसा/थकबाकी/फी जमा स्क्रीनवर कधीही जुना डेटा नाही • २४ तासांहून जुना cache वापरत नाही • अॅप-आवृत्ती बदलल्यास रद्द •
 //       प्रत्येकी ~300 KB / एकूण ~1 MB मर्यादा • Logout वर पूर्ण पुसले जाते • Token कधीही साठवत नाही (फक्त उत्तर).
 // =====================================================================
-var APP_VERSION = 'V19.58';
+var APP_VERSION = 'V19.59';
 var SWR_PREFIX = 'sgs_swr:';
 var SWR_MAX_AGE_MS = 24 * 3600 * 1000, SWR_MAX_ENTRY = 300 * 1024, SWR_MAX_TOTAL = 1024 * 1024;
 var SWR_NEVER = /fee|thakbaki|arrear|payment|receipt/i;   // action किंवा key मध्ये आढळल्यास कधीही stale नाही, साठवतही नाही
@@ -1249,6 +1249,7 @@ function searchStudent(pfx) {
     }
     rowTracker[pfx]=result.rowIndex;
     fillModule(pfx,result.data);
+    if (pfx === 'lc') lcResetSpecific();   // V19.59: मागील विद्यार्थ्याची LC-विशेष मूल्ये राहू नयेत
     if (pfx === 's' || !result.data.photoUrl) refreshPhotoUrlForRecord(pfx, result.data.regNo || result.data.studentId || q);
     var ub=document.getElementById(pfx==='s'?'s_updateBtn':pfx+'_updateBtn');
     if(ub) ub.style.display='';
@@ -1256,8 +1257,10 @@ function searchStudent(pfx) {
     if(ri) ri.textContent='(Row #'+result.rowIndex+')';
     var src = result.source === 'cache' ? ' ⚡ Cache' : ' ☁️ Cloud';
     var nextMsg = (pfx === 's' && canEditStudent()) || (pfx !== 's' && canEdit()) ? ' — बदल करून ✏️ Update दाबा.' : ' — प्रमाणपत्र पाहा / Print/PDF दाबा.';
-    showStatus(pfx,'✅ सापडला!'+src+' ('+result.data.firstName+') Row #'+result.rowIndex+nextMsg,'ok');
+    var _mainMsg = '✅ सापडला!'+src+' ('+result.data.firstName+') Row #'+result.rowIndex+nextMsg;
+    showStatus(pfx,_mainMsg,'ok');
     applyFormPermissions();
+    if (pfx === 'lc') lcLoadSaved(result.data, q, _mainMsg);   // V19.59
   });
 }
 
@@ -1885,6 +1888,7 @@ function clearForm(pfx) {
   syncBFPurposeUI('');
   syncATPurposeUI('');
   if(!confirm('Form Clear करायचा का?')) return;
+  if (pfx === 'lc') _lcSeq++;   // V19.59: चालू LC-शोध रद्द (नंतर आलेले उत्तर Clear झालेला फॉर्म भरू नये)
   var prefix=pfx==='s'?'s_':pfx+'_';
   document.querySelectorAll('[id^="'+prefix+'"]').forEach(function(el){
     if(el.tagName==='BUTTON'||el.type==='file') return;
@@ -1897,6 +1901,7 @@ function clearForm(pfx) {
     var mt=document.getElementById('s_motherTongue'); if(mt) mt.value='मराठी';
     resetPhotoPreview();
   }
+  if (pfx === 'lc') lcApplyDefaults();   // V19.59: राष्ट्रीयत्व/मातृभाषा/Conduct/Progress = फॉर्म पहिल्यांदा उघडल्यासारखे डीफॉल्ट
   rowTracker[pfx]=null;
   var ub=document.getElementById(pfx==='s'?'s_updateBtn':pfx+'_updateBtn');
   if(ub) ub.style.display='none';
@@ -7289,3 +7294,60 @@ function verCheck() {
   var _aru = applyRoleUI;
   applyRoleUI = function() { var rv = _aru.apply(this, arguments); try { setTimeout(verCheck, 1500); } catch (e) {} return rv; };
 })();
+
+
+// =====================================================================
+// ===== V19.59 — LC: Reg No शोधल्यावर "LC" Sheet मधील पूर्वीची नोंद आपोआप भरणे =====
+// • मूळ विद्यार्थी माहिती (Students) आधीप्रमाणेच. LC विशेष माहिती + "इतर शैक्षणिक माहिती" = LC Sheet च्या त्या Reg No च्या शेवटच्या नोंदीतून.
+// • नोंद नसल्यास LC-विशेष माहिती रिकामी (Conduct/Progress फक्त डीफॉल्ट; प्रवेश दिनांक/इयत्ता Students मधून).
+// =====================================================================
+var _lcSeq = 0;
+var LC_REC_FIELDS = {admissionDate: 'lc_stxt57', admissionClass: 'lc_stxt58', lcLeaveDate: 'lc_stxt65', lcLeaveClass: 'lc_stxt66',
+  lcNo: 'lc_stxt72', lcDate: 'lc_stxt71', conduct: 'lc_stxt73', progress: 'lc_stxt74', stxt75: 'lc_stxt75', stxt76: 'lc_stxt76',
+  remarks: 'lc_stxt64', medium: 'lc_stxt59', nextSchool: 'lc_stxt77', lcCount: 'lc_stxt78', feeStatus: 'lc_stxt79',
+  stxt60: 'lc_stxt60', stxt61: 'lc_stxt61', stxt62: 'lc_stxt62', stxt63: 'lc_stxt63', stxt67: 'lc_stxt67', stxt68: 'lc_stxt68',
+  stxt69: 'lc_stxt69', stxt70: 'lc_stxt70', nationalityType: 'lc_stxt80'};
+function lcSetVal(id, v) { var e = document.getElementById(id); if (e) e.value = (v === null || v === undefined) ? '' : String(v); }
+function lcApplyDefaults() { lcSetVal('lc_stxt21', 'भारतीय'); lcSetVal('lc_stxt22', 'मराठी'); lcSetVal('lc_stxt73', 'चांगला'); lcSetVal('lc_stxt74', 'चांगली'); }
+function lcResetSpecific() {
+  // प्रवेश दिनांक / प्रवेशावेळी इयत्ता (57, 58) Students मधून आलेले — त्यांना हात लावत नाही
+  Object.keys(LC_REC_FIELDS).forEach(function(k) { var id = LC_REC_FIELDS[k]; if (id !== 'lc_stxt57' && id !== 'lc_stxt58') lcSetVal(id, ''); });
+  lcSetVal('lc_stxt82_m', ''); lcSetVal('lc_stxt82_y', ''); lcSetVal('lc_stxt82', '');
+  lcSetVal('lc_stxt73', 'चांगला'); lcSetVal('lc_stxt74', 'चांगली');
+}
+function lcIsoDate(v) {   // date input ला yyyy-mm-dd हवे
+  v = String(v || '').trim(); if (!v) return '';
+  if (/^\d{4}-\d{2}-\d{2}/.test(v)) return v.slice(0, 10);
+  var m = /^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})$/.exec(v);
+  return m ? m[3] + '-' + ('0' + m[2]).slice(-2) + '-' + ('0' + m[1]).slice(-2) : '';
+}
+function lcSetSelectLoose(id, v) {   // "7" / "7th" / "7 वी" — जवळचा पर्याय निवडतो
+  var e = document.getElementById(id); if (!e) return; v = String(v || '').trim(); if (!v) { e.value = ''; return; }
+  var opts = [].slice.call(e.options), hit = opts.filter(function(o) { return o.value === v || o.text === v; })[0];
+  if (!hit) { var n = parseInt(v, 10); if (n) hit = opts.filter(function(o) { return parseInt(o.value, 10) === n; })[0]; }
+  e.value = hit ? hit.value : '';
+}
+function lcFillFromRecord(d) {
+  Object.keys(LC_REC_FIELDS).forEach(function(k) {
+    var id = LC_REC_FIELDS[k], v = d[k]; if (v === undefined || v === null || String(v).trim() === '') return;   // LC नोंदीत रिकामे असल्यास आहे ते तसेच
+    if (k === 'admissionDate' || k === 'lcLeaveDate' || k === 'lcDate') lcSetVal(id, lcIsoDate(v));
+    else if (k === 'admissionClass' || k === 'lcLeaveClass') lcSetSelectLoose(id, v);
+    else lcSetVal(id, v);
+  });
+  var cs = String(d.classStartDate || '').trim();
+  if (cs) {
+    var m = /^(\d{4})(?:-(\d{2}))?/.exec(cs);
+    if (m) { lcSetVal('lc_stxt82_y', m[1]); lcSetVal('lc_stxt82_m', m[2] || ''); lcClassStartCompose(); }
+  }
+}
+function lcLoadSaved(sd, q, mainMsg) {
+  var seq = ++_lcSeq;
+  jsonpRequest({action: 'getLCByReg', regNo: sd.regNo || '', studentId: sd.studentId || q || '', requesterRole: currentUser && currentUser.role}, function(r) {
+    if (seq !== _lcSeq) return;   // दरम्यान दुसरा Reg No शोधला / Clear केला
+    if (!r || r.status !== 'ok') { showStatus('lc', mainMsg + ' | ⚠️ LC नोंद तपासता आली नाही: ' + friendlyMsg((r && r.message) || 'Failed'), 'err'); return; }
+    if (!r.found) { showStatus('lc', mainMsg + ' | ℹ️ या Reg No ची LC नोंद नाही — LC विशेष माहिती रिकामी आहे.', 'ok'); return; }
+    lcFillFromRecord(r.data || {});
+    applyFormPermissions();
+    showStatus('lc', mainMsg + ' | 📄 पूर्वीची LC नोंद भरली' + (r.data && r.data.lcNo ? ' (LC क्र. ' + r.data.lcNo + ')' : '') + (r.count > 1 ? ' — एकूण ' + r.count + ' नोंदी, शेवटची वापरली' : ''), 'ok');
+  });
+}

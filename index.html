@@ -78,6 +78,7 @@
   <button class="navbtn" data-page="scholarship" onclick="showPage('scholarship',this)">🎓 शिष्यवृत्ती</button>
   <button class="navbtn" data-page="teacherlist" onclick="showPage('teacherlist',this)">📒 वर्ग शिक्षक यादी</button>
   <button class="navbtn master-only" data-page="archive" onclick="showPage('archive',this)">📦 Archive</button>
+  <button class="navbtn super-only" data-page="dataqc" onclick="showPage('dataqc',this)">🔎 डेटा तपासणी</button>
   <button class="navbtn" data-page="teacher" onclick="showPage('teacher',this)">🏫 वर्ग शिक्षक</button>
   <span class="user-chip" id="authUserChip">User</span>
   <button class="logout-btn" onclick="logoutUser()">Logout</button>
@@ -359,6 +360,11 @@
       <div class="icon">📦</div>
       <h3>Archive</h3>
       <p>जुन्या वर्षांची फी, प्रवास, हजेरी, शिष्यवृत्ती — फक्त पाहणे व CSV</p>
+    </div>
+    <div class="dcard super-only" data-page="dataqc" onclick="showPage('dataqc',this)">
+      <div class="icon">🔎</div>
+      <h3>डेटा तपासणी</h3>
+      <p>डेटा-त्रुटी, वर्ष-अखेर पूर्वतपासणी, Sheet आकार</p>
     </div>
     </div>
 
@@ -903,6 +909,15 @@
       </div>
     </div>
     <div class="profile-grid" id="prof_grid"></div>
+    <!-- V19.60: बदलांचा इतिहास (Audit) — Super/Master -->
+    <div class="card master-only" id="auCard" style="margin-top:16px">
+      <div class="card-body">
+        <div class="sec-title" style="font-size:14px;margin-bottom:8px">🕑 बदलांचा इतिहास — कोणी, काय, कधी बदलले</div>
+        <button class="btn btn-gold" id="auBtn" onclick="auLoad()">🕑 बदलांचा इतिहास पहा</button>
+        <div id="au_status" style="font-size:12.5px;margin-top:8px;color:#555"></div>
+        <div id="au_out" class="pm-box"></div>
+      </div>
+    </div>
     <!-- V19.56: सर्व वर्षांचा इतिहास — बटण दाबल्यावर वर्षागणिक एक-एक विनंती -->
     <div class="card money-only" id="hsCard" style="margin-top:16px">
       <div class="card-body">
@@ -1296,10 +1311,22 @@
     <button class="btn btn-gray ar-tabbtn" data-tab="transport" onclick="arTab('transport')">🚌 प्रवास</button>
     <button class="btn btn-gray ar-tabbtn" data-tab="att" onclick="arTab('att')">✅ हजेरी</button>
     <button class="btn btn-gray ar-tabbtn" data-tab="sch" onclick="arTab('sch')">🎓 शिष्यवृत्ती</button>
+    <button class="btn btn-gray ar-tabbtn" data-tab="cmp" onclick="arTab('cmp')">📊 तुलना</button>
   </div>
   <div id="ar_anchor"></div>
   <div id="ar_body" class="pm-box"></div>
   <div id="ar_health" class="pm-box"></div>
+</div>
+
+<div id="pg-dataqc" class="page">
+  <div class="sec-title" style="margin-bottom:8px">🔎 डेटा तपासणी व वर्ष-अखेर (Super) — फक्त पाहणे</div>
+  <div class="frow" style="gap:6px;flex-wrap:wrap;margin-bottom:10px">
+    <button class="btn btn-gold dq-tabbtn" data-tab="q" onclick="dqTab('q')">🔎 डेटा गुणवत्ता</button>
+    <button class="btn btn-gray dq-tabbtn" data-tab="y" onclick="dqTab('y')">🗓️ वर्ष-अखेर पूर्वतपासणी</button>
+    <button class="btn btn-gray dq-tabbtn" data-tab="c" onclick="dqTab('c')">📏 Sheet आकार</button>
+  </div>
+  <div id="dq_status" style="font-size:12.5px;color:#555;margin-bottom:6px"></div>
+  <div id="dq_body" class="pm-box"></div>
 </div>
 
 <div id="pg-earlyleave" class="page">

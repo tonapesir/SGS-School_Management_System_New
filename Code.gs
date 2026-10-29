@@ -101,7 +101,7 @@ function doPostCore_(e) {
   return handleAction(p, ""); // "" = JSON response — serial परत frontend ला येतो
 }
 
-var SERVER_VERSION = "V19.59";   // V19.58: ॲप (script.js APP_VERSION) शी जुळते का हे क्लायंट ping वरून तपासतो
+var SERVER_VERSION = "V19.60";   // V19.58: ॲप (script.js APP_VERSION) शी जुळते का हे क्लायंट ping वरून तपासतो
 function doGetCore_(e) {
   var p = e.parameter || {};
   var cb = p.callback || "";
@@ -195,6 +195,10 @@ function doGetCore_(e) {
   if (p.action === "getDiary") {
     return doGetDiary(p, cb);
   }
+  if (p.action === "getDataQuality") { return doGetDataQuality(p, cb); }          // V19.60 (super)
+  if (p.action === "getYearEndCheck") { return doGetYearEndCheck(p, cb); }        // V19.60 (super)
+  if (p.action === "getStudentAudit") { return doGetStudentAudit(p, cb); }        // V19.60 (super/master)
+  if (p.action === "getSheetCapacity") { return doGetSheetCapacity(p, cb); }      // V19.60 (super/master)
   if (p.action === "getLCByReg") {            // V19.59 — LC Sheet मधून त्या Reg No ची शेवटची LC नोंद (फक्त वाचन)
     return doGetLCByReg(p, cb);
   }
@@ -344,7 +348,10 @@ function handleAction(d, cb) {
         d.admissionDate,d.admissionClass,contactVal,d.address,d.photoUrl,
         d.whatsappMobile||"", d.alternateMobile||"",
         categoryVal||"", minorityVal||""];
+      var auditOld = null;                                                          // V19.60: बदलापूर्वीची ओळ (Audit साठी)
+      if (rowToWrite) { try { auditOld = sh.getRange(rowToWrite, 1, 1, MAIN_HEADERS.length).getValues()[0]; } catch (eAo) {} }
       result = writeRow(sh, rowToWrite, row);
+      try { auditStudentChange_(auditOld, row, d, action); } catch (eAu) {}         // Audit अपयशाने मूळ Save कधीही अडत नाही
     } else if (action === "save_lc" || action === "update_lc" || action === "upsert_lc") {
       var sh = getOrCreateSheet("LC", LC_HEADERS);
       // ✅ सदैव नवीन row — प्रत्येक LC ला स्वतंत्र serial नंबर
@@ -1718,6 +1725,328 @@ function doGetLCByReg(p, cb) {
   } catch (err) {
     return wrap(cb, {status: "error", message: err.toString()});
   }
+}
+
+// =====================================================================
+// ===== V19.60 — (१) बदलांचा इतिहास (Audit)  (२) डेटा तपासणी  (३) वर्ष-अखेर पूर्वतपासणी  (४) Sheet क्षमता  (५) वेळ-मोजणी =====
+// सर्व नवे वाचन-action फक्त वाचतात. एकमेव नवे लिखाण: Student_Audit (Students update/upsert वर, try/catch मध्ये — Save कधीही अडवत नाही).
+// =====================================================================
+var AUDIT_HEADERS = ["Timestamp", "User", "Role", "RegNo", "Action", "Field", "Old", "New"];
+function auditNorm_(v) {
+  if (v === null || v === undefined) return "";
+  if (Object.prototype.toString.call(v) === "[object Date]") return fmt(v) || "";
+  return String(v).trim();
+}
+function auditShow_(field, v) {
+  if (!v) return "";
+  if (field === "Aadhar") return v.length > 4 ? "XXXX-XXXX-" + v.slice(-4) : v;   // आधार पूर्ण साठवत नाही
+  return v.length > 160 ? v.slice(0, 157) + "…" : v;
+}
+function auditStudentChange_(oldRow, newRow, d, action) {
+  var regNo = auditNorm_(newRow[2]), rows = [], ts = new Date().toLocaleString("en-IN");
+  var user = d.auditUser || d.requesterUser || "", role = d.auditRole || d.requesterRole || "";
+  if (!regNo) return;
+  if (!oldRow) {
+    rows.push([ts, user, role, regNo, action, "—", "", "नवीन विद्यार्थी नोंद"]);
+  } else {
+    for (var i = 1; i < MAIN_HEADERS.length; i++) {
+      var a = auditNorm_(oldRow[i]), b = auditNorm_(newRow[i]);
+      if (a === b) continue;
+      rows.push([ts, user, role, regNo, action, MAIN_HEADERS[i], auditShow_(MAIN_HEADERS[i], a), auditShow_(MAIN_HEADERS[i], b)]);
+    }
+  }
+  if (!rows.length) return;
+  var sh = getOrCreateSheet("Student_Audit", AUDIT_HEADERS);
+  ensureRows_(sh, sh.getLastRow() + rows.length);
+  sh.getRange(sh.getLastRow() + 1, 1, rows.length, AUDIT_HEADERS.length).setValues(rows);
+}
+function auditTimeText_(v) {
+  if (Object.prototype.toString.call(v) === "[object Date]") { try { return Utilities.formatDate(v, "Asia/Kolkata", "dd/MM/yyyy HH:mm"); } catch (e) { return String(v); } }
+  return (v === null || v === undefined) ? "" : String(v);
+}
+function authSuperMaster_(p, what) {
+  if (!p._authed) return "Token सह Login आवश्यक आहे — कृपया पुन्हा Login करा.";
+  if (p.requesterRole !== "super" && p.requesterRole !== "master") return what + " पाहण्याचा अधिकार Super / Master ला आहे.";
+  return "";
+}
+function authSuperOnly_(p, what) {
+  if (!p._authed) return "Token सह Login आवश्यक आहे — कृपया पुन्हा Login करा.";
+  if (p.requesterRole !== "super") return what + " पाहण्याचा अधिकार फक्त Super ला आहे.";
+  return "";
+}
+function doGetStudentAudit(p, cb) {
+  try {
+    var e = authSuperMaster_(p, "बदलांचा इतिहास"); if (e) return wrap(cb, {status: "error", code: "forbidden", message: e});
+    var regNo = (p.regNo || "").toString().trim();
+    if (!regNo) return wrap(cb, {status: "error", message: "Reg No आवश्यक आहे."});
+    var ss = SpreadsheetApp.getActiveSpreadsheet(), CAP = 300;
+    // (१) फील्ड-स्तरीय बदल
+    var changes = [], ash = ss.getSheetByName("Student_Audit");
+    if (ash && ash.getLastRow() > 1) {
+      readRowsAt_(ash, findRowsByValue_(ash, 4, regNo), AUDIT_HEADERS.length).forEach(function(r) {
+        changes.push({time: auditTimeText_(r[0]), user: r[1], role: r[2], action: r[4], field: r[5], oldVal: r[6], newVal: r[7]});
+      });
+      changes.reverse();
+    }
+    // (२) Activity Log (कोणी कोणती कृती केली — फील्ड नाही) — शेवटचे १२ महिने
+    var logs = [], names = [];
+    ss.getSheets().forEach(function(sh) { var n = sh.getName(); if (/^Log_\d{4}_\d{2}$/.test(n)) names.push(n); });
+    names.sort().reverse();
+    names.slice(0, 12).forEach(function(n) {
+      if (logs.length >= CAP) return;
+      var sh = ss.getSheetByName(n), rs = readRowsAt_(sh, findRowsByValue_(sh, 5, regNo), 5);
+      rs.reverse().forEach(function(r) { if (logs.length < CAP) logs.push({time: auditTimeText_(r[0]), user: r[1], role: r[2], action: r[3]}); });
+    });
+    if (!logMigrated_()) {
+      var lg = ss.getSheetByName("Log");
+      if (lg && lg.getLastRow() > 1) readRowsAt_(lg, findRowsByValue_(lg, 5, regNo), 5).reverse().forEach(function(r) { if (logs.length < CAP) logs.push({time: auditTimeText_(r[0]), user: r[1], role: r[2], action: r[3]}); });
+    }
+    // (३) वर्ग-बढती
+    var promos = [], pl = ss.getSheetByName("PromotionLog");
+    if (pl && pl.getLastRow() > 1) {
+      readRowsAt_(pl, findRowsByValue_(pl, 3, regNo), PROMO_LOG_HEADERS.length).forEach(function(r) {
+        promos.push({time: auditTimeText_(r[0]), from: (r[4] || "") + (r[5] ? "-" + r[5] : "") + " (" + (r[6] || "") + ")", to: (r[7] || "") + " (" + (r[8] || "") + ")", by: r[9], undone: (r[10] || "") === "Y"});
+      });
+      promos.reverse();
+    }
+    return wrap(cb, {status: "ok", regNo: regNo, hasAuditSheet: !!ash, changes: changes.slice(0, CAP), logs: logs, promotions: promos});
+  } catch (err) {
+    return wrap(cb, {status: "error", message: err.toString()});
+  }
+}
+
+// ---------- डेटा तपासणी (Super) ----------
+var DQ_TYPES = ["dup_reg", "dob_missing", "dob_invalid", "wa_missing", "wa_bad", "age_mismatch", "photo_missing"];
+function dqParseDob_(v) {
+  var s = (v === null || v === undefined) ? "" : String(v).trim();
+  if (!s) return null;
+  var m = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(s), y, mo, d;
+  if (m) { y = +m[1]; mo = +m[2]; d = +m[3]; }
+  else { m = /^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{4})$/.exec(s); if (!m) return null; d = +m[1]; mo = +m[2]; y = +m[3]; }
+  var dt = new Date(y, mo - 1, d);
+  return (dt.getFullYear() === y && dt.getMonth() === mo - 1 && dt.getDate() === d) ? dt : null;
+}
+function dqWaState_(v) {   // "ok" | "missing" | "bad"
+  var raw = (v === null || v === undefined) ? "" : String(v).trim();
+  if (!raw) return "missing";
+  var dg = raw.replace(/\D/g, "");
+  if (dg.length === 12 && dg.indexOf("91") === 0) dg = dg.slice(2);
+  else if (dg.length === 11 && dg.charAt(0) === "0") dg = dg.slice(1);
+  return (dg.length === 10 && /^[6-9]/.test(dg)) ? "ok" : "bad";
+}
+// परत: {byStudent: {key: [types]}, rows: [[type, regNo, name, cls, tukdi, roll, detail], ...]}
+function dqCompute_(roster, ageTol) {
+  var now = new Date(), maxYear = now.getFullYear() - 4, rows = [], by = {}, cnt = {};
+  function add(st, type, detail) {
+    rows.push([type, st.regNo, st.fullName, st.iyatta, st.tukdi, st.rollNo, detail]);
+    var k = (st.regNo || "").toString().trim().toLowerCase() || ("#" + rows.length);
+    (by[k] = by[k] || []).push(type);
+  }
+  var seen = {};
+  roster.forEach(function(st) { var k = (st.regNo || "").toString().trim().toLowerCase(); if (k) (seen[k] = seen[k] || []).push(st); });
+  roster.forEach(function(st) {
+    var k = (st.regNo || "").toString().trim().toLowerCase();
+    if (k && seen[k].length > 1) add(st, "dup_reg", "हा Reg No " + seen[k].length + " वेळा आहे (" + seen[k].map(function(x) { return (x.iyatta || "") + (x.tukdi ? "-" + x.tukdi : "") + " / " + (x.fullName || ""); }).join("; ") + ")");
+    var dobRaw = (st.dob === null || st.dob === undefined) ? "" : String(st.dob).trim(), dob = dqParseDob_(dobRaw);
+    if (!dobRaw) add(st, "dob_missing", "जन्मतारीख रिकामी");
+    else if (!dob) add(st, "dob_invalid", "जन्मतारीख वाचता येत नाही: " + dobRaw);
+    else if (dob.getFullYear() < 1995 || dob.getFullYear() > maxYear) add(st, "dob_invalid", "जन्मतारीख अशक्य वाटते: " + dobRaw);
+    else {
+      var cn = parseInt(String(st.iyatta || "").replace(/\D/g, ""), 10);
+      if (cn >= 5 && cn <= 10) {
+        var ys = acYearStart_(normAcYear_(st.acYear)), ref = new Date(ys, 5, 1);
+        var age = ref.getFullYear() - dob.getFullYear() - ((ref.getMonth() < dob.getMonth() || (ref.getMonth() === dob.getMonth() && ref.getDate() < dob.getDate())) ? 1 : 0);
+        var exp = cn + 5;
+        if (Math.abs(age - exp) >= ageTol) add(st, "age_mismatch", "वय " + age + " (१ जून " + ys + " रोजी) — इयत्ता " + cn + " साठी अपेक्षित ≈ " + exp);
+      }
+    }
+    var ws = dqWaState_(st.whatsappMobile);
+    if (ws === "missing") add(st, "wa_missing", "WhatsApp क्रमांक रिकामा");
+    else if (ws === "bad") add(st, "wa_bad", "WhatsApp क्रमांक १० अंकी वैध नाही: " + String(st.whatsappMobile));
+    if (!String(st.photoUrl || "").trim()) add(st, "photo_missing", "फोटो नाही");
+  });
+  rows.forEach(function(r) { cnt[r[0]] = (cnt[r[0]] || 0) + 1; });
+  return {byStudent: by, rows: rows, counts: cnt};
+}
+function doGetDataQuality(p, cb) {
+  try {
+    var e = authSuperOnly_(p, "डेटा तपासणी"); if (e) return wrap(cb, {status: "error", code: "forbidden", message: e});
+    var tol = Math.max(1, parseInt(p.ageTol, 10) || 3);
+    var roster = getRosterCached_("", "", false).data;
+    var q = dqCompute_(roster, tol), type = (p.type || "").toString().trim();
+    if (type) {
+      if (DQ_TYPES.indexOf(type) === -1) return wrap(cb, {status: "error", message: "अज्ञात प्रकार."});
+      var list = q.rows.filter(function(r) { return r[0] === type; }), LIM = 3000;
+      list.sort(function(a, b) { return arClassCmp_(a[3], b[3]) || (String(a[4]) < String(b[4]) ? -1 : (String(a[4]) > String(b[4]) ? 1 : 0)) || ((parseInt(a[5], 10) || 0) - (parseInt(b[5], 10) || 0)); });
+      return wrap(cb, {status: "ok", type: type, total: list.length, truncated: list.length > LIM, rows: list.slice(0, LIM)});
+    }
+    var byClass = {};
+    roster.forEach(function(st) {
+      var c = (st.iyatta || "—").toString(), o = byClass[c] || (byClass[c] = {cls: c, students: 0, withIssues: 0, byType: {}});
+      o.students++;
+      var k = (st.regNo || "").toString().trim().toLowerCase(), t = q.byStudent[k] || [];
+      if (t.length) o.withIssues++;
+    });
+    q.rows.forEach(function(r) { var o = byClass[(r[3] || "—").toString()]; if (o) o.byType[r[0]] = (o.byType[r[0]] || 0) + 1; });
+    var studentsWithIssues = Object.keys(q.byStudent).length;
+    return wrap(cb, {status: "ok", total: roster.length, studentsWithIssues: studentsWithIssues, counts: q.counts, ageTol: tol,
+      classes: Object.keys(byClass).map(function(k) { return byClass[k]; }).sort(function(a, b) { return arClassCmp_(a.cls, b.cls); })});
+  } catch (err) {
+    return wrap(cb, {status: "error", message: err.toString()});
+  }
+}
+
+// ---------- वर्ष-अखेर पूर्वतपासणी (Super) — फक्त वाचन ----------
+function doGetYearEndCheck(p, cb) {
+  try {
+    var e = authSuperOnly_(p, "वर्ष-अखेर पूर्वतपासणी"); if (e) return wrap(cb, {status: "error", code: "forbidden", message: e});
+    var cur = currentAcYear_(), ss = SpreadsheetApp.getActiveSpreadsheet();
+    var roster = getRosterCached_("", "", false).data;
+    var dues = computeCarryDues_(cur), dueMap = {};
+    dues.list.forEach(function(x) { dueMap[(x.regNo || "").toString().trim().toLowerCase()] = x.due; });
+    // LC: सर्व नोंदी एकाच वाचनात (Student ID = स्तंभ ३, LC No = १८, LC Date = १९); प्रत्येक Reg No ची शेवटची नोंद
+    var lcMap = {}, lcSh = ss.getSheetByName("LC");
+    if (lcSh && lcSh.getLastRow() > 1) {
+      lcSh.getRange(2, 1, lcSh.getLastRow() - 1, 19).getValues().forEach(function(r) {
+        var k = (r[2] || "").toString().trim().toLowerCase(); if (!k) return;
+        var o = lcMap[k] || (lcMap[k] = {n: 0}); o.n++; o.lcNo = lcCellText_(r[17]); o.lcDate = lcCellText_(r[18]);
+      });
+    }
+    var q = dqCompute_(roster, 3), last = CLASS_ORDER_SRV[CLASS_ORDER_SRV.length - 1];
+    var classes = {}, duesList = [], lcList = [], unknown = 0;
+    roster.forEach(function(st) {
+      var c = (st.iyatta || "").toString().trim(), k = (st.regNo || "").toString().trim().toLowerCase();
+      var idx = CLASS_ORDER_SRV.indexOf(c);
+      if (idx === -1) unknown++;
+      var o = classes[c || "—"] || (classes[c || "—"] = {cls: c || "—", next: idx === -1 ? "?" : (idx === CLASS_ORDER_SRV.length - 1 ? "उत्तीर्ण / Pass-out" : CLASS_ORDER_SRV[idx + 1]), students: 0, withDues: 0, dueSum: 0, withLC: 0, lcPending: 0, withDqIssues: 0});
+      o.students++;
+      var d = dueMap[k] || 0; if (d > 0) { o.withDues++; o.dueSum += d; duesList.push([st.regNo, st.fullName, c, st.tukdi, st.rollNo, d]); }
+      var lc = lcMap[k]; if (lc) { o.withLC++; lcList.push([st.regNo, st.fullName, c, st.tukdi, lc.lcNo, lc.lcDate, lc.n]); }
+      else if (c === last) o.lcPending++;
+      if (q.byStudent[k] && q.byStudent[k].length) o.withDqIssues++;
+    });
+    var list = Object.keys(classes).map(function(k) { return classes[k]; }).sort(function(a, b) { return arClassCmp_(a.cls, b.cls); });
+    var tot = {students: roster.length, withDues: dues.list.length, dueSum: dues.total, withLC: lcList.length, lcPending: 0, withDqIssues: Object.keys(q.byStudent).length};
+    list.forEach(function(c) { tot.lcPending += c.lcPending; });
+    duesList.sort(function(a, b) { return arClassCmp_(a[2], b[2]) || (String(a[3]) < String(b[3]) ? -1 : (String(a[3]) > String(b[3]) ? 1 : 0)) || ((parseInt(a[4], 10) || 0) - (parseInt(b[4], 10) || 0)); });
+    lcList.sort(function(a, b) { return arClassCmp_(a[2], b[2]) || (String(a[1]) < String(b[1]) ? -1 : 1); });
+    var lastBk = null;
+    try { lastBk = JSON.parse(PropertiesService.getScriptProperties().getProperty("LAST_BACKUP") || "null"); } catch (eB) {}
+    var bkT = (lastBk && lastBk.ok && lastBk.time) ? new Date(lastBk.time).getTime() : 0;
+    var warnings = [];
+    if (!bkT || (Date.now() - bkT) > 48 * 3600 * 1000) warnings.push("ताजा Backup (४८ तासांतील) नाही — नवे वर्ष/Archive करण्याआधी Backup घ्या.");
+    if (tot.lcPending > 0) warnings.push(last + " मध्ये " + tot.lcPending + " विद्यार्थ्यांची LC नोंद नाही (उत्तीर्ण होण्यापूर्वी LC लागेल).");
+    var nonLast = 0; list.forEach(function(c) { if (c.cls !== last) nonLast += c.withLC; });
+    if (nonLast > 0) warnings.push(last + " खेरीज इतर वर्गांत " + nonLast + " विद्यार्थ्यांची LC नोंद आहे — ते शाळा सोडून गेले असतील तर यादीतून काढायचे का ते तपासा.");
+    if (tot.withDues > 0) warnings.push(tot.withDues + " विद्यार्थ्यांची थकबाकी (एकूण ₹" + Math.round(tot.dueSum) + ") नव्या वर्षात OPENING म्हणून पुढे जाईल.");
+    if (tot.withDqIssues > 0) warnings.push(tot.withDqIssues + " विद्यार्थ्यांच्या नोंदीत डेटा-त्रुटी आहेत (डेटा तपासणी पाहा).");
+    if (unknown > 0) warnings.push(unknown + " विद्यार्थ्यांचा वर्ग ओळखीच्या वर्गांत (" + CLASS_ORDER_SRV.join(", ") + ") नाही — बढतीत सुटतील.");
+    return wrap(cb, {status: "ok", current: cur, suggestedNew: nextAcYear_(cur), lastClass: last, classes: list, total: tot, dues: duesList, lc: lcList, warnings: warnings,
+      backup: {ok: !!(bkT && (Date.now() - bkT) <= 48 * 3600 * 1000), hoursAgo: bkT ? Math.round((Date.now() - bkT) / 3600000) : null}});
+  } catch (err) {
+    return wrap(cb, {status: "error", message: err.toString()});
+  }
+}
+
+// ---------- Sheet क्षमता (१ कोटी cells मर्यादा) ----------
+var SHEET_CELL_LIMIT = 10000000;
+function sheetCapacityCompute_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet(), cur = currentAcYear_(), total = 0, per = [], byYear = {};
+  ss.getSheets().forEach(function(sh) {
+    var c = sh.getMaxRows() * sh.getMaxColumns(), n = sh.getName(), y = sheetYearOf_(n);
+    total += c; per.push({name: n, cells: c});
+    if (y && acYearStart_(y) < acYearStart_(cur) && !isArchivedYear_(y)) byYear[y] = (byYear[y] || 0) + c;
+  });
+  per.sort(function(a, b) { return b.cells - a.cells; });
+  var pct = Math.round(total * 1000 / SHEET_CELL_LIMIT) / 10;
+  return {total: total, limit: SHEET_CELL_LIMIT, pct: pct, level: total >= SHEET_CELL_LIMIT * 0.85 ? "high" : (total >= SHEET_CELL_LIMIT * 0.70 ? "warn" : "ok"), sheets: ss.getSheets().length,
+    top: per.slice(0, 12), archivable: Object.keys(byYear).sort().map(function(y) { return {year: y, cells: byYear[y]}; })};
+}
+function doGetSheetCapacity(p, cb) {
+  try {
+    var e = authSuperMaster_(p, "Sheet क्षमता"); if (e) return wrap(cb, {status: "error", code: "forbidden", message: e});
+    var key = "sheetcap_v1", c = CacheService.getScriptCache(), hit = (p.nocache === "1") ? null : c.get(key);
+    if (hit) { try { var o = JSON.parse(hit); o.cached = true; o.status = "ok"; return wrap(cb, o); } catch (eH) {} }
+    var res = sheetCapacityCompute_();
+    try { c.put(key, JSON.stringify(res), 600); } catch (eP) {}
+    res.status = "ok";
+    return wrap(cb, res);
+  } catch (err) {
+    return wrap(cb, {status: "error", message: err.toString()});
+  }
+}
+// Editor मधून Run करा: क्षमता Log मध्ये. ≥ ८५% असेल तर (दिवसातून एकदाच) ईमेल.
+function checkSheetCapacity() {
+  var r = sheetCapacityCompute_();
+  var msg = "Sheet क्षमता: " + r.pct + "% (" + r.total + " / " + r.limit + " cells), Sheets: " + r.sheets + " → " + (r.level === "ok" ? "✅ ठीक" : (r.level === "warn" ? "⚠️ ७०% ओलांडले" : "❌ ८५% ओलांडले — Archive करा"));
+  Logger.log(msg);
+  return msg;
+}
+function capacityDailyCheck() {
+  var r = sheetCapacityCompute_();
+  if (r.level !== "high") return r;
+  var props = PropertiesService.getScriptProperties(), today = Utilities.formatDate(new Date(), "Asia/Kolkata", "yyyy-MM-dd");
+  if (props.getProperty("LAST_CAP_ALERT") === today) return r;
+  try {
+    var to = props.getProperty("BACKUP_ALERT_EMAIL") || ""; if (!to) { try { to = Session.getEffectiveUser().getEmail(); } catch (e0) {} }
+    if (to) MailApp.sendEmail(to, "⚠️ SGS School System — Sheet क्षमता " + r.pct + "%", "मुख्य Spreadsheet मध्ये " + r.total + " / " + r.limit + " cells (" + r.pct + "%) वापरले आहेत.\n\nजुने वर्ष Archive करा (Super Admin → वर्ष-व्यवस्थापन).");
+    props.setProperty("LAST_CAP_ALERT", today);
+  } catch (e) {}
+  return r;
+}
+function setupCapacityWatchTrigger() {   // एकदा Run करा — रोज सकाळी तपासणी
+  ScriptApp.getProjectTriggers().forEach(function(t) { if (t.getHandlerFunction() === "capacityDailyCheck") ScriptApp.deleteTrigger(t); });
+  ScriptApp.newTrigger("capacityDailyCheck").timeBased().everyDays(1).atHour(7).create();
+  return "रोज सकाळी ७ ला Sheet क्षमता तपासणी सुरू केली.";
+}
+
+// ---------- वेळ-मोजणी (Editor मधून Run करा) — २,५०० विद्यार्थी लक्ष्यासाठी ----------
+function diagCall_(label, fn, p) {
+  var t0 = Date.now(), o = {label: label, ms: 0, size: 0, status: "", note: ""};
+  try {
+    var r = fn(p, null);
+    o.ms = Date.now() - t0;
+    var txt = (r && r.getContent) ? r.getContent() : JSON.stringify(r);
+    o.size = txt.length;
+    var j = JSON.parse(txt); o.status = j.status || "";
+    if (j.cached) o.note = "cached";
+    if (j.status !== "ok") o.note = (o.note + " " + (j.message || "")).trim();
+  } catch (e) { o.ms = Date.now() - t0; o.status = "EXC"; o.note = String(e); }
+  return o;
+}
+function diagTimings() {
+  var started = Date.now(), cur = currentAcYear_(), res = [];
+  var now = new Date(), month = Utilities.formatDate(now, "Asia/Kolkata", "yyyy-MM");
+  var base = {_authed: true, requesterRole: "super", requesterUser: "diag"};
+  function P(x) { var o = {}, k; for (k in base) o[k] = base[k]; for (k in x) o[k] = x[k]; return o; }
+  var t0 = Date.now(); var fresh = buildRoster_("", ""); res.push({label: "विद्यार्थी-यादी बांधणे (Cache शिवाय, " + fresh.length + " विद्यार्थी)", ms: Date.now() - t0, size: 0, status: "ok", note: ""});
+  t0 = Date.now(); getRosterCached_("", "", false); res.push({label: "विद्यार्थी-यादी (Cache सह)", ms: Date.now() - t0, size: 0, status: "ok", note: ""});
+  var sample = fresh[0] || {regNo: "", iyatta: "", tukdi: ""};
+  res.push(diagCall_("getClassStudents (एक वर्ग)", doGetClassStudents, P({iyatta: sample.iyatta, tukdi: sample.tukdi})));
+  res.push(diagCall_("getAttendanceOverview (" + month + ")", doGetAttendanceOverview, P({month: month})));
+  res.push(diagCall_("getFees (संपूर्ण शाळा)", doGetFees, P({})));
+  res.push(diagCall_("getScholarship (" + cur + ")", doGetScholarship, P({year: cur})));
+  res.push(diagCall_("getLCByReg", doGetLCByReg, P({regNo: sample.regNo})));
+  res.push(diagCall_("getDataQuality", doGetDataQuality, P({})));
+  res.push(diagCall_("getYearEndCheck", doGetYearEndCheck, P({})));
+  res.push(diagCall_("getSheetCapacity (Cache शिवाय)", doGetSheetCapacity, P({nocache: "1"})));
+  res.push(diagCall_("getStudentAudit", doGetStudentAudit, P({regNo: sample.regNo})));
+  [cur].concat(archivedYears_()).forEach(function(y) {
+    res.push(diagCall_("इतिहास core " + y, doGetStudentYearHistory, P({regNo: sample.regNo, year: y, part: "core"})));
+    res.push(diagCall_("इतिहास el " + y, doGetStudentYearHistory, P({regNo: sample.regNo, year: y, part: "el"})));
+  });
+  archivedYears_().forEach(function(y) {
+    res.push(diagCall_("Archive अहवाल फी " + y, doGetArchiveReport, P({year: y, section: "fees"})));
+    res.push(diagCall_("Archive अहवाल फी " + y + " (पुन्हा — Cache)", doGetArchiveReport, P({year: y, section: "fees"})));
+  });
+  var lines = res.map(function(r) {
+    var flag = r.status !== "ok" ? "❌" : (r.ms > 30000 ? "❌ खूप धीमे" : (r.ms > 8000 ? "⚠️ धीमे" : "✅"));
+    return flag + "  " + r.ms + " ms  |  " + Math.round(r.size / 1024) + " KB  |  " + r.label + (r.note ? "  [" + r.note + "]" : "");
+  });
+  var summary = "वेळ-मोजणी (" + cur + ", एकूण " + (Date.now() - started) + " ms)\n" + lines.join("\n") +
+    "\n\nटीप: ८ से. पेक्षा जास्त = वापरकर्त्याला जाणवते; Apps Script ची कमाल मर्यादा ~६ मिनिटे. पहिली (cold) विनंती नेहमी जास्त वेळ घेते — दुसऱ्यांदा चालवून तुलना करा.";
+  Logger.log(summary);
+  return summary;
 }
 
 // ----- Fees (टप्प्याटप्प्याने जमा होणारी रक्कम — प्रत्येक एन्ट्री ही एक जमा नोंद, त्या क्षणापर्यंतच्या

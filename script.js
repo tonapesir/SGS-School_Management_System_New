@@ -32,7 +32,7 @@ window.androidBackPressed = function() {
 
 
 // URL persistence
-var DEFAULT_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbwu5zRDH5yV1QNW3Ln7jPOlFK_-_RgDqursU98rZiQJkWBDo33x-H6MPgjonIe9R79E/exec';
+var DEFAULT_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbzZ-iYnkyTkFAq3lE9hzWyBTP9_KRWAJgplGy80ix-kLcS3SW3c_pVE_aGn334rpuNq/exec';
 
 // =====================================================
 // 🔐 LOGIN + ROLE PERMISSIONS
@@ -66,7 +66,7 @@ var USER_ALLOWED_PAGES = {
   master: ['dashboard','student','lc','bonafide','attendance','search','history','users','profile','stats','maintenance','classinfo','report','attanalytics','earlyleave','scholarship','teacherlist','archive'],
   deo:    ['student','search','history','users','profile','teacherlist'],
   cert:   ['bonafide','attendance','search','history','users','profile'],
-  super:  ['dashboard','student','lc','bonafide','attendance','search','history','users','profile','stats','maintenance','classinfo','report','superadmin','attanalytics','earlyleave','scholarship','teacherlist','archive'],
+  super:  ['dashboard','student','lc','bonafide','attendance','search','history','users','profile','stats','maintenance','classinfo','report','superadmin','attanalytics','earlyleave','scholarship','teacherlist','archive','dataqc'],
   teacher:['teacher','profile','report','earlyleave','scholarship'],
   peon:   ['search','profile','earlyleave','teacherlist']   // शिपाई: विद्यार्थी शोध, प्रोफाइल, घरी जाणाऱ्यांची मार्क-आउट यादी
 };
@@ -186,6 +186,7 @@ function attemptLogin(ev) {
   var username = (uEl ? uEl.value : '').trim();
   var password = pEl ? pEl.value : '';
   function setSt(txt, cls) { if (st) { st.textContent = txt; st.className = 'login-status' + (cls ? ' ' + cls : ''); st.style.display = 'block'; } }
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) { setSt('📴 इंटरनेट नाही — Login साठी नेट आवश्यक आहे. (आधीच Login असलेल्या ॲपमध्ये शेवटची वर्ग-यादी ऑफलाइन वाचता येते.)', 'err'); return; }   // V19.60
   setSt('⏳ शाळेच्या सर्व्हरशी जोडत आहे, कृपया थोडा वेळ थांबा...');
 
   // ===== V19.36: प्रथम Server-side Login — Password सर्व्हरच तपासतो व स्वाक्षरी केलेला Token देतो =====
@@ -332,7 +333,7 @@ function applyFormPermissions() {
     if (el.id.indexOf('tch_') === 0) { el.disabled=false; el.classList.remove('locked-input'); return; }
     if (el.id.indexOf('el_') === 0) { el.disabled=false; el.classList.remove('locked-input'); return; }
     if (el.id.indexOf('sch_') === 0) { el.disabled=false; el.classList.remove('locked-input'); return; }
-    if (el.id.indexOf('ar_') === 0) { el.disabled=false; el.classList.remove('locked-input'); return; }
+    if (el.id.indexOf('ar_') === 0 || el.id.indexOf('dq_') === 0) { el.disabled=false; el.classList.remove('locked-input'); return; }
     if (el.id.indexOf('tl_') === 0) { el.disabled=false; el.classList.remove('locked-input'); return; }
     if (el.id.indexOf('rp_') === 0) { el.disabled=false; el.classList.remove('locked-input'); return; }
     if (el.id.indexOf('um_') === 0) {
@@ -734,8 +735,9 @@ var clientPerf = [];
 // नियम: पैसा/थकबाकी/फी जमा स्क्रीनवर कधीही जुना डेटा नाही • २४ तासांहून जुना cache वापरत नाही • अॅप-आवृत्ती बदलल्यास रद्द •
 //       प्रत्येकी ~300 KB / एकूण ~1 MB मर्यादा • Logout वर पूर्ण पुसले जाते • Token कधीही साठवत नाही (फक्त उत्तर).
 // =====================================================================
-var APP_VERSION = 'V19.59';
+var APP_VERSION = 'V19.60';
 var SWR_PREFIX = 'sgs_swr:';
+var SWR_ROSTER_MAX_AGE_MS = 7 * 24 * 3600 * 1000;   // V19.60: शिक्षकाची वर्ग-यादी ७ दिवस (ऑफलाइन वाचन); बाकी २४ तास
 var SWR_MAX_AGE_MS = 24 * 3600 * 1000, SWR_MAX_ENTRY = 300 * 1024, SWR_MAX_TOTAL = 1024 * 1024;
 var SWR_NEVER = /fee|thakbaki|arrear|payment|receipt/i;   // action किंवा key मध्ये आढळल्यास कधीही stale नाही, साठवतही नाही
 var swrSeq = {}, swrPendingCount = 0, swrBarTimer = null;
@@ -746,6 +748,7 @@ function swrAllKeys() {
   try { for (var i = 0; i < localStorage.length; i++) { var k = localStorage.key(i); if (k && k.indexOf(SWR_PREFIX) === 0) out.push(k); } } catch (e) {}
   return out;
 }
+function swrAgeMs(key) { return String(key).indexOf('tchRoster:') !== -1 ? SWR_ROSTER_MAX_AGE_MS : SWR_MAX_AGE_MS; }
 function swrClearAll() { swrAllKeys().forEach(function(k) { try { localStorage.removeItem(k); } catch (e) {} }); }
 function swrPurgeOld() {   // जुनी अॅप-आवृत्ती व २४ तासांहून जुन्या नोंदी काढा
   var cur = SWR_PREFIX + APP_VERSION + ':';
@@ -753,7 +756,7 @@ function swrPurgeOld() {   // जुनी अॅप-आवृत्ती व �
     try {
       if (k.indexOf(cur) !== 0) { localStorage.removeItem(k); return; }
       var o = JSON.parse(localStorage.getItem(k) || 'null');
-      if (!o || !o.t || (Date.now() - o.t) > SWR_MAX_AGE_MS) localStorage.removeItem(k);
+      if (!o || !o.t || (Date.now() - o.t) > swrAgeMs(k)) localStorage.removeItem(k);
     } catch (e) { try { localStorage.removeItem(k); } catch (e2) {} }
   });
 }
@@ -762,7 +765,7 @@ function swrRead(key) {
   try {
     var raw = localStorage.getItem(k); if (!raw) return null;
     var o = JSON.parse(raw);
-    if (!o || !o.t || (Date.now() - o.t) > SWR_MAX_AGE_MS || o.u !== (currentUser ? currentUser.username : '')) { localStorage.removeItem(k); return null; }
+    if (!o || !o.t || (Date.now() - o.t) > swrAgeMs(key) || o.u !== (currentUser ? currentUser.username : '')) { localStorage.removeItem(k); return null; }
     return o;
   } catch (e) { try { localStorage.removeItem(k); } catch (e2) {} return null; }
 }
@@ -786,7 +789,7 @@ function swrBar(state) {   // 'on' | 'fail' | 'off'
   if (!el) { el = document.createElement('div'); el.id = 'swrBar'; document.body.appendChild(el); }
   if (swrBarTimer) { clearTimeout(swrBarTimer); swrBarTimer = null; }
   if (state === 'on') { el.textContent = '⏱ ताजी माहिती येत आहे…'; el.className = 'swr-on'; return; }
-  if (state === 'fail') { el.textContent = '⚠️ ताजी माहिती मिळाली नाही — जुनी माहिती दाखवली आहे'; el.className = 'swr-on swr-fail'; swrBarTimer = setTimeout(function() { if (!swrPendingCount) el.className = ''; }, 5000); return; }
+  if (state === 'fail') { el.textContent = (typeof navigator !== 'undefined' && navigator.onLine === false) ? '📴 ऑफलाइन — शेवटची जतन केलेली माहिती दाखवली आहे' : '⚠️ ताजी माहिती मिळाली नाही — जुनी माहिती दाखवली आहे'; el.className = 'swr-on swr-fail'; swrBarTimer = setTimeout(function() { if (!swrPendingCount) el.className = ''; }, 5000); return; }
   el.className = '';
 }
 // fetcher(cb) → cb(r). render(r, meta): meta = {stale, failed}. opts: noStale, notifyFresh (उत्तर तेच असले तरी fresh-सूचना द्या)
@@ -3523,7 +3526,8 @@ function buildProfileFields(d) {
 function renderStudentProfile(d) {
   window._lastProfileData = d;
   try { pmReset(d); } catch (ePm) {}
-  try { hsReset(d); } catch (eHs) {}   // V19.56   // V19.54: फी/प्रवास विभाग रीसेट (नवीन विद्यार्थ्याचा जुना डेटा दिसू नये)
+  try { hsReset(d); } catch (eHs) {}   // V19.56
+  try { auReset(d); } catch (eAu) {}   // V19.60   // V19.54: फी/प्रवास विभाग रीसेट (नवीन विद्यार्थ्याचा जुना डेटा दिसू नये)
   var empty = document.getElementById('profile_empty');
   var content = document.getElementById('profile_content');
   if (empty) empty.style.display = 'none';
@@ -3797,6 +3801,8 @@ showPage = function(name, btn) {
   if (name === 'archive') {
     arInit();
   }
+  if (name === 'dataqc') { dqInit(); }
+  if (name === 'dashboard') { try { capCheck(); } catch (eCap) {} }
   if (name === 'stats') {
     mstLoadStatsReport();
   }
@@ -4435,6 +4441,7 @@ function tchLoadRoster(onDone, force) {
     if (r && r.status === 'ok') {
       tchRoster = r.data || [];
       tchRosterLoadedAt = meta.stale ? 0 : Date.now();   // जुना डेटा "ताजा" मानू नका
+      offSetDataAge(meta.stale ? meta.age : null);   // V19.60: ऑफलाइन असताना "शेवटचे अपडेट" दाखवण्यासाठी
       tchRenderRoster();
       tchPopulateDiaryStudentSelect();
       if (called) { try { tchRenderCatAge(); } catch (e) {} }   // जुन्यानंतर ताजा आला — तक्ते पुन्हा रेखाटा
@@ -4454,10 +4461,10 @@ function tchRenderRoster() {
   });
   if (!list.length) { tbody.innerHTML = '<tr><td colspan="6">कोणीही विद्यार्थी सापडला नाही.</td></tr>'; return; }
   tbody.innerHTML = list.map(function(s) {
-    return '<tr class="tch-roster-row" onclick="tchShowProfile(\'' + s.regNo + '\')">' +
-      '<td>' + (s.rollNo||'') + '</td><td>' + (s.fullName||'') + '</td><td>' + (s.gender||'') + '</td>' +
+    return '<tr class="tch-roster-row" onclick="tchShowProfile(' + pmEsc(JSON.stringify(String(s.regNo))) + ')">' +
+      '<td>' + pmEsc(s.rollNo||'') + '</td><td>' + pmEsc(s.fullName||'') + '</td><td>' + pmEsc(s.gender||'') + '</td>' +
       '<td>' + tchFmtDate(s.dob) + '</td><td onclick="event.stopPropagation()">' + tchContactCell(s) + '</td>' +
-      '<td><button class="btn btn-blue" style="padding:3px 10px;font-size:11px" onclick="event.stopPropagation();tchShowProfile(\'' + s.regNo + '\')">🪪 Profile</button></td></tr>';
+      '<td><button class="btn btn-blue" style="padding:3px 10px;font-size:11px" onclick="event.stopPropagation();tchShowProfile(' + pmEsc(JSON.stringify(String(s.regNo))) + ')">🪪 Profile</button></td></tr>';
   }).join('');
 }
 
@@ -6827,6 +6834,7 @@ function arTab(name, force) {
   document.querySelectorAll('.ar-tabbtn').forEach(function(b) { b.className = 'btn ' + (b.getAttribute('data-tab') === name ? 'btn-gold' : 'btn-gray') + ' ar-tabbtn'; });
   var body = document.getElementById('ar_body');
   archBanner('ar_anchor', false);
+  if (name === 'cmp') { arRenderCmp(); return; }   // V19.60: तुलना — स्वतःची दोन वर्षे निवडते
   if (!arS.year) { body.innerHTML = '<div>👆 आधी वर्ष निवडून "लोड करा" दाबा.</div>'; return; }
   if (arS.data[name]) { arRender(name); return; }
   var seq = ++arS.seq, yr = arS.year;
@@ -7351,3 +7359,262 @@ function lcLoadSaved(sd, q, mainMsg) {
     showStatus('lc', mainMsg + ' | 📄 पूर्वीची LC नोंद भरली' + (r.data && r.data.lcNo ? ' (LC क्र. ' + r.data.lcNo + ')' : '') + (r.count > 1 ? ' — एकूण ' + r.count + ' नोंदी, शेवटची वापरली' : ''), 'ok');
   });
 }
+
+
+// =====================================================================
+// ===== V19.60 — 🔎 डेटा तपासणी पान (Super): डेटा गुणवत्ता • वर्ष-अखेर पूर्वतपासणी • Sheet आकार =====
+// सर्व फक्त वाचन. Load बटण/टॅब उघडल्यावरच; Cache/stale नाही.
+// =====================================================================
+var DQ_LABELS = {dup_reg: '🔁 दुबार Reg No', dob_missing: '📅 जन्मतारीख रिकामी', dob_invalid: '📅 जन्मतारीख चुकीची', wa_missing: '📵 WhatsApp रिकामा', wa_bad: '📵 WhatsApp १० अंकी नाही', age_mismatch: '🎂 वय-वर्ग न जुळणे', photo_missing: '🖼️ फोटो नाही'};
+var DQ_ORDER = ['dup_reg', 'dob_missing', 'dob_invalid', 'wa_missing', 'wa_bad', 'age_mismatch', 'photo_missing'];
+var dqS = {tab: 'q', seq: 0};
+function dqSt(t) { var e = document.getElementById('dq_status'); if (e) e.textContent = t || ''; }
+function dqInit() { if (!currentUser || currentUser.role !== 'super') return; dqTab(dqS.tab || 'q'); }
+function dqTab(name) {
+  dqS.tab = name; var seq = ++dqS.seq;
+  [].forEach.call(document.querySelectorAll('.dq-tabbtn'), function(b) { b.className = 'btn ' + (b.getAttribute('data-tab') === name ? 'btn-gold' : 'btn-gray') + ' dq-tabbtn'; });
+  var body = document.getElementById('dq_body'); body.innerHTML = '';
+  if (name === 'q') dqLoadQuality(seq); else if (name === 'y') dqLoadYearEnd(seq); else dqLoadCap(seq, false);
+}
+function dqFilterBar(id, rows, clsIdx, csvName) {   // ids arq_/arc_/arn_ — arFilt() वापरतो
+  var cls = {}; rows.forEach(function(r) { var v = String(r[clsIdx] === null || r[clsIdx] === undefined ? '' : r[clsIdx]); if (v) cls[v] = 1; });
+  var opts = '<option value="">सर्व वर्ग</option>' + Object.keys(cls).sort(function(a, b) { return (parseInt(a, 10) || 99) - (parseInt(b, 10) || 99); }).map(function(v) { return '<option value="' + arE(v) + '">' + arE(classToMr(v)) + '</option>'; }).join('');
+  return '<div class="ar-filter"><input type="text" id="arq_' + id + '" placeholder="🔎 नाव / Reg No..." oninput="arFilt(\'' + id + '\')"><select id="arc_' + id + '" onchange="arFilt(\'' + id + '\')">' + opts + '</select><span id="arn_' + id + '" style="font-size:12px;color:#555"></span>' +
+    '<button class="btn btn-blue btn-sm" onclick="dqCsvVisible(\'' + id + '\',\'' + csvName + '\')">⬇️ दिसणारी यादी CSV</button></div>';
+}
+function dqCsvVisible(id, name) {
+  var tb = document.getElementById(id); if (!tb) return;
+  var rows = [[].map.call(tb.querySelectorAll('thead th'), function(th) { return th.textContent; })];
+  [].forEach.call(tb.querySelectorAll('tbody tr'), function(tr) { if (tr.style.display !== 'none') rows.push([].map.call(tr.children, function(td) { return td.textContent; })); });
+  arCsv('DataCheck_' + name + '.csv', rows);
+}
+function dqOpenProfile(reg) {
+  showPage('profile', document.querySelector('.navbtn[data-page="profile"]'));
+  setTimeout(function() { var box = document.getElementById('prof_key'); if (box) box.value = reg; loadStudentProfile(reg); }, 200);
+}
+function dqProfBtn(reg) { return '<button class="btn btn-blue btn-sm" onclick="dqOpenProfile(' + pmEsc(JSON.stringify(String(reg))) + ')">👤</button>'; }
+
+function dqLoadQuality(seq) {
+  dqSt('⏳ डेटा तपासत आहे...');
+  jsonpRequest({action: 'getDataQuality', requesterRole: currentUser.role}, function(r) {
+    if (seq !== dqS.seq) return;
+    if (!r || r.status !== 'ok') { dqSt(errTxt(r)); return; }
+    dqSt('');
+    var body = document.getElementById('dq_body'), c = r.counts || {};
+    var chips = DQ_ORDER.map(function(t) { var n = c[t] || 0; return '<span class="dq-chip' + (n ? '' : ' zero') + '" id="dq_chip_' + t + '"' + (n ? ' onclick="dqShowType(\'' + t + '\')"' : '') + '>' + DQ_LABELS[t] + '<b>' + n + '</b></span>'; }).join('');
+    var hd = ['वर्ग', 'विद्यार्थी', 'त्रुटी असलेले'].concat(DQ_ORDER.map(function(t) { return DQ_LABELS[t].replace(/^\S+\s/, ''); }));
+    var rows = (r.classes || []).map(function(x) { return [classToMr(x.cls), x.students, x.withIssues].concat(DQ_ORDER.map(function(t) { return (x.byType || {})[t] || 0; })); });
+    arCsvStore.dq1 = {name: 'DataCheck_class_summary.csv', rows: [hd].concat(rows)};
+    body.innerHTML = '<div><b>एकूण ' + r.total + ' विद्यार्थी — ' + r.studentsWithIssues + ' विद्यार्थ्यांच्या नोंदीत किमान एक त्रुटी.</b> (वय-वर्ग: ' + r.ageTol + ' वर्षांपेक्षा जास्त फरक)</div>' +
+      '<div style="margin:8px 0">' + chips + '</div><div class="hs-empty">👆 प्रकारावर दाबा → त्या विद्यार्थ्यांची यादी.</div>' +
+      '<div style="margin-top:10px"><b>वर्गनिहाय</b> ' + arCsvBtn('dq1', 'वर्गनिहाय') + '</div>' + arTbl(hd, rows) + '<div id="dq_detail"></div>';
+  });
+}
+function dqShowType(type) {
+  var seq = ++dqS.seq, box = document.getElementById('dq_detail'); if (!box) return;
+  [].forEach.call(document.querySelectorAll('.dq-chip'), function(e) { e.classList.remove('sel'); });
+  var chip = document.getElementById('dq_chip_' + type); if (chip) chip.classList.add('sel');
+  box.innerHTML = '<div style="margin-top:10px">⏳ यादी Load होत आहे...</div>';
+  jsonpRequest({action: 'getDataQuality', type: type, requesterRole: currentUser.role}, function(r) {
+    if (seq !== dqS.seq) return;
+    if (!r || r.status !== 'ok') { box.innerHTML = '<div class="pm-note">❌ ' + arE(errTxt(r)) + '</div>'; return; }
+    var hd = ['Reg No', 'नाव', 'वर्ग', 'तुकडी', 'हजेरी क्र.', 'तपशील', '👤'];
+    var rows = r.rows.map(function(x) { return [x[1], x[2], x[3], x[4], x[5], x[6], '']; });
+    var csvRows = [hd.slice(0, 6)].concat(r.rows.map(function(x) { return [x[1], x[2], x[3], x[4], x[5], x[6]]; }));
+    arCsvStore.dq2 = {name: 'DataCheck_' + type + '.csv', rows: csvRows};
+    var trs = r.rows.map(function(x) {
+      var s = (x[1] + ' ' + x[2] + ' ' + x[6]).toLowerCase().replace(/"/g, '&quot;');
+      return '<tr data-s="' + s + '" data-c="' + arE(x[3]) + '" data-b="0"><td>' + arE(x[1]) + '</td><td>' + arE(x[2]) + '</td><td>' + arE(x[3]) + '</td><td>' + arE(x[4]) + '</td><td>' + arE(x[5]) + '</td><td style="white-space:normal;min-width:180px">' + arE(x[6]) + '</td><td>' + dqProfBtn(x[1]) + '</td></tr>';
+    }).join('');
+    box.innerHTML = '<div style="margin-top:10px"><b>' + arE(DQ_LABELS[type]) + ' — ' + r.total + '</b>' + (r.truncated ? ' (पहिल्या ' + r.rows.length + ' दाखवल्या)' : '') + ' ' + arCsvBtn('dq2', 'ही यादी') + '</div>' +
+      dqFilterBar('dq_tbl', rows, 2, type) + '<div class="ar-scroll"><table class="ar-tbl" id="dq_tbl"><thead><tr>' + hd.map(function(x) { return '<th>' + arE(x) + '</th>'; }).join('') + '</tr></thead><tbody>' + trs + '</tbody></table></div>';
+    arFilt('dq_tbl');
+  });
+}
+
+function dqLoadYearEnd(seq) {
+  dqSt('⏳ वर्ष-अखेर पूर्वतपासणी चालू आहे (थकबाकी, LC, डेटा)...');
+  jsonpRequest({action: 'getYearEndCheck', requesterRole: currentUser.role}, function(r) {
+    if (seq !== dqS.seq) return;
+    if (!r || r.status !== 'ok') { dqSt(errTxt(r)); return; }
+    dqSt('');
+    var body = document.getElementById('dq_body'), T = r.total;
+    var hd = ['वर्ग', 'पुढचा वर्ग', 'विद्यार्थी', 'थकबाकी असलेले', 'थकबाकी ₹', 'LC नोंद असलेले', 'LC बाकी (' + r.lastClass + ')', 'डेटा-त्रुटी'];
+    var rows = r.classes.map(function(c) { return [classToMr(c.cls), c.next, c.students, c.withDues, c.dueSum, c.withLC, c.cls === r.lastClass ? c.lcPending : '—', c.withDqIssues]; });
+    var tot = ['एकूण', '', T.students, T.withDues, T.dueSum, T.withLC, T.lcPending, T.withDqIssues];
+    arCsvStore.ye1 = {name: 'YearEnd_' + r.current + '_classes.csv', rows: [hd].concat(rows, [tot])};
+    var dh = ['Reg No', 'नाव', 'वर्ग', 'तुकडी', 'हजेरी क्र.', 'थकबाकी ₹'];
+    arCsvStore.ye2 = {name: 'YearEnd_' + r.current + '_dues.csv', rows: [dh].concat(r.dues)};
+    var lh = ['Reg No', 'नाव', 'वर्ग', 'तुकडी', 'LC क्र.', 'LC दिनांक', 'नोंदी'];
+    arCsvStore.ye3 = {name: 'YearEnd_' + r.current + '_lc.csv', rows: [lh].concat(r.lc)};
+    body.innerHTML =
+      '<div><b>चालू वर्ष ' + arE(r.current) + ' → नवे ' + arE(r.suggestedNew) + '</b> &nbsp; ' + (r.backup.ok ? '✅ Backup ' + r.backup.hoursAgo + ' तासांपूर्वी' : '⚠️ ताजा Backup नाही') + '</div>' +
+      (r.warnings.length ? r.warnings.map(function(w) { return '<div class="pm-note">⚠️ ' + arE(w) + '</div>'; }).join('') : '<div class="pm-note" style="background:#e8f7ec;border-color:#8ac79a;color:#1a5a2a">✅ कोणतीही अडचण सापडली नाही.</div>') +
+      '<div style="margin-top:10px"><b>वर्गनिहाय बढती-आढावा</b> ' + arCsvBtn('ye1', 'वर्ग') + '</div>' + arTbl(hd, rows, tot) +
+      '<div class="hs-empty">ही पाहणी फक्त वाचन आहे — काहीही बदलत नाही. थकबाकी "नवे वर्ष सुरू करा" वर OPENING म्हणून पुढे जाते.</div>' +
+      '<div style="margin-top:12px"><b>थकबाकी असलेले विद्यार्थी (' + r.dues.length + ')</b> ' + arCsvBtn('ye2', 'थकबाकी') + '</div>' + dqFilterBar('dq_dues', r.dues, 2, 'dues') +
+      arTbl(dh, r.dues, null, {id: 'dq_dues', clsIdx: 2}) +
+      '<div style="margin-top:12px"><b>LC नोंद असलेले विद्यार्थी (' + r.lc.length + ')</b> ' + arCsvBtn('ye3', 'LC') + '</div>' + dqFilterBar('dq_lc', r.lc, 2, 'lc') +
+      arTbl(lh, r.lc, null, {id: 'dq_lc', clsIdx: 2});
+    arFilt('dq_dues'); arFilt('dq_lc');
+  });
+}
+
+function capLevelStyle(level) { return level === 'high' ? {bg: '#c0392b', msg: '❌ ८५% ओलांडले — लगेच जुने वर्ष Archive करा'} : (level === 'warn' ? {bg: '#d4902a', msg: '⚠️ ७०% ओलांडले — लवकरच Archive करा'} : {bg: '#2e9d57', msg: '✅ ठीक'}); }
+function dqLoadCap(seq, nocache) {
+  dqSt('⏳ Sheet आकार मोजत आहे...');
+  jsonpRequest({action: 'getSheetCapacity', nocache: nocache ? '1' : '', requesterRole: currentUser.role}, function(r) {
+    if (seq !== dqS.seq) return;
+    if (!r || r.status !== 'ok') { dqSt(errTxt(r)); return; }
+    dqSt('');
+    var st = capLevelStyle(r.level), body = document.getElementById('dq_body');
+    var topRows = r.top.map(function(x) { return [x.name, fmtIN(x.cells), (Math.round(x.cells * 1000 / r.total) / 10) + '%']; });
+    var arcRows = (r.archivable || []).map(function(x) { return [x.year, fmtIN(x.cells), (Math.round(x.cells * 1000 / r.limit) / 10) + '% (मोकळे होईल)']; });
+    body.innerHTML = '<div><b>' + r.pct + '%</b> वापरले — ' + fmtIN(r.total) + ' / ' + fmtIN(r.limit) + ' cells (' + r.sheets + ' Sheets) ' + (r.cached ? '<span class="hs-empty">(१० मिनिटांपर्यंतचा Cache)</span>' : '') + '</div>' +
+      '<div class="cap-bar"><div style="width:' + Math.min(100, r.pct) + '%;background:' + st.bg + '"></div></div><div>' + st.msg + '</div>' +
+      '<button class="btn btn-gray btn-sm" style="margin:8px 0" onclick="dqLoadCap(++dqS.seq,true)">🔄 पुन्हा मोजा</button>' +
+      '<div style="margin-top:8px"><b>सर्वात मोठ्या Sheets</b></div>' + arTbl(['Sheet', 'Cells', 'वाटा'], topRows) +
+      (arcRows.length ? '<div><b>Archive करता येण्याजोगी जुनी वर्षे</b> (Super Admin → वर्ष-व्यवस्थापन)</div>' + arTbl(['वर्ष', 'Cells', 'मोकळे होणारे'], arcRows) : '<div class="hs-empty">Archive करण्यासारखे जुने वर्ष मुख्य फाइलमध्ये नाही.</div>') +
+      '<div class="hs-empty">१ कोटी cells ची मर्यादा Google Sheets ची आहे; "वाटप केलेले" cells मोजले जातात. रोज सकाळी ईमेल हवा असल्यास Apps Script मध्ये setupCapacityWatchTrigger एकदा Run करा.</div>';
+  });
+}
+// ---- मुख्यपृष्ठावर इशारा (Super/Master) — दर १० मिनिटांत एकदाच तपासतो ----
+var _capAt = 0;
+function capCheck() {
+  if (!currentUser || (currentUser.role !== 'super' && currentUser.role !== 'master')) return;
+  if (Date.now() - _capAt < 10 * 60 * 1000) return;
+  _capAt = Date.now();
+  jsonpRequest({action: 'getSheetCapacity', requesterRole: currentUser.role}, function(r) {
+    var old = document.getElementById('capBanner'); if (old) old.remove();
+    if (!r || r.status !== 'ok' || r.level === 'ok') return;
+    var st = capLevelStyle(r.level), pg = document.getElementById('pg-dashboard'); if (!pg) return;
+    var b = document.createElement('div'); b.id = 'capBanner';
+    b.style.cssText = 'background:' + (r.level === 'high' ? '#fde4e1' : '#fff4d6') + ';border:1px solid ' + st.bg + ';color:#3a2a00';
+    b.innerHTML = (r.level === 'high' ? '❌' : '⚠️') + ' Sheet क्षमता <b>' + r.pct + '%</b> वापरली आहे (१ कोटी cells मर्यादा). जुने वर्ष Archive करा.' + (currentUser.role === 'super' ? ' <button class="btn btn-gold btn-sm" onclick="showPage(\'dataqc\');dqTab(\'c\')">तपासा</button>' : '');
+    pg.insertBefore(b, pg.firstChild);
+  });
+}
+
+// =====================================================================
+// ===== V19.60 — 📊 Archive: दोन वर्षांची तुलना (फी + उपस्थिती) =====
+// फी: getArchiveReport(fees) वर्ग-निहाय; उपस्थिती: getAttendanceOverview (१२ महिने, क्रमाने). दोन्ही वर्षे समांतर.
+// =====================================================================
+function arYearMonths(yr) { var ys = parseInt(yr.slice(0, 4), 10), out = []; for (var k = 0; k < 12; k++) { var m = 6 + k, yy = ys; if (m > 12) { m -= 12; yy = ys + 1; } out.push(yy + '-' + (m < 10 ? '0' : '') + m); } return out; }
+function arRenderCmp() {
+  var body = document.getElementById('ar_body');
+  if (!arS.years) { body.innerHTML = '<div>⏳ वर्षे Load होत आहेत...</div>'; arInit(); setTimeout(function() { if (arS.years) arRenderCmp(); }, 800); return; }
+  var opts = arS.years.map(function(y) { return '<option value="' + arE(y.year) + '">' + (y.archived ? '📦 ' : '') + arE(y.year) + (y.current ? ' (चालू)' : '') + '</option>'; }).join('');
+  var pick = arS.years.length > 1 ? arS.years[1].year : arS.years[0].year;
+  body.innerHTML = '<div class="frow" style="gap:8px;flex-wrap:wrap;align-items:flex-end"><div class="fg"><label>वर्ष A (आधीचे)</label><select id="ar_cmpA">' + opts + '</select></div><div class="fg"><label>वर्ष B (नंतरचे)</label><select id="ar_cmpB">' + opts + '</select></div><button class="btn btn-gold" onclick="arCmpRun()">📊 तुलना करा</button></div><div id="ar_cmpOut"></div>';
+  document.getElementById('ar_cmpA').value = pick; document.getElementById('ar_cmpB').value = arS.years[0].year;
+}
+function arCmpYear(yr, seq, done) {
+  var res = {year: yr, fees: null, att: {}}, months = arYearMonths(yr), i = 0, out = document.getElementById('ar_cmpOut');
+  jsonpRequest({action: 'getArchiveReport', year: yr, section: 'fees', requesterRole: currentUser.role}, function(r) {
+    if (seq !== arS.seq) return;
+    if (!r || r.status !== 'ok') { done(null, errTxt(r)); return; }
+    res.fees = r;
+    (function nm() {
+      if (seq !== arS.seq) return;
+      if (i >= months.length) { done(res); return; }
+      arSt('⏳ ' + yr + ' — हजेरी ' + months[i] + ' (' + (i + 1) + '/12)...');
+      jsonpRequest({action: 'getAttendanceOverview', month: months[i], requesterRole: currentUser.role}, function(a) {
+        if (seq !== arS.seq) return;
+        if (a && a.status === 'ok' && a.rows) res.att[months[i]] = a;
+        i++; nm();
+      });
+    })();
+  });
+}
+function arCmpAgg(res) {   // वर्ग → {students, paid, balance, rec%, attW, attPct}
+  var by = {}, tot = {students: 0, paid: 0, balance: 0, w: 0, wp: 0, abs: 0};
+  ((res.fees && res.fees.classes) || []).forEach(function(c) { by[c.cls] = {students: c.students, paid: c.paid, balance: c.balance, w: 0, wp: 0, abs: 0}; tot.students += c.students; tot.paid += c.paid; tot.balance += c.balance; });
+  Object.keys(res.att).forEach(function(m) {
+    res.att[m].rows.forEach(function(x) {
+      if (!(x.days > 0) || x.avgPct === null || x.avgPct === undefined) return;
+      var o = by[x.iyatta] || (by[x.iyatta] = {students: 0, paid: 0, balance: 0, w: 0, wp: 0, abs: 0}), w = x.days * (x.students || 1);
+      o.w += w; o.wp += x.avgPct * w; o.abs += x.absentDays || 0; tot.w += w; tot.wp += x.avgPct * w; tot.abs += x.absentDays || 0;
+    });
+  });
+  return {by: by, tot: tot};
+}
+function arPct(o) { var d = o.paid + o.balance; return d > 0 ? Math.round(o.paid * 1000 / d) / 10 : null; }
+function arAtt(o) { return o.w > 0 ? Math.round(o.wp * 10 / o.w) / 10 : null; }
+function arDiff(a, b, unit) { if (a === null || b === null) return '—'; var d = Math.round((b - a) * 10) / 10; return '<span class="' + (d > 0 ? 'cmp-pos' : (d < 0 ? 'cmp-neg' : '')) + '">' + (d > 0 ? '+' : '') + d + (unit || '') + '</span>'; }
+function arCmpRun() {
+  var A = document.getElementById('ar_cmpA').value, B = document.getElementById('ar_cmpB').value, out = document.getElementById('ar_cmpOut');
+  if (!A || !B || A === B) { out.innerHTML = '<div class="pm-note">⚠️ दोन वेगवेगळी वर्षे निवडा.</div>'; return; }
+  var seq = ++arS.seq, got = {};
+  out.innerHTML = ''; arSt('⏳ तुलना तयार होत आहे (प्रत्येक वर्षासाठी फी + १२ महिन्यांची हजेरी)...');
+  function fin() {
+    if (!got[A] || !got[B]) return;
+    if (got[A].err || got[B].err) { arSt(''); out.innerHTML = '<div class="pm-note">❌ ' + arE(got[A].err || got[B].err) + '</div>'; return; }
+    arSt('');
+    var a = arCmpAgg(got[A].res), b = arCmpAgg(got[B].res), classes = {};
+    Object.keys(a.by).concat(Object.keys(b.by)).forEach(function(k) { classes[k] = 1; });
+    var order = Object.keys(classes).sort(function(x, y) { return (parseInt(x, 10) || 99) - (parseInt(y, 10) || 99); });
+    var hd = ['वर्ग', A + ' विद्यार्थी', A + ' जमा ₹', A + ' बाकी ₹', A + ' वसुली %', A + ' उपस्थिती %', B + ' विद्यार्थी', B + ' जमा ₹', B + ' बाकी ₹', B + ' वसुली %', B + ' उपस्थिती %', 'वसुली % फरक', 'उपस्थिती % फरक'];
+    var emp = {students: 0, paid: 0, balance: 0, w: 0, wp: 0, abs: 0};
+    function row(label, x, y) { return [label, x.students, x.paid, x.balance, arPct(x) === null ? '' : arPct(x), arAtt(x) === null ? '' : arAtt(x), y.students, y.paid, y.balance, arPct(y) === null ? '' : arPct(y), arAtt(y) === null ? '' : arAtt(y), (arPct(x) === null || arPct(y) === null) ? '' : Math.round((arPct(y) - arPct(x)) * 10) / 10, (arAtt(x) === null || arAtt(y) === null) ? '' : Math.round((arAtt(y) - arAtt(x)) * 10) / 10]; }
+    var rows = order.map(function(k) { return row(classToMr(k), a.by[k] || emp, b.by[k] || emp); });
+    var totRow = row('एकूण', a.tot, b.tot);
+    arCsvStore.cmp = {name: 'Archive_compare_' + A + '_vs_' + B + '.csv', rows: [hd].concat(rows, [totRow])};
+    function html(r) { return r.map(function(v, i) { return '<td>' + ((i === 11 || i === 12) && v !== '' ? arDiff(0, v, i === 11 || i === 12 ? ' pt' : '') : arE(v)) + '</td>'; }).join(''); }
+    out.innerHTML = '<div style="margin-top:8px">' + arCsvBtn('cmp', 'तुलना') + '</div><div class="ar-scroll"><table class="ar-tbl"><thead><tr>' + hd.map(function(x) { return '<th>' + arE(x) + '</th>'; }).join('') + '</tr></thead><tbody>' +
+      rows.map(function(r) { return '<tr>' + html(r) + '</tr>'; }).join('') + '<tr class="ar-total">' + html(totRow) + '</tr></tbody></table></div>' +
+      '<div class="pm-note">ℹ️ वसुली % = जमा ÷ (जमा + बाकी). फी-वर्ग त्या वर्षी नोंदीत साठवलेला; उपस्थिती % = वर्गाचे महिन्यानुसार भारित सरासरी (दिवस × विद्यार्थी). उपस्थितीतील विद्यार्थी-संख्या आजच्या वर्ग-यादीनुसार असल्याने जुन्या वर्षाची उपस्थिती अंदाजे असू शकते. pt = percentage point.</div>';
+  }
+  [A, B].forEach(function(y) { arCmpYear(y, seq, function(res, err) { got[y] = {res: res, err: err}; fin(); }); });
+}
+
+// =====================================================================
+// ===== V19.60 — 🕑 Profile: बदलांचा इतिहास (Audit) — Super/Master =====
+// =====================================================================
+var _au = {reg: '', seq: 0};
+function auReset(d) {
+  _au.reg = (d && d.regNo) ? String(d.regNo) : ''; _au.seq++;
+  var card = document.getElementById('auCard'); if (!card) return;
+  card.style.display = (currentUser && (currentUser.role === 'super' || currentUser.role === 'master') && _au.reg) ? '' : 'none';
+  var o = document.getElementById('au_out'); if (o) o.innerHTML = '';
+  var s = document.getElementById('au_status'); if (s) s.textContent = '';
+  var b = document.getElementById('auBtn'); if (b) b.disabled = false;
+}
+function auLoad() {
+  var reg = _au.reg; if (!reg) return;
+  var seq = ++_au.seq, out = document.getElementById('au_out'), st = document.getElementById('au_status');
+  document.getElementById('auBtn').disabled = true; out.innerHTML = ''; st.textContent = '⏳ Load होत आहे...';
+  jsonpRequest({action: 'getStudentAudit', regNo: reg, requesterRole: currentUser.role}, function(r) {
+    if (seq !== _au.seq || reg !== _au.reg) return;
+    document.getElementById('auBtn').disabled = false;
+    if (!r || r.status !== 'ok') { st.textContent = errTxt(r); return; }
+    st.textContent = '';
+    var h = '<b>✏️ फील्ड बदल (' + r.changes.length + ')</b>';
+    if (r.changes.length) h += '<div class="ar-scroll"><table class="ar-tbl"><thead><tr><th>वेळ</th><th>कोणी</th><th>फील्ड</th><th>जुने</th><th>नवे</th></tr></thead><tbody>' +
+      r.changes.map(function(x) { return '<tr><td>' + pmEsc(x.time) + '</td><td>' + pmEsc(x.user) + ' <small>(' + pmEsc(x.role) + ')</small></td><td>' + pmEsc(x.field) + '</td><td>' + pmEsc(x.oldVal) + '</td><td>' + pmEsc(x.newVal) + '</td></tr>'; }).join('') + '</tbody></table></div>';
+    else h += '<div class="hs-empty">' + (r.hasAuditSheet ? 'या विद्यार्थ्याचा कोणताही फील्ड-बदल नोंदवलेला नाही.' : 'फील्ड-स्तरीय इतिहास V19.60 पासून नोंदवला जातो; अजून कोणताही बदल नोंदलेला नाही.') + ' (त्यापूर्वीचे बदल फक्त खालील कृती-नोंदीत दिसतात.)</div>';
+    h += '<div style="margin-top:10px"><b>📜 कृती-नोंद / Activity Log (' + r.logs.length + ')</b></div>';
+    h += r.logs.length ? '<div class="ar-scroll"><table class="ar-tbl"><thead><tr><th>वेळ</th><th>कोणी</th><th>कृती</th></tr></thead><tbody>' + r.logs.map(function(x) { return '<tr><td>' + pmEsc(x.time) + '</td><td>' + pmEsc(x.user) + ' <small>(' + pmEsc(x.role) + ')</small></td><td>' + pmEsc(x.action) + '</td></tr>'; }).join('') + '</tbody></table></div>' : '<div class="hs-empty">शेवटच्या १२ महिन्यांत कोणतीही कृती-नोंद नाही.</div>';
+    h += '<div style="margin-top:10px"><b>⬆️ वर्ग-बढती (' + r.promotions.length + ')</b></div>';
+    h += r.promotions.length ? r.promotions.map(function(x) { return '<div>' + pmEsc(x.time) + ' — ' + pmEsc(x.from) + ' → ' + pmEsc(x.to) + ' (' + pmEsc(x.by) + ')' + (x.undone ? ' <i>[रद्द]</i>' : '') + '</div>'; }).join('') : '<div class="hs-empty">बढतीची नोंद नाही.</div>';
+    out.innerHTML = h;
+  });
+}
+
+// =====================================================================
+// ===== V19.60 — 📴 ऑफलाइन: स्थिती-पट्टी + "शेवटचे अपडेट" (वर्ग-यादी SWR मधून ७ दिवस वाचता येते) =====
+// • नवीन नोंदी/Save ऑफलाइन असताना आधीची "Pending Saves" रांग वापरते (हजेरी). Login साठी नेट आवश्यक — तसा स्पष्ट संदेश.
+// =====================================================================
+var _offAge = null;
+function offBannerUpdate() {
+  var el = document.getElementById('offBanner');
+  if (!el) { el = document.createElement('div'); el.id = 'offBanner'; document.body.appendChild(el); }
+  var off = (typeof navigator !== 'undefined' && navigator.onLine === false);
+  if (!off) { el.className = ''; return; }
+  var age = _offAge === null ? '' : ' — शेवटचे अपडेट: ' + (_offAge < 3600000 ? Math.max(1, Math.round(_offAge / 60000)) + ' मिनिटांपूर्वी' : (_offAge < 86400000 ? Math.round(_offAge / 3600000) + ' तासांपूर्वी' : Math.round(_offAge / 86400000) + ' दिवसांपूर्वी'));
+  el.textContent = '📴 ऑफलाइन — जतन केलेली माहिती दिसत आहे' + age + '. नेट आल्यावर आपोआप अद्ययावत होईल.';
+  el.className = 'on';
+}
+function offSetDataAge(ms) { _offAge = (ms === null || ms === undefined) ? null : ms; offBannerUpdate(); }
+window.addEventListener('online', offBannerUpdate);
+window.addEventListener('offline', offBannerUpdate);
+try { offBannerUpdate(); } catch (eOff) {}

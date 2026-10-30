@@ -59,7 +59,7 @@ function handleAuthExpired() {
   if (_authExpiredHandled || !currentUser) return;
   _authExpiredHandled = true;
   try { showCacheToast('🔒 Session संपले — कृपया पुन्हा Login करा.', '#5a2020', '#ffb0b0'); } catch (e) {}
-  logoutUser();
+  logoutUser({keepOffline: true});   // V19.60.1: Token संपला = सत्र संपले, पण ऑफलाइन Login व जतन माहिती राहते
   setTimeout(function() { _authExpiredHandled = false; }, 2000);
 }
 var USER_ALLOWED_PAGES = {
@@ -122,6 +122,15 @@ function initAuth() {
   // V19.36: Token session पुनर्स्थापना
   try {
     var sess = JSON.parse(sessionStorage.getItem(SESSION_KEY) || 'null');
+    if (sess && sess.offline && sess.exp > Date.now() && OFF_ROLES.indexOf(normRole(sess.role)) !== -1) {   // V19.60.1: ऑफलाइन सत्र (नवीन Token नाही)
+      currentUser = { username: sess.username, role: normRole(sess.role), label: sess.label, assignedClass: sess.assignedClass || '', token: '', exp: sess.exp, offline: true };
+      applyTeacherClassInfo();
+      document.body.classList.remove('auth-locked');
+      applyRoleUI();
+      showPage(defaultPageForRole(currentUser.role));
+      offSessUpdate();
+      return;
+    }
     if (sess && sess.token && sess.exp > Date.now()) {
       currentUser = { username: sess.username, role: normRole(sess.role), label: sess.label, assignedClass: sess.assignedClass || '', token: sess.token, exp: sess.exp };
       if (VALID_ROLES.indexOf(currentUser.role) === -1) { currentUser = null; sessionStorage.removeItem(SESSION_KEY); throw new Error('bad role'); }
@@ -186,7 +195,7 @@ function attemptLogin(ev) {
   var username = (uEl ? uEl.value : '').trim();
   var password = pEl ? pEl.value : '';
   function setSt(txt, cls) { if (st) { st.textContent = txt; st.className = 'login-status' + (cls ? ' ' + cls : ''); st.style.display = 'block'; } }
-  if (typeof navigator !== 'undefined' && navigator.onLine === false) { setSt('📴 इंटरनेट नाही — Login साठी नेट आवश्यक आहे. (आधीच Login असलेल्या ॲपमध्ये शेवटची वर्ग-यादी ऑफलाइन वाचता येते.)', 'err'); return; }   // V19.60
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) { offTryLogin(username, password, setSt, pEl, st, '📴 इंटरनेट नाही — '); return false; }   // V19.60.1: ऑफलाइन Login (३ दिवस)
   setSt('⏳ शाळेच्या सर्व्हरशी जोडत आहे, कृपया थोडा वेळ थांबा...');
 
   // ===== V19.36: प्रथम Server-side Login — Password सर्व्हरच तपासतो व स्वाक्षरी केलेला Token देतो =====
@@ -195,16 +204,18 @@ function attemptLogin(ev) {
   function tryServer() {
     jsonpRequest({action: 'login', username: username, password: password}, function(r) {
       if (r && r.status === 'ok' && r.token && r.user) {
+        try { offCredSave(username, password, r.user); } catch (eOc) {}   // V19.60.1: ऑनलाइन Login यशस्वी → ३ दिवसांसाठी ऑफलाइन Login जतन
         completeLogin(r.user.username, r.user, pEl, st, r.token, r.exp);
         return;
       }
-      if (r && (r.code === 'badcred' || r.code === 'locked')) { setSt(r.message || 'Username किंवा Password चुकीचा आहे.', 'err'); return; }
+      if (r && (r.code === 'badcred' || r.code === 'locked')) { if (r.code === 'badcred') { try { offCredDelete(username); } catch (eOd) {} } setSt(r.message || 'Username किंवा Password चुकीचा आहे.', 'err'); return; }
       tryIndex++;
       if (tryIndex < attempts.length && isNetworkFailure(r)) {
         setSt('⏳ पुन्हा प्रयत्न करत आहे... (' + (tryIndex + 1) + '/' + attempts.length + ')');
         setTimeout(tryServer, attempts[tryIndex]);
         return;
       }
+      if (offCredGet(username)) { offTryLogin(username, password, setSt, pEl, st, '🌐 सर्व्हर उपलब्ध नाही — '); return; }   // V19.60.1
       legacyLogin();
     });
   }
@@ -256,8 +267,11 @@ function completeLogin(username, user, pEl, st, token, exp) {
   return false;
 }
 
-function logoutUser() {
-  try { swrClearAll(); } catch (e) {}   // V19.49: जुना cache पुसा
+function logoutUser(opts) {
+  var keepOff = !!(opts && opts.keepOffline === true);
+  if (!keepOff) { try { swrClearAll(); } catch (e) {}   // V19.49: जुना cache पुसा
+    try { if (currentUser) offCredDelete(currentUser.username); } catch (e) {} }   // V19.60.1: स्वतः Logout = ऑफलाइन Login व जतन माहिती पुसली
+  try { offSessUpdate(true); } catch (e) {}
   sessionStorage.removeItem('sgs_login_user');
   sessionStorage.removeItem(SESSION_KEY);
   currentUser = null;
@@ -735,9 +749,9 @@ var clientPerf = [];
 // नियम: पैसा/थकबाकी/फी जमा स्क्रीनवर कधीही जुना डेटा नाही • २४ तासांहून जुना cache वापरत नाही • अॅप-आवृत्ती बदलल्यास रद्द •
 //       प्रत्येकी ~300 KB / एकूण ~1 MB मर्यादा • Logout वर पूर्ण पुसले जाते • Token कधीही साठवत नाही (फक्त उत्तर).
 // =====================================================================
-var APP_VERSION = 'V19.60';
+var APP_VERSION = 'V19.60.1';
 var SWR_PREFIX = 'sgs_swr:';
-var SWR_ROSTER_MAX_AGE_MS = 7 * 24 * 3600 * 1000;   // V19.60: शिक्षकाची वर्ग-यादी ७ दिवस (ऑफलाइन वाचन); बाकी २४ तास
+var SWR_ROSTER_MAX_AGE_MS = 3 * 24 * 3600 * 1000;   // V19.60.1: शिक्षकाची वर्ग-यादी ३ दिवस (ऑफलाइन Login च्या मुदतीइतकी); बाकी २४ तास
 var SWR_MAX_AGE_MS = 24 * 3600 * 1000, SWR_MAX_ENTRY = 300 * 1024, SWR_MAX_TOTAL = 1024 * 1024;
 var SWR_NEVER = /fee|thakbaki|arrear|payment|receipt/i;   // action किंवा key मध्ये आढळल्यास कधीही stale नाही, साठवतही नाही
 var swrSeq = {}, swrPendingCount = 0, swrBarTimer = null;
@@ -898,6 +912,9 @@ function clientPerfAdd(action, ms, r) {
 function jsonpRequest(params, onResult) {
   var url=getUrl();
   if(!url){ onResult({status:'nourl'}); return; }
+  if (currentUser && currentUser.offline && params && params.action !== 'login' && params.action !== 'ping' && !(typeof navigator !== 'undefined' && navigator.onLine === false)) {   // V19.60.1
+    offSessUpdate(); onResult({status: 'error', code: 'relogin', message: '🌐 नेट आले आहे — नवीन माहिती/Save साठी पुन्हा Login करा (ऑफलाइन Login मध्ये सर्व्हरशी संपर्क होत नाही).'}); return;
+  }
   attachToken(params);
   var _origCb = onResult;
   var _t0 = Date.now(), _act = params.action || '';
@@ -1060,7 +1077,7 @@ function errTxt(r) {
 function smartSave(data, onResult) {
   var queueable = QUEUEABLE_ACTIONS.indexOf(data.action) !== -1;
   if (queueable && !data.reqId) data.reqId = newReqId();
-  if (queueable && typeof navigator !== 'undefined' && navigator.onLine === false) {
+  if (queueable && ((typeof navigator !== 'undefined' && navigator.onLine === false) || (currentUser && currentUser.offline))) {
     return pendingEnqueue(data, onResult);
   }
   smartSaveRaw(data, function(r) {
@@ -1077,7 +1094,7 @@ function pendingEnqueue(data, onResult) {
   var stored = pendingStore(list);
   pendingUpdateBadge();
   if (onResult) onResult(stored
-    ? { status: 'queued', message: '📶 नेट उपलब्ध नाही — माहिती फोनमध्ये Pending ठेवली आहे; नेट आल्यावर आपोआप Save होईल. (Pending: ' + list.length + ')' }
+    ? { status: 'queued', message: (currentUser && currentUser.offline && !(typeof navigator !== 'undefined' && navigator.onLine === false) ? '📴 ऑफलाइन Login — माहिती फोनमध्ये Pending ठेवली आहे; पुन्हा Login केल्यावर Save होईल.' : '📶 नेट उपलब्ध नाही — माहिती फोनमध्ये Pending ठेवली आहे; नेट आल्यावर आपोआप Save होईल.') + ' (Pending: ' + list.length + ')' }
     : { status: 'error', message: 'नेट नाही आणि Pending जतन करता आले नाही (फोनची साठवण भरली आहे).' });
 }
 
@@ -1085,7 +1102,7 @@ function pendingFlush(manual) {
   if (_pendingFlushing) return;
   var list = pendingLoad();
   if (!list.length) { pendingUpdateBadge(); return; }
-  if (!currentUser) { pendingUpdateBadge(); return; } // Login नंतरच पाठवा — Token आवश्यक
+  if (!currentUser || currentUser.offline) { pendingUpdateBadge(); return; } // Login नंतरच पाठवा — खरा Token आवश्यक (ऑफलाइन सत्रात नाही)
   if (typeof navigator !== 'undefined' && navigator.onLine === false) { pendingUpdateBadge(); return; }
   _pendingFlushing = true;
   pendingUpdateBadge('⏳ पाठवत आहे...');
@@ -7278,6 +7295,7 @@ function lcClassStartMr() {
 // =====================================================================
 function verParts(v) { var m = /(\d+)\.(\d+)(?:\.(\d+))?/.exec(String(v || '')); return m ? [+m[1], +m[2], +(m[3] || 0)] : null; }
 function verCmp(a, b) { var x = verParts(a), y = verParts(b); if (!x || !y) return 0; for (var i = 0; i < 3; i++) { if (x[i] !== y[i]) return x[i] > y[i] ? 1 : -1; } return 0; }
+function verMinorCmp(a, b) { var x = verParts(a), y = verParts(b); if (!x || !y) return 0; return x[0] !== y[0] ? (x[0] > y[0] ? 1 : -1) : (x[1] !== y[1] ? (x[1] > y[1] ? 1 : -1) : 0); }
 var _srvVer = null, _verAsked = false;
 function verBanner(html) {
   var b = document.getElementById('verBanner');
@@ -7291,7 +7309,7 @@ function verShowIfNeeded() {
   if (!_srvVer) return;
   var c = verCmp(_srvVer, APP_VERSION);
   if (c > 0) verBanner('🔄 नवी आवृत्ती (' + pmEsc(_srvVer) + ') उपलब्ध आहे; तुमचे ॲप ' + pmEsc(APP_VERSION) + ' आहे. <button class="btn btn-gold btn-sm" onclick="verRefreshNow()">Refresh करा</button>');
-  else if (c < 0 && currentUser && (currentUser.role === 'super' || currentUser.role === 'master')) verBanner('⚠️ सर्व्हर (Apps Script) जुना आहे: ' + pmEsc(_srvVer) + ' (ॲप ' + pmEsc(APP_VERSION) + '). Apps Script मध्ये Deploy → New version करा. <button class="btn btn-gray btn-sm" onclick="document.getElementById(\'verBanner\').remove()">ठीक</button>');
+  else if (c < 0 && verMinorCmp(_srvVer, APP_VERSION) < 0 && currentUser && (currentUser.role === 'super' || currentUser.role === 'master')) verBanner('⚠️ सर्व्हर (Apps Script) जुना आहे: ' + pmEsc(_srvVer) + ' (ॲप ' + pmEsc(APP_VERSION) + '). Apps Script मध्ये Deploy → New version करा. <button class="btn btn-gray btn-sm" onclick="document.getElementById(\'verBanner\').remove()">ठीक</button>');
 }
 function verCheck() {
   if (_verAsked) { verShowIfNeeded(); return; }
@@ -7618,3 +7636,88 @@ function offSetDataAge(ms) { _offAge = (ms === null || ms === undefined) ? null 
 window.addEventListener('online', offBannerUpdate);
 window.addEventListener('offline', offBannerUpdate);
 try { offBannerUpdate(); } catch (eOff) {}
+
+
+// =====================================================================
+// ===== V19.60.1 — 📴 ऑफलाइन Login (ॲप पुन्हा उघडल्यावर) — ३ दिवस =====
+// • सर्व्हरवर यशस्वी ऑनलाइन Login झाल्यावर, या उपकरणावर Password चा PBKDF2-SHA256 (150,000 फेऱ्या, यादृच्छिक salt) hash जतन होतो —
+//   साधा Password कधीही साठवत नाही. मुदत = शेवटच्या ऑनलाइन Login पासून ३ दिवस (ऑफलाइन Login मुदत वाढवत नाही).
+// • ऑफलाइन सत्र फक्त वाचन: जतन केलेली वर्ग-यादी/डॅशबोर्ड दिसतो; सर्व्हरशी संपर्क नाही (Token नाही). Save → Pending रांग; पुन्हा ऑनलाइन Login नंतर जातात.
+// • Super साठी ऑफलाइन Login जतन होत नाही. ५ चुकीच्या प्रयत्नांनंतर ५ मिनिटे Lock. स्वतः Logout = सर्व पुसले.
+// • मर्यादा: Password सर्व्हरवर बदलला/User काढला तरी ३ दिवसांपर्यंत जुना Password ऑफलाइन चालतो (पुढच्या ऑनलाइन Login ला दुरुस्त).
+// =====================================================================
+var OFFCRED_KEY = 'sgs_offcred_v1', OFF_DAYS = 3, OFF_ITER = 150000, OFF_ROLES = ['teacher', 'master', 'deo', 'cert', 'peon'];
+function offCanCrypto() { try { return !!(window.crypto && crypto.subtle && window.TextEncoder); } catch (e) { return false; } }
+function offB64(buf) { var s = '', a = new Uint8Array(buf); for (var i = 0; i < a.length; i++) s += String.fromCharCode(a[i]); return btoa(s); }
+function offUnb64(s) { var bin = atob(s), a = new Uint8Array(bin.length); for (var i = 0; i < bin.length; i++) a[i] = bin.charCodeAt(i); return a; }
+function offKdf(pw, salt, iter) {
+  var enc = new TextEncoder();
+  return crypto.subtle.importKey('raw', enc.encode(pw), 'PBKDF2', false, ['deriveBits'])
+    .then(function(k) { return crypto.subtle.deriveBits({name: 'PBKDF2', hash: 'SHA-256', salt: salt, iterations: iter}, k, 256); })
+    .then(offB64);
+}
+function offEq(a, b) { if (a.length !== b.length) return false; var r = 0; for (var i = 0; i < a.length; i++) r |= a.charCodeAt(i) ^ b.charCodeAt(i); return r === 0; }
+function offKey(u) { return String(u || '').trim().toLowerCase(); }
+function offCredAll() { try { return JSON.parse(localStorage.getItem(OFFCRED_KEY) || '{}') || {}; } catch (e) { return {}; } }
+function offCredWrite(o) { try { localStorage.setItem(OFFCRED_KEY, JSON.stringify(o)); return true; } catch (e) { return false; } }
+function offCredGet(u) { var r = offCredAll()[offKey(u)]; return r || null; }
+function offCredDelete(u) { var o = offCredAll(), k = offKey(u); if (o[k]) { delete o[k]; offCredWrite(o); } }
+function offCredPurge() { var o = offCredAll(), ch = false; Object.keys(o).forEach(function(k) { if (!o[k] || !(o[k].exp > Date.now())) { delete o[k]; ch = true; } }); if (ch) offCredWrite(o); }
+function offCredSave(username, password, user) {
+  var role = normRole(user && user.role), cb = document.getElementById('loginRemember');
+  if (OFF_ROLES.indexOf(role) === -1 || !(cb && cb.checked) || !offCanCrypto()) { offCredDelete(username); return; }   // Super / टिक नाही / crypto नाही = जतन नाही
+  var salt = crypto.getRandomValues(new Uint8Array(16)), t0 = Date.now();
+  offKdf(password, salt, OFF_ITER).then(function(hash) {
+    var o = offCredAll();
+    o[offKey(username)] = {u: username, salt: offB64(salt), iter: OFF_ITER, hash: hash, role: role, label: user.label || '', assignedClass: user.assignedClass || '', savedAt: t0, exp: t0 + OFF_DAYS * 86400000, fails: 0, lockUntil: 0};
+    offCredWrite(o);
+  }).catch(function() {});
+}
+function offTryLogin(username, password, setSt, pEl, st, prefix) {
+  prefix = prefix || '';
+  var rec = offCredGet(username);
+  if (!offCanCrypto()) { setSt(prefix + 'या उपकरणावर सुरक्षित ऑफलाइन Login उपलब्ध नाही (https आवश्यक). नेट सुरू करून Login करा.', 'err'); return; }
+  if (!rec) { setSt(prefix + 'या उपकरणावर या User साठी ऑफलाइन Login जतन केलेला नाही — एकदा नेट असताना Login करा (\"ऑफलाइन Login लक्षात ठेवा\" टिक ठेवून).', 'err'); return; }
+  if (!(rec.exp > Date.now())) { offCredDelete(username); setSt('⌛ ऑफलाइन Login ची ३ दिवसांची मुदत संपली — नेट असताना पुन्हा Login करा.', 'err'); return; }
+  if (rec.lockUntil > Date.now()) { setSt('🔒 जास्त चुकीचे प्रयत्न — ' + Math.ceil((rec.lockUntil - Date.now()) / 60000) + ' मिनिटांनी पुन्हा प्रयत्न करा.', 'err'); return; }
+  setSt('⏳ ऑफलाइन Login तपासत आहे...');
+  offKdf(password, offUnb64(rec.salt), rec.iter).then(function(hash) {
+    var o = offCredAll(), cur = o[offKey(username)];
+    if (!cur) { setSt('ऑफलाइन Login उपलब्ध नाही.', 'err'); return; }
+    if (offEq(hash, cur.hash)) { cur.fails = 0; cur.lockUntil = 0; offCredWrite(o); offStartSession(cur, pEl, st); return; }
+    cur.fails = (cur.fails || 0) + 1;
+    var msg = 'Username किंवा Password चुकीचा आहे (ऑफलाइन Login).';
+    if (cur.fails >= 5) { cur.fails = 0; cur.lockUntil = Date.now() + 5 * 60000; msg = '🔒 ५ चुकीचे प्रयत्न — ५ मिनिटे Lock.'; }
+    offCredWrite(o); setSt(msg, 'err');
+  }).catch(function() { setSt('ऑफलाइन Login तपासता आला नाही.', 'err'); });
+}
+function offStartSession(rec, pEl, st) {
+  currentUser = {username: rec.u, role: rec.role, label: rec.label, assignedClass: rec.assignedClass || '', token: '', exp: rec.exp, offline: true};
+  try { sessionStorage.setItem(SESSION_KEY, JSON.stringify(currentUser)); } catch (e) {}
+  sessionStorage.removeItem('sgs_login_user');
+  applyTeacherClassInfo();
+  if (pEl) pEl.value = '';
+  if (st) st.style.display = 'none';
+  document.body.classList.remove('auth-locked');
+  applyRoleUI();
+  showPage(defaultPageForRole(rec.role));
+  offSessUpdate();
+}
+function offFmtDate(ms) { var d = new Date(ms), p = function(n) { return (n < 10 ? '0' : '') + n; }; return p(d.getDate()) + '/' + p(d.getMonth() + 1) + '/' + d.getFullYear() + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()); }
+function offSessUpdate(forceHide) {
+  var el = document.getElementById('offSessBar');
+  if (!el) { el = document.createElement('div'); el.id = 'offSessBar'; document.body.appendChild(el); }
+  if (forceHide || !currentUser || !currentUser.offline) { el.className = ''; el.innerHTML = ''; return; }
+  var online = !(typeof navigator !== 'undefined' && navigator.onLine === false);
+  el.innerHTML = '📴 <b>ऑफलाइन Login</b> — ' + pmEsc(offFmtDate(currentUser.exp)) + ' पर्यंत. फक्त जतन केलेली माहिती वाचता येते; Save नेट आल्यावर, पुन्हा Login नंतर जातात.' +
+    (online ? ' <button class="btn btn-gold btn-sm" onclick="offReloginNow()">🔐 पुन्हा Login करा</button>' : '');
+  el.className = 'on';
+}
+function offReloginNow() {
+  var u = currentUser ? currentUser.username : '';
+  logoutUser({keepOffline: true});
+  setTimeout(function() { var ue = document.getElementById('loginUsername'), pe = document.getElementById('loginPassword'); if (ue) ue.value = u; if (pe) pe.focus(); }, 80);
+}
+try { offCredPurge(); } catch (eOp) {}
+window.addEventListener('online', function() { offSessUpdate(); });
+window.addEventListener('offline', function() { offSessUpdate(); });

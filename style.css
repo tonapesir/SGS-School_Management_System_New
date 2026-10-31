@@ -475,3 +475,24 @@ body:not(.role-super) #pg-dataqc,body:not(.role-super) .navbtn[data-page="dataqc
 #offSessBar{display:none;position:fixed;left:8px;right:8px;bottom:8px;z-index:99988;padding:7px 12px;border-radius:10px;background:#2b3a55;color:#fff;font-size:12.5px;box-shadow:0 2px 8px rgba(0,0,0,.3)}
 #offSessBar.on{display:block}
 #offSessBar button{margin-left:8px}
+
+/* ===== V19.60.2 — गडद थीमशी जुळणारे रंग (फिकट पार्श्वभूमीवर फिकट अक्षरे = न दिसणे, याची दुरुस्ती) ===== */
+.dq-chip{background:rgba(255,255,255,.08);border:1px solid rgba(232,176,90,.6);color:var(--txt)}
+.dq-chip b{color:var(--gold2)}
+.dq-chip:hover{background:rgba(232,176,90,.20)}
+.dq-chip.zero{opacity:.82;cursor:default;border-style:dashed}
+.dq-chip.zero b{color:var(--txt)}
+.dq-chip.zero:hover{background:rgba(255,255,255,.08)}
+.dq-chip.sel{background:var(--gold);border-color:var(--gold2);color:var(--navy)}
+.dq-chip.sel b{color:var(--navy)}
+.hs-year{background:rgba(255,255,255,.05);border:1px solid rgba(232,176,90,.45);color:var(--txt)}
+.hs-year h4{color:var(--gold2)}
+.hs-year summary{color:var(--gold2)}
+.ar-hcard{background:rgba(255,255,255,.05);border:1px solid rgba(232,176,90,.45);color:var(--txt)}
+.pm-sum div{background:rgba(255,255,255,.08);border:1px solid rgba(232,176,90,.45);color:var(--txt)}
+.pm-sum b{color:var(--gold2)}
+.ar-tbl tr.ar-total td{background:rgba(232,176,90,.20);color:var(--gold2)}
+.ar-tbl th,.ar-tbl td,.pm-box th,.pm-box td{border-bottom-color:rgba(255,255,255,.16)}
+.ar-filter input[type=text],.ar-filter select{background:var(--peach);color:#2a1a0a}
+.cap-bar{background:rgba(255,255,255,.16)}
+.cmp-pos{color:#6ee79a}.cmp-neg{color:#ff9a9a}

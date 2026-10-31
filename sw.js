@@ -1,7 +1,7 @@
-// SGS School Management System — Service Worker (V19.60.1)
+// SGS School Management System — Service Worker (V19.60.2)
 // धोरण: नेटवर्क आधी, नेट नसल्यास Cache. त्यामुळे नवीन आवृत्ती Deploy केल्यावर जुना कोड अडकून राहत नाही.
 // Apps Script (script.google.com), Google Drive फोटो व googleusercontent कधीही Cache केले जात नाहीत.
-const VERSION = 'sgs-v19.60.1-1';
+const VERSION = 'sgs-v19.60.2-1';
 const SHELL = ['./', './index.html', './style.css', './script.js', './manifest.json', './icon-192.png', './icon-512.png'];
 const NEVER_CACHE = /(^|\.)(script|drive|docs)\.google\.com$|googleusercontent\.com$/;
 const CACHEABLE_CDN = /cdnjs\.cloudflare\.com$|cdn\.jsdelivr\.net$|fonts\.googleapis\.com$|fonts\.gstatic\.com$/;

@@ -1,15 +1,15 @@
-SGS School Management System — V19.60.1  (फक्त GitHub फाइल्स बदलल्या; Code.gs V19.60 सारखाच — Apps Script पुन्हा Deploy करायची गरज नाही)
+SGS School Management System — V19.61 (अ-२ ते अ-६)
 
-नवे: 📴 ऑफलाइन Login (ॲप पुन्हा उघडल्यावर) — ३ दिवस
-1. Login पानावर "या उपकरणावर ३ दिवस ऑफलाइन Login साठी लक्षात ठेवा" टिक (डीफॉल्ट चालू). सर्व्हरवर यशस्वी ऑनलाइन Login नंतर
-   Password चा PBKDF2-SHA256 hash (150,000 फेऱ्या + यादृच्छिक salt) जतन होतो. साधा Password कधीही साठवला जात नाही.
-2. मुदत = शेवटच्या ऑनलाइन Login पासून ३ दिवस (ऑफलाइन Login मुदत वाढवत नाही).
-3. ऑफलाइन Login: नेट नसताना (किंवा सर्व्हर उपलब्ध नसताना) Username + Password टाकल्यास ऑफलाइन सत्र सुरू होते.
-   - फक्त वाचन: जतन केलेली वर्ग-यादी/डॅशबोर्ड दिसतात (वर्ग-यादी ३ दिवस जतन).
-   - Save (हजेरी इ.) फोनमध्ये "Pending" राहतात; नेट आल्यावर "🔐 पुन्हा Login करा" -> ऑनलाइन Login नंतर आपोआप Save.
-4. सुरक्षा: Super साठी जतन होत नाही; ५ चुकीचे प्रयत्न = ५ मिनिटे Lock; स्वतः Logout = ऑफलाइन Login + जतन माहिती पुसली;
-   सर्व्हरने "Password चुकीचा" सांगितल्यास जुना जतन पुसला जातो; Token संपल्यावर (१२ तास) ऑफलाइन Login राहतो.
-5. मर्यादा: Password सर्व्हरवर बदलला/User काढला तरी ३ दिवसांपर्यंत जुना Password ऑफलाइन चालतो; पुढच्या ऑनलाइन Login ला दुरुस्त.
+Deploy क्रम:
+1) Apps Script: apps_script/Code.gs paste करा → Deploy → Manage deployments → ✏️ Edit → Version: "New version" → Deploy.
+   (SERVER_VERSION = V19.61.) एकदा Editor मधून setupClientErrorPurgeTrigger चालवा (दर रविवारी ९० दिवसांपेक्षा जुन्या त्रुटी पुसतो). पर्यायी: auditGrowthReport (केवळ वाचन).
+2) GitHub Pages: github_pages/ मधील index.html, script.js, style.css, sw.js अपलोड करा (APP_VERSION = V19.61, sw = sgs-v19.61-1).
+   manifest.json, privacy-policy.html, icons बदललेले नाहीत.
 
-Deploy: github_pages मधील index.html, script.js, style.css, sw.js replace करा. (Code.gs बदललेला नाही.)
-चाचण्या: bash tests/run_all.sh
+चाचण्या (तुमच्या tests/ फोल्डरमध्ये नवीन फाइल्स टाका; run_all.sh test_*.js आपोआप घेत असल्यास तसेच चालेल):
+  node tests/test_static_refs.js          (अ-२)
+  node tests/test_ui_contrast_all.js      (अ-३; Playwright + Chromium)
+  node tests/test_server_v1961.js         (अ-४/अ-६ सर्व्हर; tests/lib/gas_mock.js लागते — बनावट Apps Script)
+  node tests/test_ui_v1961.js             (अ-४/अ-५ क्लायंट; Playwright)
+env: SGS_WEB = index.html चा फोल्डर, SGS_GS = Code.gs चा path.
+सर्व बनावट (mock) वातावरणावर — खऱ्या Sheet/Drive/Apps Script/फोनवर चाचणी झालेली नाही.

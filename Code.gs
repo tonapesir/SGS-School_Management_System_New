@@ -101,7 +101,7 @@ function doPostCore_(e) {
   return handleAction(p, ""); // "" = JSON response — serial परत frontend ला येतो
 }
 
-var SERVER_VERSION = "V19.60";   // V19.58: ॲप (script.js APP_VERSION) शी जुळते का हे क्लायंट ping वरून तपासतो
+var SERVER_VERSION = "V19.61";   // V19.58: ॲप (script.js APP_VERSION) शी जुळते का हे क्लायंट ping वरून तपासतो
 function doGetCore_(e) {
   var p = e.parameter || {};
   var cb = p.callback || "";
@@ -199,6 +199,9 @@ function doGetCore_(e) {
   if (p.action === "getYearEndCheck") { return doGetYearEndCheck(p, cb); }        // V19.60 (super)
   if (p.action === "getStudentAudit") { return doGetStudentAudit(p, cb); }        // V19.60 (super/master)
   if (p.action === "getSheetCapacity") { return doGetSheetCapacity(p, cb); }      // V19.60 (super/master)
+  if (p.action === "logClientErrors") { return doLogClientErrors(p, cb); }        // V19.61 (Token आवश्यक; सर्व भूमिका)
+  if (p.action === "getClientErrors") { return doGetClientErrors(p, cb); }        // V19.61 (फक्त super)
+  if (p.action === "getUserAudit") { return doGetUserAudit(p, cb); }              // V19.61 (फक्त super)
   if (p.action === "getLCByReg") {            // V19.59 — LC Sheet मधून त्या Reg No ची शेवटची LC नोंद (फक्त वाचन)
     return doGetLCByReg(p, cb);
   }
@@ -441,6 +444,7 @@ function handleAction(d, cb) {
       return wrap(cb, {status:"error", message:"Unknown action: "+action});
     }
     if (result && result.status === "error") return wrap(cb, result);
+    if (result && result.auditChanges) { auditApply_(d, action, result.auditChanges); }   // V19.61: Audit अपयशाने Save अडत नाही (auditApply_ अपवाद फेकत नाही)
     // Students sheet बदलणाऱ्या कृतींनंतर Roster Cache रद्द करा
     if (action === "save" || action === "update" || action === "upsert" || action === "updateClassDivision" ||
         action === "saveStudentContact" || action === "promoteStudents" || action === "undoPromotion" ||
@@ -747,11 +751,18 @@ function doSaveUser(p, cb) {
       pwOut = pwIn;   // पूर्वीसारखे (साधे)
     }
     var row = [username, pwOut, roleIn, p.label||username, p.assignedClass||"", mobile];
+    var uOld = null;
+    if (rowToWrite) { try { uOld = sh.getRange(rowToWrite, 1, 1, 6).getValues()[0]; } catch (eUo) {} }   // V19.61
     if (rowToWrite) {
       sh.getRange(rowToWrite, 1, 1, 6).setValues([row]);
     } else {
       sh.appendRow(row);
     }
+    // V19.61: User_Audit — Password/hash कधीही नाही; फक्त "Password बदलला" ही घटना
+    var uCh = userChangeList_(uOld, row);
+    if (!uOld) uCh.unshift({field: "—", old: "", nw: "नवीन User (Role: " + roleIn + ")"});
+    if ((hidePasswordsInApi_() ? !!pwIn : (uOld && String(pwOut) !== String(uOld[1])))) uCh.push({field: "Password", old: "", nw: "बदलला"});
+    userAuditApply_(p, uOld ? "saveUser" : "addUser", username, uCh);
     logAudit(p.requesterUser, p.requesterRole, "saveUser", username);
     return wrap(cb, {status:"ok"});
   } catch(err) {
@@ -768,7 +779,9 @@ function doDeleteUser(p, cb) {
     var username = (p.username||"").toString().trim();
     var rowToWrite = findRowByKey(sh, 1, username);
     if (!rowToWrite) return wrap(cb, {status:"error", message:"User सापडला नाही."});
+    var dRow = null; try { dRow = sh.getRange(rowToWrite, 1, 1, 6).getValues()[0]; } catch (eDr) {}   // V19.61
     sh.deleteRow(rowToWrite);
+    userAuditApply_(p, "deleteUser", username, [{field: "—", old: dRow ? ("Role: " + auditNorm_(dRow[2]) + ", वर्ग: " + auditNorm_(dRow[4])) : "", nw: "User हटवला"}]);
     logAudit(p.requesterUser, p.requesterRole, "deleteUser", username);
     return wrap(cb, {status:"ok"});
   } catch(err) {
@@ -790,6 +803,7 @@ function doChangePassword(p, cb) {
     var perr = pwPolicyError_(p.newPassword);
     if (perr) return wrap(cb, {status:"error", message:perr});
     sh.getRange(rowToWrite, 2).setValue(pwHashed_() ? hashPassword_(p.newPassword || "") : (p.newPassword || ""));
+    userAuditApply_(p, "changePassword", username, [{field: "Password", old: "", nw: "बदलला"}]);   // V19.61: फक्त घटना
     logAudit(username, p.requesterRole, "changePassword", username);
     return wrap(cb, {status:"ok"});
   } catch(err) {
@@ -1738,7 +1752,7 @@ function auditNorm_(v) {
   return String(v).trim();
 }
 function auditShow_(field, v) {
-  if (!v) return "";
+  if (!v) return "";   // V19.61: फोन क्रमांक मास्क करत नाही (मालकाचा निर्णय); फक्त आधार मास्क
   if (field === "Aadhar") return v.length > 4 ? "XXXX-XXXX-" + v.slice(-4) : v;   // आधार पूर्ण साठवत नाही
   return v.length > 160 ? v.slice(0, 157) + "…" : v;
 }
@@ -2171,6 +2185,7 @@ function doDeleteStudent(p, cb) {
 
     sh.deleteRow(rowToWrite);
     invalidateRosterCache_();
+    auditApply_(p, "deleteStudent", [{reg: regNo, field: "—", old: "नोंद हटवली: " + auditNorm_(rowData[10]) + " (" + auditNorm_(rowData[6]) + " " + auditNorm_(rowData[7]) + ") — प्रत SGS_Deleted_Backup मध्ये", nw: ""}]);   // V19.61
     logAudit(p.requesterUser, p.requesterRole, "deleteStudent", regNo);
     return wrap(cb, {status:"ok", regNo: regNo});
   } catch(err) {
@@ -2201,7 +2216,8 @@ function doUpdateClassDivision(d) {
     }
     sh.getRange(rowToWrite, 7, 1, 2).setValues([[d.iyatta||"", d.tukdi||""]]);
     return {rowIndex: rowToWrite, mode:"updated", ref: d.regNo||"",
-      oldIyatta: curIyatta, oldTukdi: curTukdi};
+      oldIyatta: curIyatta, oldTukdi: curTukdi,
+      auditChanges: [{reg: d.regNo, field: "Class", old: curIyatta, nw: d.iyatta||""}, {reg: d.regNo, field: "Division", old: curTukdi, nw: d.tukdi||""}]};   // V19.61
   } catch(err) {
     return {status:"error", message:err.toString()};
   }
@@ -2304,10 +2320,15 @@ function doSaveStudentContact(d) {
   try {
     var sh = getOrCreateSheet("StudentContacts", CONTACTS_HEADERS);
     var rowToWrite = findRowByKey(sh, 2, d.regNo);
+    var oldC = null;
+    if (rowToWrite) { try { oldC = sh.getRange(rowToWrite, 1, 1, CONTACTS_HEADERS.length).getValues()[0]; } catch (eOc) {} }   // V19.61: Audit साठी
     var row = [new Date().toLocaleString("en-IN"), d.regNo||"", d.studentId||"", d.fullName||"",
       d.iyatta||"", d.tukdi||"", d.whatsappMobile||"", d.otherMobile||"", d.updatedBy||""];
     var res = writeRow(sh, rowToWrite, row);
     res.ref = d.fullName||d.regNo||"";
+    res.auditChanges = [   // V19.61: फोन क्रमांक पूर्ण (मास्क नाही)
+      {reg: d.regNo, field: "WhatsApp Mobile No", old: oldC ? oldC[6] : "", nw: row[6]},
+      {reg: d.regNo, field: "Alternate Mobile No", old: oldC ? oldC[7] : "", nw: row[7]}];
     return res;
   } catch(err) {
     return {status:"error", message:err.toString()};
@@ -2799,6 +2820,7 @@ function updateStudentPhotoUrl(regNo, photoUrl) {
   sh.getRange(row, PHOTO_COL).setValue(photoUrl);
   SpreadsheetApp.flush();
   invalidateRosterCache_();
+  auditApply_({}, cur ? "photoLinkChange" : "photoLinkSet", [{reg: regNo, field: "Photo URL", old: cur, nw: photoUrl}]);   // V19.61: User = Token वरून (AUDIT_CTX_)
   return {found:true, updated:true};
 }
 
@@ -3244,10 +3266,13 @@ function doPhotoRecall(p, cb) {
     if (!dry && rows.length) {
       var minR = Math.min.apply(null, rows), maxR = Math.max.apply(null, rows);
       var fresh = sh.getRange(minR, PHOTO_COL, maxR - minR + 1, 1).getValues();
-      rows.forEach(function(r) { fresh[r - minR][0] = changed[r]; wrote++; });
+      var photoAud = [], regByRow = {};   // V19.61: Audit — प्रत्येक बदललेल्या विद्यार्थ्याची जुनी/नवी फोटो-लिंक
+      Object.keys(byKey).forEach(function(k) { regByRow[byKey[k].row] = byKey[k].reg; });
+      rows.forEach(function(r) { photoAud.push({reg: regByRow[r], field: "Photo URL", old: fresh[r - minR][0], nw: changed[r]}); fresh[r - minR][0] = changed[r]; wrote++; });
       sh.getRange(minR, PHOTO_COL, maxR - minR + 1, 1).setValues(fresh);
       SpreadsheetApp.flush();
       invalidateRosterCache_();
+      auditApply_(p, "photoRecall", photoAud);
     }
 
     // ---- स्थिती जतन ----
@@ -3737,7 +3762,7 @@ function normRole_(r) { return (r || "").toString().trim().toLowerCase(); }
 var AUTH_PUBLIC_ACTIONS = {ping:1, login:1, verify:1};
 var TEACHER_CLASS_ACTIONS = {getClassStudents:1, getTeacherDashboard:1, saveAttendance:1, getAttendance:1, getAttendanceAnalytics:1, getEarlyLeave:1, saveEarlyLeave:1, getScholarship:1, saveScholarship:1, getFees:1, getTransport:1};   // V19.54: getFees/getTransport जोडले — शिक्षक वर्ग-यादी मोडमध्ये दुसऱ्या वर्गाची/संपूर्ण शाळेची फी मागवू शकत नाही
 // Peon (शिपाई) फक्त हेच करू शकतो: विद्यार्थी शोध/प्रोफाइल (getAll), घरी जाणाऱ्यांची यादी, मार्क-आउट, स्वतःचा Password बदल
-var PEON_ACTIONS = {getAll:1, getEarlyLeavePeon:1, markEarlyLeaveOut:1, changePassword:1, getPhotoData:1, getClassTeachers:1};
+var PEON_ACTIONS = {getAll:1, getEarlyLeavePeon:1, markEarlyLeaveOut:1, changePassword:1, getPhotoData:1, getClassTeachers:1, logClientErrors:1};   // V19.61: logClientErrors — सर्व भूमिका (Token सह)
 var _authSecretMem = null;
 
 function authSecret_() {
@@ -3783,6 +3808,7 @@ function applyAuth_(p) {
   // बाहेरून आलेल्या (browser ने पाठवलेल्या) अंतर्गत चिन्हांना मान्यता नाही
   delete p._authed;
   delete p._tClass;   // V19.47: शिक्षकाचा वर्ग फक्त Token मधून (browser ने पाठवलेला नाही)
+  AUDIT_CTX_ = {user: "", role: ""};   // V19.61
   if (AUTH_PUBLIC_ACTIONS[act]) return null;
   var payload = verifyToken_(p.token);
   if (payload) {
@@ -3791,6 +3817,7 @@ function applyAuth_(p) {
     p.requesterUser = payload.u;
     p.auditUser = payload.u;
     p.auditRole = payload.r;
+    AUDIT_CTX_ = {user: String(payload.u || ""), role: String(payload.r || "")};   // V19.61: d/p नसलेल्या सहाय्यक फंक्शन्ससाठी (उदा. फोटो-लिंक)
     p._tClass = (payload.r === "teacher") ? String(payload.c || "") : "";   // V19.47
     if (payload.r === "peon" && !PEON_ACTIONS[act]) {
       return {status:"error", code:"forbidden", message:"या User ला हे करण्याचा अधिकार नाही."};
@@ -4169,7 +4196,8 @@ function doArchivePassedOut(d) {
     if (kept.length) sh.getRange(2, 1, kept.length, sc).setValues(kept);
     invalidateRosterCache_();
     return {rowIndex: 0, mode: "updated", count: moved.length, ref: "archive " + batchId,
-      extra: {batchId: batchId, archiveSheet: arName}};
+      extra: {batchId: batchId, archiveSheet: arName},
+      auditChanges: moved.map(function(r) { return {reg: r[2], field: "Status", old: "Students (" + cls + ")", nw: arName + " [" + batchId + "]"}; })};   // V19.61
   } catch (err) {
     return {status:"error", message:err.toString()};
   } finally {
@@ -4214,7 +4242,8 @@ function doRestorePassedOut(d) {
     if (!found) return {status:"error", message:"हा Batch सापडला नाही."};
     if (back.length) { ensureRows_(sh, sh.getLastRow() + back.length); sh.getRange(sh.getLastRow() + 1, 1, back.length, sc).setValues(back); }
     invalidateRosterCache_();
-    return {rowIndex: 0, mode: "updated", count: back.length, ref: "restore " + batchId, extra: {restored: back.length, skipped: skipped}};
+    return {rowIndex: 0, mode: "updated", count: back.length, ref: "restore " + batchId, extra: {restored: back.length, skipped: skipped},
+      auditChanges: back.map(function(r) { return {reg: r[2], field: "Status", old: "PassedOut_ [" + batchId + "]", nw: "Students (" + auditNorm_(r[6]) + ")"}; })};   // V19.61
   } catch (err) {
     return {status:"error", message:err.toString()};
   } finally {
@@ -4258,7 +4287,7 @@ function doRenumberRolls(d) {
       (groups[key] = groups[key] || []).push({i: i, name: r[10], girl: isGirl_(r[12]), reg: (r[2] || "").toString()});
     }
     var rollCol = base.map(function(r) { return [r[9]]; });
-    var changedCount = 0;
+    var changedCount = 0, rollAud = [];
     Object.keys(groups).forEach(function(k) {
       var list = groups[k];
       list.sort(function(a, b) {
@@ -4267,14 +4296,14 @@ function doRenumberRolls(d) {
         return c !== 0 ? c : (a.reg < b.reg ? -1 : (a.reg > b.reg ? 1 : 0));
       });
       list.forEach(function(it, idx) {
-        if (String(rollCol[it.i][0]) !== String(idx + 1)) changedCount++;
+        if (String(rollCol[it.i][0]) !== String(idx + 1)) { changedCount++; rollAud.push({reg: it.reg, field: "Roll No", old: rollCol[it.i][0], nw: idx + 1}); }   // V19.61
         rollCol[it.i][0] = idx + 1;
       });
     });
     sh.getRange(2, 10, n, 1).setValues(rollCol);
     invalidateRosterCache_();
     return {rowIndex: 0, mode: "updated", count: changedCount, ref: "renumber " + classes.join(","),
-      extra: {groups: Object.keys(groups).length, backupSheet: "Students_BeforeRoll_" + stamp}};
+      extra: {groups: Object.keys(groups).length, backupSheet: "Students_BeforeRoll_" + stamp}, auditChanges: rollAud};
   } catch (err) {
     return {status:"error", message:err.toString()};
   } finally {
@@ -5436,4 +5465,184 @@ function doArchiveYear(d) {
   } finally {
     if (locked) lock.releaseLock();
   }
+}
+
+
+// =====================================================================
+// ===== V19.61 — अ-४ वापरकर्त्यांच्या फोनवरील त्रुटींची नोंद (ClientErrors) + अ-६ Audit ची व्याप्ती =====
+// =====================================================================
+// ---------- अ-६: Audit (विद्यार्थी + Users) ----------
+// Audit मधील फोन क्रमांक मास्क केले जात नाहीत (मालकाचा निर्णय, V19.61); आधार फक्त शेवटचे ४ अंक (auditShow_); Password/hash कधीही नोंदवला जात नाही.
+var AUDIT_CTX_ = {user: "", role: ""};     // applyAuth_ मधून (Token वरून) — d/p नसलेल्या सहाय्यक फंक्शन्ससाठी
+var USER_AUDIT_HEADERS = ["Timestamp", "By", "ByRole", "Username", "Action", "Field", "Old", "New"];
+var AUDIT_BULK_CAP = 600;                  // एका कृतीत जास्तीत जास्त इतक्या Audit ओळी; जास्त असल्यास एक सारांश-ओळ
+function auditWho_(d) {
+  d = d || {};
+  return {user: d.auditUser || d.requesterUser || AUDIT_CTX_.user || "", role: d.auditRole || d.requesterRole || AUDIT_CTX_.role || ""};
+}
+function auditAppendRows_(name, headers, rows) {
+  var sh = getOrCreateSheet(name, headers);
+  ensureRows_(sh, sh.getLastRow() + rows.length);
+  sh.getRange(sh.getLastRow() + 1, 1, rows.length, headers.length).setValues(rows);
+}
+// changes: [{reg, field, old, nw}] — field "—" = घटना-ओळ (नेहमी नोंदवली जाते); अन्यथा old == new असल्यास ओळ नाही.
+// कधीही अपवाद फेकत नाही — Audit अपयशाने मूळ Save अडत नाही. परत: नोंदवलेल्या ओळी.
+function auditApply_(d, action, changes) {
+  try {
+    if (!changes || !changes.length) return 0;
+    var who = auditWho_(d), ts = new Date().toLocaleString("en-IN"), rows = [];
+    for (var i = 0; i < changes.length; i++) {
+      var c = changes[i] || {}, f = c.field || "—";
+      var a = auditNorm_(c.old), b = auditNorm_(c.nw);
+      if (f !== "—" && a === b) continue;
+      rows.push([ts, who.user, who.role, auditNorm_(c.reg), action, f, auditShow_(f, a), auditShow_(f, b)]);
+    }
+    if (!rows.length) return 0;
+    var total = rows.length;
+    if (total > AUDIT_BULK_CAP) {
+      rows = rows.slice(0, AUDIT_BULK_CAP);
+      rows.push([ts, who.user, who.role, "—", action, "—", "", "एकूण " + total + " बदल; पहिले " + AUDIT_BULK_CAP + " नोंदवले"]);
+    }
+    auditAppendRows_("Student_Audit", AUDIT_HEADERS, rows);
+    return rows.length;
+  } catch (e) { return 0; }
+}
+// Users व्यवस्थापन: Password किंवा hash कधीही नाही — फक्त "Password बदलला" ही घटना
+function userAuditApply_(p, action, username, changes) {
+  try {
+    if (!changes || !changes.length) return 0;
+    var who = auditWho_(p), ts = new Date().toLocaleString("en-IN"), rows = [];
+    for (var i = 0; i < changes.length; i++) {
+      var c = changes[i] || {}, f = c.field || "—";
+      if (/pass/i.test(f)) { f = "Password"; c = {field: "Password", old: "", nw: "बदलला"}; }   // मूल्य कधीही साठवू नका
+      var a = auditNorm_(c.old), b = auditNorm_(c.nw);
+      if (f !== "—" && f !== "Password" && a === b) continue;
+      rows.push([ts, who.user, who.role, username || "", action, f, auditShow_(f, a), auditShow_(f, b)]);
+    }
+    if (!rows.length) return 0;
+    auditAppendRows_("User_Audit", USER_AUDIT_HEADERS, rows);
+    return rows.length;
+  } catch (e) { return 0; }
+}
+function userChangeList_(oldRow, newRow) {   // [Username, Password, Role, Label, AssignedClass, Mobile] — Password स्तंभ (१) वगळला जातो
+  var names = {2: "Role", 3: "Label", 4: "AssignedClass", 5: "Mobile No."}, out = [];
+  for (var i = 2; i <= 5; i++) out.push({field: names[i], old: oldRow ? oldRow[i] : "", nw: newRow[i]});
+  return out;
+}
+function doGetUserAudit(p, cb) {
+  try {
+    var e = authSuperOnly_(p, "User बदलांचा इतिहास"); if (e) return wrap(cb, {status: "error", code: "forbidden", message: e});
+    var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("User_Audit"), out = [];
+    if (sh && sh.getLastRow() > 1) {
+      var un = (p.username || "").toString().trim().toLowerCase();
+      var n = sh.getLastRow() - 1, take = Math.min(n, 2000);
+      var rows = sh.getRange(sh.getLastRow() - take + 1, 1, take, USER_AUDIT_HEADERS.length).getValues();
+      for (var i = rows.length - 1; i >= 0 && out.length < 300; i--) {
+        var r = rows[i];
+        if (un && String(r[3]).trim().toLowerCase() !== un) continue;
+        out.push({time: auditTimeText_(r[0]), by: r[1], byRole: r[2], username: r[3], action: r[4], field: r[5], oldVal: r[6], newVal: r[7]});
+      }
+    }
+    return wrap(cb, {status: "ok", data: out});
+  } catch (err) { return wrap(cb, {status: "error", message: err.toString()}); }
+}
+// Editor मधून (केवळ वाचन): Student_Audit/User_Audit ची वाढ — cells, वर्षनिहाय ओळी; पर्याय निवडण्यासाठी
+function auditGrowthReport() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet(), out = [];
+  ["Student_Audit", "User_Audit", "ClientErrors"].forEach(function(nm) {
+    var sh = ss.getSheetByName(nm); if (!sh) { out.push(nm + ": Sheet नाही"); return; }
+    var rows = Math.max(sh.getLastRow() - 1, 0), byYear = {};
+    if (rows) sh.getRange(2, 1, rows, 1).getValues().forEach(function(r) {
+      var m = /(\d{4})/.exec(auditTimeText_(r[0]) + "") ; var y = m ? m[1] : "?"; byYear[y] = (byYear[y] || 0) + 1; });
+    out.push(nm + ": " + rows + " ओळी, वाटप केलेले cells = " + (sh.getMaxRows() * sh.getMaxColumns()) + ", वर्षनिहाय " + JSON.stringify(byYear));
+  });
+  Logger.log(out.join("\n")); return out;
+}
+
+// ---------- अ-४: ClientErrors ----------
+var CLIENT_ERR_HEADERS = ["Time", "User", "Role", "AppVer", "Page", "UA", "Type", "Message", "Stack", "Count"];
+var CLIENT_ERR_MAX_ROWS = 10000;       // यापेक्षा जास्त झाल्यास सर्वात जुन्या ओळी पुसल्या जातात
+var CLIENT_ERR_KEEP_DAYS = 90;         // purgeClientErrors() — पर्याय ब (मध्यम)
+var CLIENT_ERR_BATCH_MAX = 10;         // एका विनंतीत जास्तीत जास्त नोंदी
+var CLIENT_ERR_HOURLY_MAX = 120;       // एका User कडून तासाला जास्तीत जास्त ओळी (धावत्या त्रुटींपासून संरक्षण)
+// सर्व्हरवरही पुन्हा scrub (क्लायंट scrub चुकल्यास): ईमेल, ६+ अंकांचे गट (फोन/Reg No/आधार), regNo=… नमुने
+function clientErrScrub_(v, maxLen) {
+  var t = String(v === null || v === undefined ? "" : v);
+  t = t.replace(/[\w.+\-]+@[\w\-]+\.[\w.\-]+/g, "<email>")
+       .replace(/\b(regNo|reg_no|studentId|mobile|phone|aadhar|aadhaar|username|password|token)\s*[=:]\s*[^\s&,;"')]+/gi, "$1=<x>")
+       .replace(/(?:\d[ \-]?){6,}/g, "<num>");
+  return t.length > maxLen ? t.slice(0, maxLen) : t;
+}
+function clientErrTime_() { return Utilities.formatDate(new Date(), "Asia/Kolkata", "yyyy-MM-dd HH:mm:ss"); }
+function doLogClientErrors(p, cb) {
+  try {
+    if (!p._authed) return wrap(cb, {status: "error", code: "needauth", message: "Token सह Login आवश्यक आहे."});   // "auth" कोड नाही — क्लायंट Logout होऊ नये
+    var list = [];
+    try { list = JSON.parse(p.errors || "[]"); } catch (eJ) { return wrap(cb, {status: "error", message: "errors वाचता आले नाही."}); }
+    if (!Array.isArray(list) || !list.length) return wrap(cb, {status: "ok", saved: 0});
+    list = list.slice(0, CLIENT_ERR_BATCH_MAX);
+    var user = String(p.requesterUser || ""), role = String(p.requesterRole || "");
+    // तासाला दर-मर्यादा (Cache) — मर्यादा ओलांडल्यास शांतपणे सोडून द्या (ok परत; क्लायंटने पुन्हा पाठवू नये)
+    var cache = CacheService.getScriptCache(), rk = "cerr_" + user.toLowerCase().slice(0, 40), used = parseInt(cache.get(rk) || "0", 10) || 0;
+    if (used >= CLIENT_ERR_HOURLY_MAX) return wrap(cb, {status: "ok", saved: 0, limited: true});
+    var rows = [], now = clientErrTime_();
+    for (var i = 0; i < list.length && used + rows.length < CLIENT_ERR_HOURLY_MAX; i++) {
+      var x = list[i] || {}, cnt = Math.max(1, Math.min(9999, parseInt(x.c, 10) || 1));
+      rows.push([now, user, role, clientErrScrub_(x.v, 20), clientErrScrub_(x.pg, 40), clientErrScrub_(x.ua, 60),
+                 clientErrScrub_(x.t, 20), clientErrScrub_(x.m, 300), clientErrScrub_(x.s, 500), cnt]);
+    }
+    if (!rows.length) return wrap(cb, {status: "ok", saved: 0});
+    var lock = LockService.getScriptLock();
+    if (!lock.tryLock(5000)) return wrap(cb, {status: "error", code: "busy", message: "सर्व्हर व्यस्त — नंतर पुन्हा."});   // क्लायंट रांगेत ठेवून नंतर पाठवतो
+    try {
+      auditAppendRows_("ClientErrors", CLIENT_ERR_HEADERS, rows);
+      var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("ClientErrors"), over = sh.getLastRow() - 1 - CLIENT_ERR_MAX_ROWS;
+      if (over > 0) sh.deleteRows(2, over);
+    } finally { lock.releaseLock(); }
+    try { cache.put(rk, String(used + rows.length), 3600); } catch (eC) {}
+    return wrap(cb, {status: "ok", saved: rows.length});
+  } catch (err) { return wrap(cb, {status: "error", message: err.toString()}); }
+}
+// फक्त Super — संदेशानुसार गट (Type+Message): एकूण संख्या, किती user, शेवटची वेळ, आवृत्त्या
+function doGetClientErrors(p, cb) {
+  try {
+    var e = authSuperOnly_(p, "त्रुटी-नोंद"); if (e) return wrap(cb, {status: "error", code: "forbidden", message: e});
+    var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("ClientErrors"), groups = {}, total = 0, rowsRead = 0;
+    if (sh && sh.getLastRow() > 1) {
+      var n = sh.getLastRow() - 1, take = Math.min(n, 5000);
+      var rows = sh.getRange(sh.getLastRow() - take + 1, 1, take, CLIENT_ERR_HEADERS.length).getValues();
+      rowsRead = rows.length;
+      rows.forEach(function(r) {
+        var key = r[6] + "|" + r[7], g = groups[key];
+        var cnt = parseInt(r[9], 10) || 1; total += cnt;
+        if (!g) g = groups[key] = {type: String(r[6]), message: String(r[7]), stack: String(r[8]), count: 0, users: {}, first: String(r[0]), last: String(r[0]), vers: {}, pages: {}};
+        g.count += cnt; g.users[String(r[1])] = 1; g.vers[String(r[3])] = 1; if (r[4]) g.pages[String(r[4])] = 1;
+        if (String(r[0]) > g.last) g.last = String(r[0]);
+        if (String(r[0]) < g.first) g.first = String(r[0]);
+      });
+    }
+    var out = Object.keys(groups).map(function(k) {
+      var g = groups[k];
+      return {type: g.type, message: g.message, stack: g.stack, count: g.count, users: Object.keys(g.users).length, first: g.first, last: g.last,
+              vers: Object.keys(g.vers).join(", "), pages: Object.keys(g.pages).slice(0, 5).join(", ")};
+    }).sort(function(a, b) { return a.last < b.last ? 1 : (a.last > b.last ? -1 : 0); }).slice(0, 300);
+    return wrap(cb, {status: "ok", data: out, total: total, rowsRead: rowsRead});
+  } catch (err) { return wrap(cb, {status: "error", message: err.toString()}); }
+}
+// Editor/trigger: ९० दिवसांपेक्षा जुन्या ओळी पुसा (ओळी वेळेनुसार क्रमाने असतात — फक्त सुरुवातीचा भाग पुसतो). परत: पुसलेल्या ओळी.
+function purgeClientErrors() {
+  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("ClientErrors");
+  if (!sh || sh.getLastRow() < 2) return 0;
+  var lock = LockService.getScriptLock(); if (!lock.tryLock(20000)) return 0;
+  try {
+    var cutoff = Utilities.formatDate(new Date(Date.now() - CLIENT_ERR_KEEP_DAYS * 86400000), "Asia/Kolkata", "yyyy-MM-dd HH:mm:ss");
+    var times = sh.getRange(2, 1, sh.getLastRow() - 1, 1).getValues(), k = 0;
+    while (k < times.length && String(times[k][0]) < cutoff) k++;
+    if (k > 0) sh.deleteRows(2, k);
+    Logger.log("purgeClientErrors: " + k + " ओळी पुसल्या"); return k;
+  } finally { lock.releaseLock(); }
+}
+function setupClientErrorPurgeTrigger() {   // Editor मधून एकदा: दर आठवड्याला purge
+  ScriptApp.getProjectTriggers().forEach(function(t) { if (t.getHandlerFunction() === "purgeClientErrors") ScriptApp.deleteTrigger(t); });
+  ScriptApp.newTrigger("purgeClientErrors").timeBased().onWeekDay(ScriptApp.WeekDay.SUNDAY).atHour(3).create();
 }

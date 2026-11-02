@@ -32,7 +32,7 @@ window.androidBackPressed = function() {
 
 
 // URL persistence
-var DEFAULT_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbzZ-iYnkyTkFAq3lE9hzWyBTP9_KRWAJgplGy80ix-kLcS3SW3c_pVE_aGn334rpuNq/exec';
+var DEFAULT_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbwocGjIsaGHW4BwpbadJ3Knf9_Lm31YHunFO5XhIRzhv5Y5Blw7LLdSwZrPPTfub4mJ/exec';
 
 // =====================================================
 // 🔐 LOGIN + ROLE PERMISSIONS
@@ -54,6 +54,117 @@ if (!ALLOW_LEGACY_LOGIN) AUTH_USERS = {};   // V19.52: जुना Login बं
 var SESSION_KEY = 'sgs_session_v2';
 function tokenQS() { return (currentUser && currentUser.token) ? '&token=' + encodeURIComponent(currentUser.token) : ''; }
 function attachToken(params) { if (currentUser && currentUser.token) params.token = currentUser.token; return params; }
+
+// =====================================================================
+// ===== V19.61 (अ-४) — वापरकर्त्यांच्या फोनवरील त्रुटींची नोंद =====
+// window.onerror + unhandledrejection + jsonp timeout/Save अपयश (संख्या). गोपनीयता: पाठवण्यापूर्वी scrub (फोन/Reg No/ईमेल/URL-query काढले).
+// पुनरावृत्ती रोखणे: समान संदेश सत्रात एकदाच; प्रति मिनिट CERR_PER_MIN; प्रति सत्र CERR_PER_SESSION. रांग localStorage मध्ये (जास्तीत जास्त CERR_MAX_QUEUE).
+// फक्त Token असलेल्या सत्रातच पाठवतो (ऑफलाइन सत्रात नाही); अपयश आल्यास exponential backoff; त्रुटी-नोंदीमुळे स्वतः त्रुटी निर्माण होऊ नये (_cerr.busy / try-catch).
+// =====================================================================
+var CERR_KEY = 'sgs_errq_v1';
+var CERR_MAX_QUEUE = 50, CERR_PER_MIN = 5, CERR_PER_SESSION = 30, CERR_FLUSH_MS = 60000, CERR_URL_BUDGET = 4800;
+var _cerr = {seen: {}, minStart: 0, minN: 0, total: 0, dropped: 0, busy: false, sending: false, nextTry: 0, fails: 0, counters: {}};
+function cerrScrub(v, max) {
+  var t = String(v === null || v === undefined ? '' : v);
+  t = t.replace(/https?:\/\/[^\s)'"]+/g, function(u) { return u.split('?')[0].split('#')[0].replace(/\/macros\/s\/[^\/]+/, '/macros/s/<id>'); })
+       .replace(/[\w.+\-]+@[\w\-]+\.[\w.\-]+/g, '<email>')
+       .replace(/\b(regNo|reg_no|studentId|mobile|phone|aadhar|aadhaar|username|password|token)\s*[=:]\s*[^\s&,;"')]+/gi, '$1=<x>')
+       .replace(/(?:\d[ \-]?){6,}/g, '<num>');
+  return t.length > max ? t.slice(0, max) : t;
+}
+function cerrUA() {
+  var u = (typeof navigator !== 'undefined' && navigator.userAgent) || '';
+  var os = (u.match(/(Android [\d.]+|iPhone OS [\d_]+|Windows NT [\d.]+|Mac OS X [\d_]+|Linux)/) || [''])[0];
+  var br = (u.match(/(?:Chrome|Firefox|Version)\/\d+/) || [''])[0];
+  return (os + ' ' + br + (/; wv\)/.test(u) ? ' wv' : '')).trim().slice(0, 60);
+}
+function cerrPage() { try { var a = document.querySelector('.page.active'); return a ? a.id.replace(/^pg-/, '') : ''; } catch (e) { return ''; } }
+function cerrLoad() { try { var q = JSON.parse(localStorage.getItem(CERR_KEY) || '[]'); return Array.isArray(q) ? q : []; } catch (e) { return []; } }
+function cerrStore(q) { try { localStorage.setItem(CERR_KEY, JSON.stringify(q.slice(-CERR_MAX_QUEUE))); } catch (e) {} }
+function cerrEnqueue(ent) {
+  var q = cerrLoad();
+  q.push({id: ent.id, by: (currentUser ? currentUser.username : ''), t: ent.t, m: ent.m, s: ent.s, c: ent.c, v: ent.v, pg: ent.pg, ua: ent.ua, ts: ent.ts});
+  cerrStore(q);
+}
+function cerrCapture(type, msg, stack) {
+  if (_cerr.busy) return;
+  _cerr.busy = true;
+  try {
+    var m = cerrScrub(msg || 'Unknown error', 300), st = cerrScrub(stack || '', 500);
+    var key = type + '|' + m.slice(0, 120) + '|' + (st.split('\n')[0] || '').slice(0, 80);
+    var prev = _cerr.seen[key];
+    if (prev) {   // समान संदेश — सत्रात एकदाच पाठवला जातो; रांगेत अजून असेल तर फक्त संख्या वाढते
+      if (!prev.sent) { var q = cerrLoad(); for (var i = 0; i < q.length; i++) if (q[i].id === prev.id) { q[i].c = (q[i].c || 1) + 1; break; } cerrStore(q); }
+      return;
+    }
+    var now = Date.now();
+    if (now - _cerr.minStart > 60000) { _cerr.minStart = now; _cerr.minN = 0; }
+    if (_cerr.minN >= CERR_PER_MIN || _cerr.total >= CERR_PER_SESSION) { _cerr.dropped++; return; }
+    _cerr.minN++; _cerr.total++;
+    var ent = _cerr.seen[key] = {id: 'e' + now.toString(36) + Math.random().toString(36).slice(2, 6), t: type, m: m, s: st, c: 1, v: (typeof APP_VERSION !== 'undefined' ? APP_VERSION : ''), pg: cerrPage(), ua: cerrUA(), ts: now, sent: false};
+    cerrEnqueue(ent);
+    setTimeout(cerrFlush, 5000);
+  } catch (e) { /* त्रुटी-नोंद स्वतः कधीही त्रुटी निर्माण करणार नाही */ } finally { _cerr.busy = false; }
+}
+function cerrCount(kind, action) { try { var k = kind + ':' + (action || ''); _cerr.counters[k] = (_cerr.counters[k] || 0) + 1; } catch (e) {} }
+function cerrNoteResult(act, r) { try { if (act === 'logClientErrors') return; if (r && r.status === 'timeout') cerrCount('timeout', act); } catch (e) {} }
+function cerrCountersToQueue() {   // जमा झालेल्या timeout/Save-अपयश संख्या → रांगेत (एकूण सत्र-मर्यादा पाळून)
+  try {
+    var keys = Object.keys(_cerr.counters);
+    for (var i = 0; i < keys.length; i++) {
+      if (_cerr.total >= CERR_PER_SESSION) { _cerr.counters = {}; return; }
+      var k = keys[i], n = _cerr.counters[k]; if (!n) continue;
+      _cerr.total++;
+      cerrEnqueue({id: 'k' + Date.now().toString(36) + i, t: 'count', m: k, s: '', c: n, v: (typeof APP_VERSION !== 'undefined' ? APP_VERSION : ''), pg: cerrPage(), ua: cerrUA(), ts: Date.now()});
+    }
+    _cerr.counters = {};
+  } catch (e) {}
+}
+function cerrFlush() {
+  try {
+    if (_cerr.sending) return;
+    if (!currentUser || !currentUser.token || currentUser.offline) return;                   // फक्त Token असलेल्या (ऑनलाइन) सत्रात
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+    if (Date.now() < _cerr.nextTry) return;
+    cerrCountersToQueue();
+    var me = currentUser.username, mine = cerrLoad().filter(function(x) { return x.by === me; });
+    if (!mine.length) return;
+    var batch = [], len = 0;
+    for (var i = 0; i < mine.length && batch.length < 10; i++) {
+      var it = {t: mine[i].t, m: mine[i].m, s: mine[i].s, c: mine[i].c, v: mine[i].v, pg: mine[i].pg, ua: mine[i].ua};
+      var l = encodeURIComponent(JSON.stringify(it)).length + 3;
+      if (batch.length && len + l > CERR_URL_BUDGET) break;
+      batch.push(it); len += l; mine[i]._b = true;
+    }
+    var ids = {}; mine.forEach(function(x) { if (x._b) ids[x.id] = 1; });
+    _cerr.sending = true;
+    jsonpRequest({action: 'logClientErrors', errors: JSON.stringify(batch)}, function(r) {
+      try {
+        _cerr.sending = false;
+        if (r && r.status === 'ok') {
+          cerrStore(cerrLoad().filter(function(x) { return !ids[x.id]; }));
+          Object.keys(_cerr.seen).forEach(function(k) { if (ids[_cerr.seen[k].id]) _cerr.seen[k].sent = true; });
+          _cerr.fails = 0; _cerr.nextTry = 0;
+          if (cerrLoad().some(function(x) { return x.by === me; })) setTimeout(cerrFlush, 2000);
+        } else {
+          _cerr.fails++; _cerr.nextTry = Date.now() + Math.min(30 * 60000, 60000 * Math.pow(2, _cerr.fails));   // 2, 4, 8… मिनिटे (कमाल ३०)
+        }
+      } catch (e) { _cerr.sending = false; }
+    });
+  } catch (e) { _cerr.sending = false; }
+}
+(function cerrInit() {
+  try {
+    window.addEventListener('error', function(ev) {
+      try { cerrCapture('error', ev && (ev.message || (ev.error && ev.error.message)), (ev && ev.error && ev.error.stack) || (ev && ev.filename ? 'at ' + ev.filename + ':' + ev.lineno + ':' + ev.colno : '')); } catch (e) {}
+    });
+    window.addEventListener('unhandledrejection', function(ev) {
+      try { var rs = ev && ev.reason; cerrCapture('promise', rs && (rs.message || String(rs)), rs && rs.stack); } catch (e) {}
+    });
+    window.addEventListener('online', function() { setTimeout(cerrFlush, 3000); });
+    setInterval(cerrFlush, CERR_FLUSH_MS);
+  } catch (e) {}
+})();
 var _authExpiredHandled = false;
 function handleAuthExpired() {
   if (_authExpiredHandled || !currentUser) return;
@@ -749,7 +860,7 @@ var clientPerf = [];
 // नियम: पैसा/थकबाकी/फी जमा स्क्रीनवर कधीही जुना डेटा नाही • २४ तासांहून जुना cache वापरत नाही • अॅप-आवृत्ती बदलल्यास रद्द •
 //       प्रत्येकी ~300 KB / एकूण ~1 MB मर्यादा • Logout वर पूर्ण पुसले जाते • Token कधीही साठवत नाही (फक्त उत्तर).
 // =====================================================================
-var APP_VERSION = 'V19.60.1';
+var APP_VERSION = 'V19.61';
 var SWR_PREFIX = 'sgs_swr:';
 var SWR_ROSTER_MAX_AGE_MS = 3 * 24 * 3600 * 1000;   // V19.60.1: शिक्षकाची वर्ग-यादी ३ दिवस (ऑफलाइन Login च्या मुदतीइतकी); बाकी २४ तास
 var SWR_MAX_AGE_MS = 24 * 3600 * 1000, SWR_MAX_ENTRY = 300 * 1024, SWR_MAX_TOTAL = 1024 * 1024;
@@ -918,7 +1029,7 @@ function jsonpRequest(params, onResult) {
   attachToken(params);
   var _origCb = onResult;
   var _t0 = Date.now(), _act = params.action || '';
-  onResult = function(r){ clientPerfAdd(_act, Date.now() - _t0, r); if (r && r.code === 'auth') handleAuthExpired(); _origCb(r); };
+  onResult = function(r){ clientPerfAdd(_act, Date.now() - _t0, r); cerrNoteResult(_act, r); if (r && r.code === 'auth') handleAuthExpired(); _origCb(r); };
   // V19.36: प्रत्येक विनंतीला स्वतःचा <script> id — पूर्वी एकच shared id असल्याने एकाच वेळी दोन विनंत्या चालल्यास
   // पहिली विनंती अर्धवट असतानाच काढली जायची (Login/Dashboard एकाच वेळी लोड होताना Login अडकायचा).
   var cbName='_gssCb_'+Date.now()+'_'+Math.floor(Math.random()*1e6);
@@ -1081,6 +1192,7 @@ function smartSave(data, onResult) {
     return pendingEnqueue(data, onResult);
   }
   smartSaveRaw(data, function(r) {
+    if (r && r.status === 'error' && !isNetworkFailure(r)) cerrCount('savefail', data.action);   // V19.61: Save अपयश (संख्या)
     if (queueable && isNetworkFailure(r)) { pendingEnqueue(data, onResult); return; }
     if (r && r.status === 'ok' && queueable) setTimeout(pendingFlush, 600); // जोडणी चालू असल्याचा पुरावा — जुने Pending पाठवा
     if (onResult) onResult(r);
@@ -1104,6 +1216,11 @@ function pendingFlush(manual) {
   if (!list.length) { pendingUpdateBadge(); return; }
   if (!currentUser || currentUser.offline) { pendingUpdateBadge(); return; } // Login नंतरच पाठवा — खरा Token आवश्यक (ऑफलाइन सत्रात नाही)
   if (typeof navigator !== 'undefined' && navigator.onLine === false) { pendingUpdateBadge(); return; }
+  if (manual) {   // V19.61: हाताने "आत्ता पाठवा" = अयशस्वी नोंदींचाही पुन्हा प्रयत्न (फक्त स्वतःच्या)
+    var all0 = pendingLoad(), ch0 = false;
+    all0.forEach(function(x) { if (x.failed && pvMine(x)) { x.failed = false; ch0 = true; } });
+    if (ch0) pendingStore(all0);
+  }
   _pendingFlushing = true;
   pendingUpdateBadge('⏳ पाठवत आहे...');
   var sent = 0, dropped = 0;
@@ -1111,19 +1228,21 @@ function pendingFlush(manual) {
     var cur = pendingLoad();
     var idx = -1;
     for (var i = 0; i < cur.length; i++) {
-      if (!cur[i].by || !currentUser || cur[i].by === currentUser.username) { idx = i; break; } // दुसऱ्या User च्या नोंदी त्याच्या Login नंतरच जातात
+      if (!cur[i].failed && (!cur[i].by || !currentUser || cur[i].by === currentUser.username)) { idx = i; break; } // दुसऱ्या User च्या नोंदी त्याच्या Login नंतरच जातात; अयशस्वी नोंदी आपोआप पुन्हा पाठवल्या जात नाहीत
     }
     if (idx === -1) { finish(); return; }
     var item = cur[idx];
     smartSaveRaw(item.data, function(r) {
-      if (isNetworkFailure(r)) { finish(); return; } // नेट अजून अस्थिर — नंतर पुन्हा प्रयत्न
-      if (r && r.code === 'auth') { finish(); return; } // Session संपले — पुन्हा Login नंतर पाठवू
-      var rest = pendingLoad();
+      var rest = pendingLoad(), pos = -1;
       for (var j = 0; j < rest.length; j++) {
-        if (rest[j].queuedAt === item.queuedAt && rest[j].data.reqId === item.data.reqId) { rest.splice(j, 1); break; }
+        if (rest[j].queuedAt === item.queuedAt && rest[j].data.reqId === item.data.reqId) { pos = j; break; }
       }
-      pendingStore(rest);
-      if (r && r.status === 'ok') sent++; else dropped++; // सर्व्हरने तार्किक नकार दिला — पुन्हा पुन्हा पाठवू नये
+      if (isNetworkFailure(r)) { if (pos > -1) { rest[pos].lastError = 'नेट/Timeout — पुन्हा प्रयत्न होईल'; rest[pos].lastTry = Date.now(); pendingStore(rest); } finish(); return; } // नेट अजून अस्थिर — नंतर पुन्हा प्रयत्न
+      if (r && r.code === 'auth') { finish(); return; } // Session संपले — पुन्हा Login नंतर पाठवू
+      if (r && r.status === 'ok') { if (pos > -1) rest.splice(pos, 1); pendingStore(rest); sent++; next(); return; }
+      // V19.61: सर्व्हरने तार्किक नकार दिला — नोंद पुसली जात नाही; "अयशस्वी" म्हणून राहते (Pending पान उघडून पाहता/पुन्हा पाठवता/रद्द करता येते)
+      if (pos > -1) { rest[pos].failed = true; rest[pos].lastError = (r && r.message) ? String(r.message).slice(0, 200) : 'सर्व्हरने नकार दिला'; rest[pos].tries = (rest[pos].tries || 0) + 1; rest[pos].lastTry = Date.now(); pendingStore(rest); }
+      dropped++;
       next();
     });
   }
@@ -1131,7 +1250,7 @@ function pendingFlush(manual) {
     _pendingFlushing = false;
     pendingUpdateBadge();
     if (sent) showCacheToast('✅ ' + sent + ' Pending Save झाल्या.', '#1a4a2a', '#b0ffc8');
-    if (dropped) showCacheToast('⚠️ ' + dropped + ' Pending नोंदी सर्व्हरने नाकारल्या (अधिकार/माहिती तपासा).', '#5a2020', '#ffb0b0');
+    if (dropped) showCacheToast('⚠️ ' + dropped + ' Pending नोंदी सर्व्हरने नाकारल्या — 📶 बटण दाबून पहा (नोंदी पुसल्या नाहीत).', '#5a2020', '#ffb0b0');
     if (sent && typeof tchLoadDashboard === 'function' && currentUser && currentUser.role === 'teacher') { try { tchLoadDashboard(); } catch (e) {} }
   }
   next();
@@ -1140,10 +1259,114 @@ function pendingFlush(manual) {
 function pendingUpdateBadge(txt) {
   var el = document.getElementById('pendingSavesBadge');
   if (!el) return;
-  var n = pendingLoad().length;
-  if (!n && !txt) { el.style.display = 'none'; return; }
+  var n = pendingLoad().length, nf = pendingFailedCount();
+  if (!n && !txt) { el.style.display = 'none'; el.className = ''; return; }
   el.style.display = 'block';
-  el.textContent = txt || ('📶 Pending Saves: ' + n + ' — नेट आल्यावर आपोआप जातील (दाबा = आत्ता पाठवा)');
+  el.className = nf ? 'pv-badge-bad' : '';
+  el.textContent = txt || ('📶 Pending Saves: ' + n + (nf ? ' (⚠️ ' + nf + ' अयशस्वी)' : '') + ' — दाबा = पहा / पाठवा');
+}
+
+// =====================================================================
+// ===== V19.61 (अ-५) — Pending Saves पाहण्याची सोय (badge दाबल्यावर) =====
+// प्रत्येक नोंद: वेळ, प्रकार, कोणाची, वय (>३ दिवस इशारा), स्थिती (वाट पाहत/अयशस्वी + शेवटचा संदेश). नोंद कधीही स्वयंचलितपणे पुसली जात नाही.
+// दुसऱ्या User ची नोंद दिसते पण लॉक (त्याच्या Login नंतरच जाते). रद्द/सर्व पुसा = फक्त स्वतःच्या नोंदी, पुष्टीसह; आधी JSON जतन करण्याचा पर्याय.
+// =====================================================================
+var PV_OLD_MS = 3 * 24 * 3600 * 1000;
+function pvFmtTime(ts) {
+  var d = new Date(ts); if (isNaN(d.getTime())) return '';
+  function z(n) { return (n < 10 ? '0' : '') + n; }
+  return z(d.getDate()) + '/' + z(d.getMonth() + 1) + '/' + d.getFullYear() + ' ' + z(d.getHours()) + ':' + z(d.getMinutes());
+}
+function pvFmtDate(v) { var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(v || '')); return m ? m[3] + '/' + m[2] + '/' + m[1] : String(v || ''); }
+function pvAge(ts) {
+  var ms = Date.now() - ts; if (ms < 0) ms = 0;
+  var m = Math.floor(ms / 60000); if (m < 60) return m + ' मिनिटे';
+  var h = Math.floor(m / 60); if (h < 48) return h + ' तास';
+  return Math.floor(h / 24) + ' दिवस';
+}
+function pvLabel(d) {
+  d = d || {};
+  var cls = ((d.iyatta || '') + ' ' + (d.tukdi || '')).trim();
+  switch (d.action) {
+    case 'saveAttendance': return 'हजेरी — ' + (cls ? classToMr(String(d.iyatta || '')) + ' ' + (d.tukdi || '') : '') + ' — ' + pvFmtDate(d.date);
+    case 'saveFees': return 'फी — ' + (d.fullName || d.regNo || '');
+    case 'saveDiary': return 'Diary — ' + (d.regNo || '');
+    case 'saveTransport': return 'प्रवास माहिती — ' + (d.regNo || '');
+    case 'saveStudentContact': return 'संपर्क क्रमांक — ' + (d.fullName || d.regNo || '');
+    case 'saveNotice': return 'नोटीस — ' + (d.title || '');
+    case 'saveEarlyLeave': return 'घरी जाणारे — ' + cls + ' — ' + pvFmtDate(d.date);
+    case 'markEarlyLeaveOut': return 'घरी गेला/नाही — ' + (d.regNo || '');
+    case 'saveScholarship': return 'शिष्यवृत्ती — ' + (d.regNo || '');
+    default: return String(d.action || 'अज्ञात नोंद');
+  }
+}
+function pendingFailedCount() { return pendingLoad().filter(function(x) { return x.failed; }).length; }
+function pvMine(it) { return !it.by || !currentUser || it.by === currentUser.username; }
+function pendingOpenViewer() {
+  var ex = document.getElementById('pendingModal'); if (ex) ex.remove();
+  var ov = document.createElement('div'); ov.id = 'pendingModal';
+  ov.onclick = function(e) { if (e.target === ov) pendingCloseViewer(); };
+  document.body.appendChild(ov);
+  pendingRenderViewer();
+}
+function pendingCloseViewer() { var m = document.getElementById('pendingModal'); if (m) m.remove(); pendingUpdateBadge(); }
+function pendingRenderViewer() {
+  var ov = document.getElementById('pendingModal'); if (!ov) return;
+  var list = pendingLoad(), offline = !!(currentUser && currentUser.offline), html = '';
+  html += '<div class="pv-box"><div class="pv-head"><h3>📶 Pending Saves (' + list.length + ')</h3><button class="btn btn-gray btn-sm" onclick="pendingCloseViewer()">✖ बंद</button></div>';
+  if (offline) html += '<div class="pv-err">📴 ऑफलाइन सत्र — नोंदी पाठवण्यासाठी नेट असताना <b>पुन्हा Login करा</b>.</div>';
+  if (!list.length) {
+    html += '<div class="hs-empty" style="margin:12px 0">✅ कोणतीही Pending नोंद नाही.</div>';
+  } else {
+    html += '<div class="pv-actions"><button class="btn btn-gold btn-sm" id="pv_retry" onclick="pendingViewerRetry()">🔄 आत्ता पुन्हा पाठवा</button>' +
+      '<button class="btn btn-blue btn-sm" id="pv_export" onclick="pendingExportJson()">💾 JSON म्हणून जतन करा</button>' +
+      '<button class="btn btn-red btn-sm" id="pv_clear" onclick="pendingClearMine()">🗑️ माझ्या सर्व नोंदी पुसा</button></div>' +
+      '<div class="pv-note2">ℹ️ नोंदी कधीही आपोआप पुसल्या जात नाहीत. रद्द करण्यापूर्वी "💾 JSON म्हणून जतन करा" ने प्रत ठेवा.</div>';
+    list.forEach(function(it) {
+      var mine = pvMine(it), old = (Date.now() - (it.queuedAt || 0)) > PV_OLD_MS, key = pmEsc(String(it.data && it.data.reqId || ''));
+      html += '<div class="pv-item' + (it.failed ? ' pv-failed' : '') + (mine ? '' : ' pv-locked') + '" data-q="' + (it.queuedAt || 0) + '">' +
+        '<div class="pv-title">' + pmEsc(pvLabel(it.data)) + '</div>' +
+        '<div class="pv-meta">🕒 ' + pmEsc(pvFmtTime(it.queuedAt)) + ' • वय: ' + pmEsc(pvAge(it.queuedAt || 0)) + ' • 👤 ' + pmEsc(it.by || '—') + '</div>' +
+        '<div style="margin-top:5px">' +
+        (it.failed ? '<span class="pv-tag pv-bad">❌ अयशस्वी</span>' : '<span class="pv-tag">⏳ वाट पाहत</span>') +
+        (old ? '<span class="pv-tag pv-old">⚠️ ३ दिवसांपेक्षा जुनी</span>' : '') +
+        (mine ? '' : '<span class="pv-tag">🔒 ' + pmEsc(it.by) + ' च्या Login नंतर जाईल</span>') + '</div>' +
+        (it.lastError ? '<div class="pv-err">शेवटचा संदेश: ' + pmEsc(it.lastError) + (it.tries ? ' (प्रयत्न: ' + it.tries + ')' : '') + '</div>' : '') +
+        (mine ? '<div style="margin-top:6px"><button class="btn btn-red btn-sm pv-cancel" onclick="pendingCancelOne(\'' + key + '\',' + (it.queuedAt || 0) + ')">❌ ही नोंद रद्द करा</button></div>' : '') +
+        '</div>';
+    });
+  }
+  ov.innerHTML = html + '</div>';
+}
+function pendingViewerRetry() {
+  if (!currentUser || currentUser.offline) { pendingRenderViewer(); return; }
+  pendingFlush(true);
+  setTimeout(pendingRenderViewer, 400);
+}
+function pendingCancelOne(reqId, queuedAt) {
+  if (!confirm('ही Pending नोंद रद्द करायची? ती सर्व्हरवर कधीच जाणार नाही.\n\n(आधी "💾 JSON म्हणून जतन करा" ने प्रत ठेवणे सुचवले जाते.)')) return;
+  var list = pendingLoad();
+  for (var i = 0; i < list.length; i++) {
+    if (list[i].queuedAt === queuedAt && String(list[i].data && list[i].data.reqId || '') === String(reqId) && pvMine(list[i])) { list.splice(i, 1); break; }
+  }
+  pendingStore(list); pendingUpdateBadge(); pendingRenderViewer();
+}
+function pendingClearMine() {
+  var mine = pendingLoad().filter(pvMine).length;
+  if (!mine) return;
+  if (!confirm('तुमच्या ' + mine + ' Pending नोंदी पुसायच्या? ही कृती परत करता येत नाही.\n\nआधी "💾 JSON म्हणून जतन करा" वापरले आहे का?')) return;
+  if (!confirm('खात्री? ' + mine + ' नोंदी कायमच्या पुसल्या जातील (दुसऱ्या User च्या नोंदी तशाच राहतील).')) return;
+  pendingStore(pendingLoad().filter(function(x) { return !pvMine(x); }));
+  pendingUpdateBadge(); pendingRenderViewer();
+}
+function pendingExportJson() {
+  var list = pendingLoad(); if (!list.length) return;
+  var blob = new Blob([JSON.stringify({exportedAt: new Date().toISOString(), app: (typeof APP_VERSION !== 'undefined' ? APP_VERSION : ''), by: currentUser ? currentUser.username : '', items: list}, null, 1)], {type: 'application/json'});
+  var a = document.createElement('a'), d = new Date();
+  function z(n) { return (n < 10 ? '0' : '') + n; }
+  a.href = URL.createObjectURL(blob); a.download = 'pending_saves_' + d.getFullYear() + z(d.getMonth() + 1) + z(d.getDate()) + '_' + z(d.getHours()) + z(d.getMinutes()) + '.json';
+  document.body.appendChild(a); a.click();
+  setTimeout(function() { URL.revokeObjectURL(a.href); if (a.parentNode) a.parentNode.removeChild(a); }, 500);
 }
 
 function initPendingQueue() {
@@ -5410,7 +5633,7 @@ function mstLoadAttendancePending(done) {
         }).join('') + '</details>';
     }
     if (r.unassigned && r.unassigned.length) {
-      html += '<div style="margin-top:10px;font-size:12px;color:#a06000">⚠️ या वर्गांना वर्ग-शिक्षक (User) नेमलेला नाही: ' +
+      html += '<div style="margin-top:10px;font-size:12px;color:var(--gold2)">⚠️ या वर्गांना वर्ग-शिक्षक (User) नेमलेला नाही: ' +
         r.unassigned.map(function(c){ return escRpHtml(c.iyatta + ' ' + c.tukdi); }).join(', ') + '</div>';
     }
     el.innerHTML = html;
@@ -7392,7 +7615,26 @@ function dqTab(name) {
   dqS.tab = name; var seq = ++dqS.seq;
   [].forEach.call(document.querySelectorAll('.dq-tabbtn'), function(b) { b.className = 'btn ' + (b.getAttribute('data-tab') === name ? 'btn-gold' : 'btn-gray') + ' dq-tabbtn'; });
   var body = document.getElementById('dq_body'); body.innerHTML = '';
-  if (name === 'q') dqLoadQuality(seq); else if (name === 'y') dqLoadYearEnd(seq); else dqLoadCap(seq, false);
+  if (name === 'q') dqLoadQuality(seq); else if (name === 'y') dqLoadYearEnd(seq); else if (name === 'e') dqLoadErrors(seq); else dqLoadCap(seq, false);
+}
+// ---- V19.61 (अ-४): 🐞 त्रुटी टॅब (फक्त Super) — वापरकर्त्यांच्या फोनवर आलेल्या त्रुटी, संदेशानुसार गट ----
+function dqLoadErrors(seq) {
+  dqSt('⏳ त्रुटी-नोंद Load होत आहे...');
+  jsonpRequest({action: 'getClientErrors', requesterRole: currentUser.role}, function(r) {
+    if (seq !== dqS.seq) return;
+    if (!r || r.status !== 'ok') { dqSt(errTxt(r)); return; }
+    dqSt('');
+    var body = document.getElementById('dq_body'), data = r.data || [];
+    if (!data.length) { body.innerHTML = '<div class="hs-empty">✅ कोणतीही त्रुटी नोंदलेली नाही (शेवटच्या ९० दिवसांत).</div>'; return; }
+    var hd = ['प्रकार', 'संदेश', 'संख्या', 'User', 'शेवटची वेळ', 'आवृत्ती', 'पान', 'Stack'];
+    var rows = data.map(function(x) { return [x.type, x.message, x.count, x.users, x.last, x.vers, x.pages, x.stack]; });
+    arCsvStore.ce1 = {name: 'ClientErrors.csv', rows: [hd].concat(rows)};
+    body.innerHTML = '<div><b>' + data.length + ' प्रकारच्या त्रुटी, एकूण ' + r.total + ' वेळा</b> (शेवटच्या ' + r.rowsRead + ' नोंदींतून; माहिती scrub केलेली)</div>' +
+      '<div class="ar-filter"><input type="text" id="arq_ce_tbl" placeholder="🔎 संदेश / आवृत्ती / पान..." oninput="arFilt(\'ce_tbl\')"> ' + arCsvBtn('ce1', 'त्रुटी') + '</div>' +
+      arTbl(hd.slice(0, 7), rows.map(function(x) { return x.slice(0, 7); }), null, {id: 'ce_tbl'}) +
+      '<div class="hs-empty">शेवटच्या वेळेनुसार क्रम. Stack फक्त CSV मध्ये (५०० अक्षरांपर्यंत). नोंदी ९० दिवसांनी पुसल्या जातात.</div>';
+    arFilt('ce_tbl');
+  });
 }
 function dqFilterBar(id, rows, clsIdx, csvName) {   // ids arq_/arc_/arn_ — arFilt() वापरतो
   var cls = {}; rows.forEach(function(r) { var v = String(r[clsIdx] === null || r[clsIdx] === undefined ? '' : r[clsIdx]); if (v) cls[v] = 1; });

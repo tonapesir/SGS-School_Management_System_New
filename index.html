@@ -89,7 +89,7 @@
 <div class="cfgbar cfgbar-script" id="urlConfigBar">
   <label>⚙️ Google Sheets URL:</label>
   <input type="url" id="sheetsUrl" placeholder="https://script.google.com/macros/s/YOUR_ID/exec" oninput="saveUrl()">
-  <button onclick="testConnection()" style="background:#1a8a3a;border:none;border-radius:5px;padding:7px 14px;color:#fff;font-weight:700;cursor:pointer;font-size:12px">🔧 Test</button>
+  <button onclick="testConnection()" style="background:#177a35;border:none;border-radius:5px;padding:7px 14px;color:#fff;font-weight:700;cursor:pointer;font-size:12px">🔧 Test</button>
   <button onclick="bulkLoadAll()" id="bulkLoadBtn" style="background:#1a4a7a;border:none;border-radius:5px;padding:7px 14px;color:#fff;font-weight:700;cursor:pointer;font-size:12px">⚡ सर्व Load करा</button>
   <span class="hint">Apps Script Web App URL — सर्व pages साठी एकच URL वापरतो</span>
   <div id="testStatus" style="font-size:12px;margin-top:6px;padding:6px 10px;border-radius:5px;display:none"></div>
@@ -120,7 +120,7 @@
     <input type="file" id="tpl_at" accept=".docx" onchange="loadTemplate('at',this)" style="font-size:11px;color:#ccc;background:#0a1a0a;border:1px solid #2a4a2a;border-radius:4px;padding:3px 6px;width:160px">
     <span id="tpl_at_status" style="font-size:10px;color:#7ef7a0"></span>
   </div>
-  <span style="font-size:10px;color:#888">Template मध्ये {«field»} placeholders वापरा → खाली Placeholder List पहा</span>
+  <span style="font-size:10px;color:#b8b8b8">Template मध्ये {«field»} placeholders वापरा → खाली Placeholder List पहा</span>
   <button onclick="showPlaceholders()" style="background:#1a4a7a;border:none;border-radius:4px;padding:5px 12px;color:#fff;font-size:11px;font-weight:700;cursor:pointer">📋 Placeholder List</button>
 </div>
 
@@ -999,7 +999,7 @@
           <tbody id="hist_tbody"></tbody>
         </table>
       </div>
-      <div id="hist_nodata" style="display:none;text-align:center;padding:20px;color:#888;font-size:13px">😕 या Student ID साठी कोणतेही certificate आढळले नाही.</div>
+      <div id="hist_nodata" style="display:none;text-align:center;padding:20px;color:rgba(240,232,216,.8);font-size:13px">😕 या Student ID साठी कोणतेही certificate आढळले नाही.</div>
     </div>
   </div>
 
@@ -1094,7 +1094,7 @@
   <div class="sec-title" style="margin-bottom:4px">📊 सांख्यिकी अहवाल (Statistics Report)</div>
   <div class="frow" style="gap:10px;margin:10px 0 16px;align-items:center">
     <button class="btn btn-blue" onclick="mstLoadStatsReport(true)">🔄 Refresh करा</button>
-    <span id="stats_status" style="font-size:12.5px;color:#555"></span>
+    <span id="stats_status" style="font-size:12.5px;color:rgba(240,232,216,.8)"></span>
   </div>
 
   <div class="card" style="margin-bottom:16px">
@@ -1185,7 +1185,7 @@
       <div class="frow" style="gap:20px;align-items:flex-end;flex-wrap:wrap">
         <div>
           <div style="font-size:11px;opacity:.7">सध्या ठरलेली एकूण फी</div>
-          <div style="font-size:20px;font-weight:800;color:var(--gold2)">₹<span id="fee_currentTotal">—</span> <span style="font-size:12px;font-weight:400;opacity:.7">/ प्रत्येक विद्यार्थी</span></div>
+          <div style="font-size:20px;font-weight:800;color:var(--gold2)">₹<span id="fee_currentTotal">—</span> <span style="font-size:12px;font-weight:400;opacity:.85">/ प्रत्येक विद्यार्थी</span></div>
         </div>
         <div class="fg w150">
           <label>नवीन एकूण फी (₹)</label>
@@ -1194,7 +1194,7 @@
         <div class="fg" style="flex:0 0 auto"><button class="btn btn-gold" onclick="feeSaveTotal()">💾 जतन करा</button></div>
       </div>
       <div id="fee_status" style="font-size:12.5px;margin-top:10px;color:#555"></div>
-      <div style="font-size:11.5px;margin-top:6px;color:#888">टीप: आधीच नोंदवलेल्या जमा-रकमेच्या नोंदी बदलत नाहीत — फक्त "थकीत फी"ची गणना यापुढे नवीन एकूण फी नुसार होईल.</div>
+      <div style="font-size:11.5px;margin-top:6px;color:rgba(240,232,216,.8)">टीप: आधीच नोंदवलेल्या जमा-रकमेच्या नोंदी बदलत नाहीत — फक्त "थकीत फी"ची गणना यापुढे नवीन एकूण फी नुसार होईल.</div>
     </div>
   </div>
 
@@ -1202,7 +1202,7 @@
     <div class="card-header" style="background:rgba(192,32,32,.15)">
       <div>
         <h2>🗑️ विद्यार्थी Delete करा</h2>
-        <p style="color:#c02020">⚠️ ही कृती अपरिवर्तनीय आहे — विद्यार्थी यादीतून पूर्णपणे निघून जाईल (संपूर्ण माहिती DeletedStudents Sheet मध्ये स्वतंत्रपणे जतन राहील)</p>
+        <p style="color:#ffb0b0;opacity:1">⚠️ ही कृती अपरिवर्तनीय आहे — विद्यार्थी यादीतून पूर्णपणे निघून जाईल (संपूर्ण माहिती DeletedStudents Sheet मध्ये स्वतंत्रपणे जतन राहील)</p>
       </div>
     </div>
     <div class="card-body">
@@ -1305,7 +1305,7 @@
       <button class="btn btn-gray" onclick="arHealth()">🩺 Archive तपासणी</button>
     </div>
     <div id="ar_bk" style="font-size:12px;margin-top:6px;color:#555"></div>
-    <div id="ar_status" style="font-size:12.5px;margin-top:8px;color:#555"></div>
+    <div id="ar_status" style="font-size:12.5px;margin-top:8px;color:rgba(240,232,216,.8)"></div>
   </div></div>
   <div class="frow" style="gap:6px;flex-wrap:wrap;margin-bottom:10px">
     <button class="btn btn-gold ar-tabbtn" data-tab="fees" onclick="arTab('fees')">💰 फी</button>
@@ -1325,8 +1325,9 @@
     <button class="btn btn-gold dq-tabbtn" data-tab="q" onclick="dqTab('q')">🔎 डेटा गुणवत्ता</button>
     <button class="btn btn-gray dq-tabbtn" data-tab="y" onclick="dqTab('y')">🗓️ वर्ष-अखेर पूर्वतपासणी</button>
     <button class="btn btn-gray dq-tabbtn" data-tab="c" onclick="dqTab('c')">📏 Sheet आकार</button>
+    <button class="btn btn-gray dq-tabbtn" data-tab="e" onclick="dqTab('e')">🐞 त्रुटी</button>
   </div>
-  <div id="dq_status" style="font-size:12.5px;color:#555;margin-bottom:6px"></div>
+  <div id="dq_status" style="font-size:12.5px;color:rgba(240,232,216,.8);margin-bottom:6px"></div>
   <div id="dq_body" class="pm-box"></div>
 </div>
 
@@ -1481,7 +1482,7 @@
     <div class="card-header"><div><h2>🎓 वर्ग-बढती (Promotion) — शैक्षणिक वर्ष संपताना</h2>
       <p>सर्व विद्यार्थ्यांना एकाच वेळी पुढच्या वर्गात हलवा. तुकडी तीच राहते. शैक्षणिक वर्षही बदलते, त्यामुळे नवीन वर्षाची फी ०₹ पासून सुरू होते.</p></div></div>
     <div class="card-body">
-      <div style="font-size:12px;color:#a06000;margin-bottom:10px">⚠️ 10th ला डिफॉल्ट बढती नाही (LC द्यायचा विषय). बढतीपूर्वी Students ची लपवलेली प्रत आपोआप तयार होते व खालून Undo करता येतो. तुकड्या बदलायच्या असल्यास बढतीनंतर मेंटेनन्स वापरा.</div>
+      <div style="font-size:12px;color:var(--gold2);margin-bottom:10px">⚠️ 10th ला डिफॉल्ट बढती नाही (LC द्यायचा विषय). बढतीपूर्वी Students ची लपवलेली प्रत आपोआप तयार होते व खालून Undo करता येतो. तुकड्या बदलायच्या असल्यास बढतीनंतर मेंटेनन्स वापरा.</div>
       <div id="sa_promoRows" style="margin-bottom:12px">⏳ Load होत आहे...</div>
       <div class="frow" style="gap:10px;flex-wrap:wrap;align-items:flex-end">
         <div class="fg w150"><label>नवीन शैक्षणिक वर्ष</label><input id="sa_promoYear" placeholder="उदा. 2027-28" maxlength="7"></div>
@@ -1693,7 +1694,7 @@
         <div class="fg" style="flex:0 0 auto"><button class="btn btn-green" id="rp_pdfBtn" onclick="rpExportPDF()" disabled>📥 PDF Export</button></div>
       </div>
       <div id="rp_status" style="font-size:12.5px;margin-top:10px;color:#555"></div>
-      <div style="font-size:11.5px;margin-top:6px;color:#888">टीप: "फी दिलेले"/"फी बाकी असलेले" चेकबॉक्स Column Field यादीत आहेत — तेच फिल्टर व जमा-रक्कम कॉलम दोन्ही ठरवतात.</div>
+      <div style="font-size:11.5px;margin-top:6px;color:rgba(240,232,216,.8)">टीप: "फी दिलेले"/"फी बाकी असलेले" चेकबॉक्स Column Field यादीत आहेत — तेच फिल्टर व जमा-रक्कम कॉलम दोन्ही ठरवतात.</div>
     </div>
   </div>
 
@@ -2017,7 +2018,7 @@
 
   <div id="srch_cache_warn" style="display:none;background:#fff3cd;border:1px solid #ffc107;border-radius:6px;padding:10px 14px;margin-bottom:10px;font-size:13px;color:#856404">
     ⚠️ विद्यार्थी डेटा Load झालेला नाही.
-    <button onclick="loadAllStudentsForSearch()" style="background:var(--gold);color:#fff;border:none;border-radius:4px;padding:4px 12px;cursor:pointer;font-weight:700;margin-left:8px">⚡ Load Students</button>
+    <button onclick="loadAllStudentsForSearch()" style="background:var(--gold);color:#1a1a1a;border:none;border-radius:4px;padding:4px 12px;cursor:pointer;font-weight:700;margin-left:8px">⚡ Load Students</button>
   </div>
 
   <div id="srch_status" style="font-size:13px;color:#555;margin-bottom:8px;min-height:20px"></div>
@@ -2047,7 +2048,7 @@
       <tbody id="srch_tbody"></tbody>
     </table>
   </div>
-  <div id="srch_nodata" style="display:none;text-align:center;padding:30px;color:#888;font-size:14px">
+  <div id="srch_nodata" style="display:none;text-align:center;padding:30px;color:rgba(240,232,216,.8);font-size:14px">
     😕 कोणताही विद्यार्थी सापडला नाही.
   </div>
 </div>
@@ -2854,7 +2855,7 @@ function getPhotoUrlByRegNo(regNo) {
 
 
 
-<div id="pendingSavesBadge" onclick="pendingFlush(true)" style="display:none"></div>
+<div id="pendingSavesBadge" onclick="pendingOpenViewer()" style="display:none"></div>
 <button id="pwaInstallBtn" onclick="pwaInstall()" style="display:none">📲 अॅप म्हणून Install करा</button>
 
 <!-- ===== SAVE NOTIFICATION POPUP ===== -->

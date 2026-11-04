@@ -518,3 +518,30 @@ input::placeholder,textarea::placeholder{color:#5c5c5c;opacity:1}
 .pv-tag.pv-old{border-color:#ffd27a;color:#ffd27a}
 .pv-err{margin-top:4px;font-size:12px;color:#ffb0b0}
 #pendingSavesBadge.pv-badge-bad{background:#7a1a1a}
+
+/* V19.62 (अ-८/अ-७): वापर टॅब व Backup तपासणी */
+.us-cards{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}
+.us-card{background:var(--navy3);border:1px solid rgba(240,232,216,.3);border-radius:10px;padding:8px 12px;min-width:120px;font-size:12px;color:var(--txt)}
+.us-card b{display:block;font-size:18px;color:var(--gold2)}
+.us-hours{margin:6px 0}
+.us-hrow{display:flex;align-items:center;gap:8px;font-size:12px;margin:2px 0;color:var(--txt)}
+.us-hrow>span:first-child{width:54px}
+.us-hrow .us-bar{flex:0 1 auto;height:10px;background:var(--gold2);border-radius:3px}
+.us-tips{margin:6px 0 6px 18px;font-size:12.5px;line-height:1.5;color:var(--txt)}
+
+/* V19.63 (ब-९/ब-१०): वर्ष-अखेर मार्गदर्शक व रोजचा सारांश — गडद थीम */
+.ye-head{font-size:14px;margin-bottom:6px;color:var(--txt)}
+.ye-note{font-size:12.5px;background:var(--navy3);border:1px solid rgba(240,232,216,.3);border-radius:8px;padding:8px 10px;margin-bottom:8px;color:var(--txt);line-height:1.5}
+.ye-done{font-size:14px;font-weight:700;color:#9be0a8;margin:8px 0}
+.ye-step{background:var(--navy3);border:1px solid rgba(240,232,216,.3);border-radius:10px;padding:9px 11px;margin-top:8px;color:var(--txt);font-size:13px}
+.ye-step.ye-active{border-color:var(--gold2);box-shadow:0 0 0 1px var(--gold2)}
+.ye-step.ye-locked{border-style:dashed}
+.ye-title{font-weight:700;font-size:14px}
+.ye-state{font-size:12px;color:var(--gold2);margin:2px 0 4px}
+.ye-info{font-size:12.5px;line-height:1.55;color:rgba(240,232,216,.9)}
+.ye-line{font-size:12.5px;margin-top:6px;color:var(--txt)}
+.ye-act{margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.ye-err{font-size:12.5px;margin-top:6px;color:#ffb0b0}
+.ds-banner{background:var(--navy3);border:1px solid var(--gold2);border-radius:8px;padding:8px 10px;margin-bottom:8px;color:var(--txt)}
+.ds-lines{margin-top:10px;line-height:1.8;color:var(--txt)}
+.us-tips a,.ds-lines a{color:var(--gold2);text-decoration:underline}   /* V19.63: ब्राउझरचा निळा दुवा गडद पार्श्वभूमीवर 1.5:1 होता */

@@ -101,7 +101,7 @@ function doPostCore_(e) {
   return handleAction(p, ""); // "" = JSON response — serial परत frontend ला येतो
 }
 
-var SERVER_VERSION = "V19.61";   // V19.58: ॲप (script.js APP_VERSION) शी जुळते का हे क्लायंट ping वरून तपासतो
+var SERVER_VERSION = "V19.63";   // V19.58: ॲप (script.js APP_VERSION) शी जुळते का हे क्लायंट ping वरून तपासतो
 function doGetCore_(e) {
   var p = e.parameter || {};
   var cb = p.callback || "";
@@ -202,6 +202,12 @@ function doGetCore_(e) {
   if (p.action === "logClientErrors") { return doLogClientErrors(p, cb); }        // V19.61 (Token आवश्यक; सर्व भूमिका)
   if (p.action === "getClientErrors") { return doGetClientErrors(p, cb); }        // V19.61 (फक्त super)
   if (p.action === "getUserAudit") { return doGetUserAudit(p, cb); }              // V19.61 (फक्त super)
+  if (p.action === "getUsageStats") { return doGetUsageStats(p, cb); }            // V19.62 (फक्त super)
+  if (p.action === "getRestoreDrill") { return doGetRestoreDrill(p, cb); }        // V19.62 (फक्त super)
+  if (p.action === "getYearEndWizard") { return doGetYearEndWizard(p, cb); }      // V19.63 (फक्त super)
+  if (p.action === "setYearEndStep") { return doSetYearEndStep(p, cb); }          // V19.63 (फक्त super; फक्त स्थिती-नोंद — विध्वंसक तर्क नाही)
+  if (p.action === "getDailySummary") { return doGetDailySummary(p, cb); }        // V19.63 (super / master)
+  if (p.action === "runRestoreDrill") { return doRunRestoreDrill(p, cb); }        // V19.62 (फक्त super; फक्त वाचन)
   if (p.action === "getLCByReg") {            // V19.59 — LC Sheet मधून त्या Reg No ची शेवटची LC नोंद (फक्त वाचन)
     return doGetLCByReg(p, cb);
   }
@@ -1025,7 +1031,7 @@ function migrateLegacyAttendance_() {
 // Apps Script Editor मधून एकदा manually Run करता येते (Save वेळी हे आपोआपही होते)
 function migrateDailyAttendanceToMonthly() {
   var lock = LockService.getScriptLock();
-  lock.waitLock(30000);
+  lockWaitTimed_(lock, 30000);
   try {
     var res = migrateLegacyAttendance_();
     Logger.log("Migrated: " + JSON.stringify(res));
@@ -1044,7 +1050,7 @@ function doSaveAttendance(d) {
     var archErr = archivedWriteError_(date); if (archErr) return {status:"error", message: archErr};   // V19.53
     var shName = attMonthSheetName_(date);
     if (!shName) return {status:"error", message:"तारीख चुकीच्या स्वरूपात आहे (YYYY-MM-DD हवी)."};
-    lock.waitLock(25000); locked = true;
+    lockWaitTimed_(lock, 25000); locked = true;
     if (PropertiesService.getScriptProperties().getProperty("ATT_MIGRATED") !== "1") migrateLegacyAttendance_();
 
     var sh = getAttMonthSheet_(shName);
@@ -2083,7 +2089,7 @@ function doSaveFees(d) {
     var archErrFee = archivedWriteError_(normAcYear_(d.acYear)); if (archErrFee) return {status:"error", message: archErrFee};   // V19.53
     feesEnsureMigrated_();
     var feeLock = LockService.getScriptLock();
-    feeLock.waitLock(20000);
+    lockWaitTimed_(feeLock, 20000);
     try {
       // V19.42: वार्षिक "Fees_<वर्ष>" (प्रत्येक जमा नोंद) + "FeesSummary_<वर्ष>" (प्रत्येक विद्यार्थ्याची एक ओळ) — जमा रक्कम सारांशातून मिळते, मोठी Sheet वाचावी लागत नाही
       var year = normAcYear_(d.acYear);
@@ -2584,6 +2590,7 @@ function doGetMyLog(p, cb) {
 }
 
 function wrap(cb, obj) {
+  try { USAGE_CTX_.st = (obj && obj.status) || ""; } catch (eU) {}   // V19.62: वापर-मोजणीसाठी (यश/त्रुटी)
   var json = JSON.stringify(obj);
   if (cb) {
     return ContentService.createTextOutput(cb + "(" + json + ");")
@@ -2917,7 +2924,7 @@ function doSaveScholarship(d) {
     var ts = new Date().toLocaleString("en-IN");
 
     lock = LockService.getScriptLock();
-    lock.waitLock(20000);
+    lockWaitTimed_(lock, 20000);
     var sh = scholarSheet_(year, !!!d.id);
     var id = (d.id || "").toString().trim();
     var rowNo = 0, old = null, regNo = (d.regNo || "").toString().trim();
@@ -3021,7 +3028,7 @@ function doDeleteScholarship(p, cb) {
     var year = p.year ? normAcYear_(p.year) : currentAcYear_();
     if (isArchivedYear_(year)) return wrap(cb, {status: "error", message: archivedMsg_(year)});   // V19.53
     lock = LockService.getScriptLock();
-    lock.waitLock(20000);
+    lockWaitTimed_(lock, 20000);
     var sh = scholarSheet_(year, false);
     if (!sh) return wrap(cb, {status: "error", message: "नोंद सापडली नाही (" + year + ")."});
     var hits = findRowsByValue_(sh, 1, id);
@@ -3064,7 +3071,7 @@ function doMigrateLogs(p, cb) {
     if (String(p.confirm || "") !== "LOG") return wrap(cb, {status:"error", message:"पुष्टीसाठी LOG टाइप करा."});
     if (logMigrated_()) return wrap(cb, {status:"ok", done:true, already:true, message:"स्थलांतर आधीच झाले आहे."});
     lock = LockService.getScriptLock();
-    lock.waitLock(30000);
+    lockWaitTimed_(lock, 30000);
     if (logMigrated_()) return wrap(cb, {status:"ok", done:true, already:true, message:"स्थलांतर आधीच झाले आहे."});
     var t0 = Date.now();
     var budget = parseInt(p.budgetMs || "", 10);
@@ -3204,7 +3211,7 @@ function doPhotoRecall(p, cb) {
 
     if (!dry) {
       lock = LockService.getScriptLock();
-      try { lock.waitLock(20000); } catch (eL) { lock = null; return wrap(cb, {status:"error", message:"दुसरी प्रक्रिया चालू आहे — थोड्या वेळाने पुन्हा प्रयत्न करा."}); }
+      try { lockWaitTimed_(lock, 20000); } catch (eL) { lock = null; return wrap(cb, {status:"error", message:"दुसरी प्रक्रिया चालू आहे — थोड्या वेळाने पुन्हा प्रयत्न करा."}); }
     }
 
     // ---- विद्यार्थी: key (cleanRegFileName(RegNo)) → ओळ, सध्याची लिंक ----
@@ -3570,7 +3577,7 @@ function doPromoteStudents(d) {
   var lock = LockService.getScriptLock();
   var locked = false;
   try {
-    lock.waitLock(30000); locked = true;
+    lockWaitTimed_(lock, 30000); locked = true;
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var sh = ss.getSheetByName("Students");
     if (!sh || sh.getLastRow() < 2) return {status:"error", message:"Students sheet रिकामी आहे."};
@@ -3624,7 +3631,7 @@ function doUndoPromotion(d) {
   var lock = LockService.getScriptLock();
   var locked = false;
   try {
-    lock.waitLock(30000); locked = true;
+    lockWaitTimed_(lock, 30000); locked = true;
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var sh = ss.getSheetByName("Students");
     var logSh = ss.getSheetByName("PromotionLog");
@@ -3943,7 +3950,7 @@ function hashAllPasswords() {
   if (!authEnforced_()) throw new Error("आधी Token सक्ती चालू करा (enableAuthEnforcement) — नाहीतर जुना Login (साधे Password वाचणारा) बंद पडेल.");
   if (!props.getProperty("SUPER_USER") || !props.getProperty("SUPER_PASS")) throw new Error("आधी setSuperCredentials Run करा.");
   var lock = LockService.getScriptLock();
-  lock.waitLock(30000);
+  lockWaitTimed_(lock, 30000);
   try {
     var ss = SpreadsheetApp.getActiveSpreadsheet(), sh = getUsersSheet();
     var n = sh.getLastRow();
@@ -4160,7 +4167,7 @@ function doArchivePassedOut(d) {
   var lock = LockService.getScriptLock();
   var locked = false;
   try {
-    lock.waitLock(30000); locked = true;
+    lockWaitTimed_(lock, 30000); locked = true;
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var sh = ss.getSheetByName("Students");
     if (!sh || sh.getLastRow() < 2) return {status:"error", message:"Students sheet रिकामी आहे."};
@@ -4212,7 +4219,7 @@ function doRestorePassedOut(d) {
   var lock = LockService.getScriptLock();
   var locked = false;
   try {
-    lock.waitLock(30000); locked = true;
+    lockWaitTimed_(lock, 30000); locked = true;
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var sh = ss.getSheetByName("Students");
     var sc = sh.getLastColumn();
@@ -4268,7 +4275,7 @@ function doRenumberRolls(d) {
   var lock = LockService.getScriptLock();
   var locked = false;
   try {
-    lock.waitLock(30000); locked = true;
+    lockWaitTimed_(lock, 30000); locked = true;
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var sh = ss.getSheetByName("Students");
     if (!sh || sh.getLastRow() < 2) return {status:"error", message:"Students sheet रिकामी आहे."};
@@ -4329,7 +4336,7 @@ function archiveOldLog_(days) {
   var lock = LockService.getScriptLock();
   var locked = false;
   try {
-    lock.waitLock(20000); locked = true;
+    lockWaitTimed_(lock, 20000); locked = true;
     var n = sh.getLastRow() - 1;
     var rows = sh.getRange(2, 1, n, 5).getValues();
     var cutoff = new Date(Date.now() - days * 86400000);
@@ -4400,7 +4407,7 @@ function elEnsureMigrated_() {
   var props = PropertiesService.getScriptProperties();
   if (props.getProperty("EL_WEEKLY_MIGRATED") === "1") return;
   var lock = LockService.getScriptLock();
-  lock.waitLock(30000);
+  lockWaitTimed_(lock, 30000);
   try {
     if (props.getProperty("EL_WEEKLY_MIGRATED") === "1") return;
     var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -4516,7 +4523,7 @@ function doSaveEarlyLeave(d) {
   var lock = LockService.getScriptLock();
   var locked = false;
   try {
-    lock.waitLock(25000); locked = true;
+    lockWaitTimed_(lock, 25000); locked = true;
     var roster = {};
     getRosterCached_(iyatta, tukdi, true).data.forEach(function(st) { roster[(st.regNo || "").toString().trim().toLowerCase()] = st; });
     var absent = elAbsentSet_(date, iyatta, tukdi);
@@ -4602,7 +4609,7 @@ function doMarkEarlyLeaveOut(d) {
   var lock = LockService.getScriptLock();
   var locked = false;
   try {
-    lock.waitLock(20000); locked = true;
+    lockWaitTimed_(lock, 20000); locked = true;
     var sh = getELWeekSheet_(date, false);
     if (!sh) return {status:"error", message:"त्या दिवसाची नोंद सापडली नाही (शिक्षकाने ती बदलली/काढली असू शकते) — यादी Refresh करा."};
     var all = elReadAll_(sh);
@@ -4732,14 +4739,20 @@ function ensureCols_(sh, needCols) {
 var PERF_SLOW_MS = 2000, PERF_SAMPLE = 0.34, PERF_LOG_MAX = 400;
 function doGet(e) {
   var t0 = Date.now();
+  USAGE_CTX_ = {st: "", lw: 0, lwN: 0, lwMax: 0, lf: 0};   // V19.62: प्रत्येक विनंतीसाठी नवा संदर्भ
   var out = doGetCore_(e);
-  perfRecord_((e && e.parameter && e.parameter.action) || "", Date.now() - t0);
+  var ms = Date.now() - t0, act = (e && e.parameter && e.parameter.action) || "";
+  perfRecord_(act, ms);
+  usageRecord_(act, ms);
   return out;
 }
 function doPost(e) {
   var t0 = Date.now();
+  USAGE_CTX_ = {st: "", lw: 0, lwN: 0, lwMax: 0, lf: 0};
   var out = doPostCore_(e);
-  perfRecord_((e && e.parameter && e.parameter.action) || "", Date.now() - t0);
+  var ms = Date.now() - t0, act = (e && e.parameter && e.parameter.action) || "";
+  perfRecord_(act, ms);
+  usageRecord_(act, ms);
   return out;
 }
 function perfRecord_(action, ms) {
@@ -4885,7 +4898,7 @@ function doShrinkSheets(d) {
   var lock = LockService.getScriptLock();
   var locked = false;
   try {
-    lock.waitLock(30000); locked = true;
+    lockWaitTimed_(lock, 30000); locked = true;
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var saved = 0, done = [], failed = [];
     ss.getSheets().forEach(function(sh) {
@@ -4980,7 +4993,7 @@ function migrateLegacyToYearly_(spec) {
   var props = PropertiesService.getScriptProperties();
   if (props.getProperty(spec.flag) === "1") return;
   var lock = LockService.getScriptLock();
-  lock.waitLock(30000);
+  lockWaitTimed_(lock, 30000);
   try {
     if (props.getProperty(spec.flag) === "1") return;
     var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -5073,7 +5086,7 @@ function doRebuildFeesSummary(d) {
   var locked = false;
   try {
     feesEnsureMigrated_();
-    lock.waitLock(30000); locked = true;
+    lockWaitTimed_(lock, 30000); locked = true;
     var n = rebuildFeesSummary_(year);
     return {rowIndex: 0, mode: "updated", count: n, ref: "feesSummary " + year, extra: {year: year, students: n}};
   } catch (err) {
@@ -5393,7 +5406,7 @@ function doStartNewYear(d) {
   var lock = LockService.getScriptLock();
   var locked = false;
   try {
-    lock.waitLock(30000); locked = true;
+    lockWaitTimed_(lock, 30000); locked = true;
     var dues = carry ? computeCarryDues_(prev) : {list: [], total: 0, feePerStudent: getTotalFeePerStudent()};
     var ev = feesEventSheet_(newYear, true);
     feesSummarySheet_(newYear, true);
@@ -5428,7 +5441,7 @@ function doArchiveYear(d) {
   var lock = LockService.getScriptLock();
   var locked = false;
   try {
-    lock.waitLock(30000); locked = true;
+    lockWaitTimed_(lock, 30000); locked = true;
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var list = sheetsOfYear_(ss, year);
     if (!list.length) return {status:"error", message:year + " ची Archive करण्यासारखी कोणतीही Sheet मुख्य फाइलमध्ये नाही."};
@@ -5645,4 +5658,506 @@ function purgeClientErrors() {
 function setupClientErrorPurgeTrigger() {   // Editor मधून एकदा: दर आठवड्याला purge
   ScriptApp.getProjectTriggers().forEach(function(t) { if (t.getHandlerFunction() === "purgeClientErrors") ScriptApp.deleteTrigger(t); });
   ScriptApp.newTrigger("purgeClientErrors").timeBased().onWeekDay(ScriptApp.WeekDay.SUNDAY).atHour(3).create();
+}
+
+
+// =====================================================================
+// ===== V19.62 — अ-७ Backup "restore drill" (फक्त वाचन) + अ-८ वापर-मोजणी / ताण-अंदाज =====
+// =====================================================================
+// ---------- अ-८: वापर-मोजणी (Usage_YYYY_MM) ----------
+// • doGet/doPost भोवती वेळ + यश/त्रुटी; प्रत्येक Lock (waitLock → lockWaitTimed_) ची प्रतीक्षा-वेळ व अपयश.
+// • थेट Sheet मध्ये प्रत्येक विनंती लिहीत नाही: CacheService मध्ये तासानुसार counters (usg_<yyyyMMddHH>), तासाला एकदा Usage_YYYY_MM मध्ये flush.
+// • नमुना-दर USAGE_SAMPLE_RATE (डीफॉल्ट १०%): न निवडलेल्या सामान्य विनंतीला शून्य अतिरिक्त Cache/Sheet कॉल. त्रुटी व Lock अपयश नेहमी नोंदवतो (दुर्मिळ). सर्व काही try/catch मध्ये — मोजणी चुकली तरी मूळ विनंती चालतेच.
+// • Cache वर लिखाण Lock शिवाय (read-modify-write) → समवर्ती विनंत्यांत थोडी संख्या हरवू शकते; म्हणून आकडे "अंदाज" आहेत.
+var USAGE_SAMPLE_RATE = 0.1;
+var USAGE_CACHE_TTL = 21600;      // CacheService कमाल ६ तास
+var USAGE_CTX_ = {st: "", lw: 0, lwN: 0, lwMax: 0, lf: 0};
+var USAGE_HEADERS = ["Hour", "Action", "Samples", "EstCount", "AvgMs", "MaxMs", "Errors", "LockWaitAvgMs", "LockWaitMaxMs", "LockFails", "SampleRate"];
+// diagTimings चा तुमचा निकाल (2026-11-02, खरी Sheet; २ धाव) — ८ से. पेक्षा धीमी कृती नाही; सर्वात धीमी getYearEndCheck
+var USAGE_DIAG_BASELINE = {source: "diagTimings (Editor, खऱ्या Sheet वर, २०२६-११-०२)", maxAction: "getYearEndCheck", maxMs: 4276, over8s: 0, saveAssumedMs: 1500};
+
+function lockWaitTimed_(lock, ms) {
+  var t = Date.now();
+  try { lock.waitLock(ms); }
+  catch (e) { try { USAGE_CTX_.lf++; USAGE_CTX_.lw += Date.now() - t; } catch (e2) {} throw e; }   // अपयश — मूळ अपवाद तसाच
+  try { var w = Date.now() - t; USAGE_CTX_.lw += w; USAGE_CTX_.lwN++; if (w > USAGE_CTX_.lwMax) USAGE_CTX_.lwMax = w; } catch (e3) {}
+}
+function usageHourKey_(d) { return "usg_" + Utilities.formatDate(d || new Date(), "Asia/Kolkata", "yyyyMMddHH"); }
+function usageRecord_(action, ms) {
+  try {
+    if (!action || action === "ping") return;
+    var c = USAGE_CTX_ || {}, err = (c.st === "error") ? 1 : 0, lf = c.lf || 0;
+    var sampled = USAGE_SAMPLE_RATE > 0 && Math.random() < USAGE_SAMPLE_RATE;
+    if (!sampled && !err && !lf) return;                      // सामान्य न-निवडलेली विनंती: शून्य अतिरिक्त कॉल
+    var cache = CacheService.getScriptCache(), key = usageHourKey_();
+    var raw = cache.get(key), b = raw ? JSON.parse(raw) : null, isNew = !b;
+    if (!b) b = {r: USAGE_SAMPLE_RATE, a: {}};
+    var a = b.a[action] || (b.a[action] = [0, 0, 0, 0, 0, 0, 0, 0]);   // n, sumMs, maxMs, err, lwN, lwSum, lwMax, lf
+    if (sampled) { a[0]++; a[1] += ms; if (ms > a[2]) a[2] = ms; a[4] += c.lwN || 0; a[5] += c.lw || 0; if ((c.lwMax || 0) > a[6]) a[6] = c.lwMax; }
+    a[3] += err; a[7] += lf;
+    cache.put(key, JSON.stringify(b), USAGE_CACHE_TTL);
+    if (isNew) usageFlushClosed_(key);                        // नवा तास सुरू = मागील तास Sheet मध्ये (तासाला एकदा)
+  } catch (e) { /* मोजणी अपयशी झाली तरी मूळ विनंती चालतेच */ }
+}
+function usageBucketRows_(key, b) {
+  var h = key.slice(4), hourText = h.slice(0, 4) + "-" + h.slice(4, 6) + "-" + h.slice(6, 8) + " " + h.slice(8, 10), rate = b.r || 1, rows = [];
+  Object.keys(b.a || {}).forEach(function(act) {
+    var a = b.a[act], n = a[0], est = n ? Math.round(n / rate) : 0;
+    if (!n && !a[3] && !a[7]) return;
+    rows.push([hourText, act, n, Math.max(est, a[3]), n ? Math.round(a[1] / n) : 0, a[2], a[3], a[4] ? Math.round(a[5] / a[4]) : 0, a[6], a[7], rate]);
+  });
+  return rows;
+}
+// बंद झालेले (चालू तास वगळून) तासांचे buckets → Usage_YYYY_MM; Lock मिळाला नाही तर पुढच्या वेळी
+function usageFlushClosed_(curKey) {
+  var cache = CacheService.getScriptCache(), idx = [];
+  try { idx = JSON.parse(cache.get("usg_idx") || "[]"); } catch (e0) { idx = []; }
+  if (curKey && idx.indexOf(curKey) < 0) idx.push(curKey);
+  var closed = idx.filter(function(k) { return k !== curKey; });
+  if (!closed.length) { cache.put("usg_idx", JSON.stringify(idx.slice(-30)), USAGE_CACHE_TTL); return 0; }
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(500)) { cache.put("usg_idx", JSON.stringify(idx.slice(-30)), USAGE_CACHE_TTL); return 0; }
+  var written = 0;
+  try {
+    var byMonth = {}, done = [];
+    closed.forEach(function(k) {
+      var raw = cache.get(k); done.push(k); if (!raw) return;
+      var b = JSON.parse(raw), rows = usageBucketRows_(k, b); if (!rows.length) return;
+      var m = k.slice(4, 8) + "_" + k.slice(8, 10); (byMonth[m] = byMonth[m] || []).push.apply(byMonth[m], rows);
+    });
+    Object.keys(byMonth).forEach(function(m) { auditAppendRows_("Usage_" + m, USAGE_HEADERS, byMonth[m]); written += byMonth[m].length; });
+    done.forEach(function(k) { cache.remove(k); });
+    idx = idx.filter(function(k) { return done.indexOf(k) < 0; });
+  } finally { lock.releaseLock(); }
+  cache.put("usg_idx", JSON.stringify(idx.slice(-30)), USAGE_CACHE_TTL);
+  return written;
+}
+function usageFlush() { return usageFlushClosed_(usageHourKey_()); }   // तासाचा Trigger
+function setupUsageFlushTrigger() {                                      // Editor मधून एकदा: दर तासाला (Trigger संख्या मर्यादा २०; रोजचा runtime नगण्य)
+  ScriptApp.getProjectTriggers().forEach(function(t) { if (t.getHandlerFunction() === "usageFlush") ScriptApp.deleteTrigger(t); });
+  ScriptApp.newTrigger("usageFlush").timeBased().everyHours(1).create();
+}
+function usageFlushNow() {                                               // Editor/चाचणी: चालू तासासह सर्व flush
+  var cache = CacheService.getScriptCache(), idx = []; try { idx = JSON.parse(cache.get("usg_idx") || "[]"); } catch (e) {}
+  var cur = usageHourKey_(); if (idx.indexOf(cur) < 0) { idx.push(cur); cache.put("usg_idx", JSON.stringify(idx), USAGE_CACHE_TTL); }
+  return usageFlushClosed_("usg_none");
+}
+function usageLoadRows_(sinceText) {   // [{hour, action, n, est, avg, max, err, lwAvg, lwMax, lf}] — Sheets (flush झालेले) + Cache (अजून flush नसलेले)
+  var out = [], ss = SpreadsheetApp.getActiveSpreadsheet(), seenMonths = {};
+  var now = new Date(), months = [];
+  for (var i = 0; i < 2; i++) { var d = new Date(now.getTime() - i * 31 * 86400000); var m = Utilities.formatDate(d, "Asia/Kolkata", "yyyy_MM"); if (!seenMonths[m]) { seenMonths[m] = 1; months.push(m); } }
+  months.forEach(function(m) {
+    var sh = ss.getSheetByName("Usage_" + m); if (!sh || sh.getLastRow() < 2) return;
+    sh.getRange(2, 1, sh.getLastRow() - 1, USAGE_HEADERS.length).getValues().forEach(function(r) {
+      var hour = String(r[0]); if (hour < sinceText) return;
+      out.push({hour: hour, action: String(r[1]), n: +r[2] || 0, est: +r[3] || 0, avg: +r[4] || 0, max: +r[5] || 0, err: +r[6] || 0, lwAvg: +r[7] || 0, lwMax: +r[8] || 0, lf: +r[9] || 0});
+    });
+  });
+  var cache = CacheService.getScriptCache(), idx = []; try { idx = JSON.parse(cache.get("usg_idx") || "[]"); } catch (e) {}
+  var cur = usageHourKey_(); if (idx.indexOf(cur) < 0) idx.push(cur);
+  idx.forEach(function(k) {
+    try {
+      var raw = cache.get(k); if (!raw) return;
+      usageBucketRows_(k, JSON.parse(raw)).forEach(function(r) { if (String(r[0]) >= sinceText) out.push({hour: String(r[0]), action: r[1], n: r[2], est: r[3], avg: r[4], max: r[5], err: r[6], lwAvg: r[7], lwMax: r[8], lf: r[9]}); });
+    } catch (e) {}
+  });
+  return out;
+}
+function clampInt_(v, lo, hi, def) { var n = parseInt(v, 10); if (isNaN(n)) n = def; return Math.max(lo, Math.min(hi, n)); }
+// ताण-अंदाज: T शिक्षक W मिनिटांत हजेरी Save करतात; Save Lock मध्ये एकामागून एक (वरची मर्यादा: संपूर्ण विनंती Lock मध्ये) — खरी चाचणी नव्हे, अंदाज
+function usageScenarios_(avgSaveMs, avgLockWaitMs, teachers) {
+  var S = avgSaveMs / 1000, out = [];
+  [2, 5, 15].forEach(function(W) {
+    var span = W * 60, serial = teachers * S, rho = serial / span, maxWait = Math.max(0, serial - span) + S;
+    var concurrent = (teachers / span) * (S + avgLockWaitMs / 1000);
+    var level = maxWait > 20 ? "high" : (rho > 0.7 ? "mid" : "ok");
+    out.push({windowMin: W, teachers: teachers, util: Math.round(rho * 100), maxWaitSec: Math.round(maxWait), concurrent: Math.round(concurrent * 10) / 10, level: level});
+  });
+  return out;
+}
+function doGetUsageStats(p, cb) {
+  try {
+    var e = authSuperOnly_(p, "वापर-आकडेवारी"); if (e) return wrap(cb, {status: "error", code: "forbidden", message: e});
+    var days = clampInt_(p.days, 1, 31, 7), teachers = clampInt_(p.teachers, 1, 1000, 100);
+    var since = Utilities.formatDate(new Date(Date.now() - days * 86400000), "Asia/Kolkata", "yyyy-MM-dd HH");
+    var rows = usageLoadRows_(since), byA = {}, byH = {}, byHD = {}, totalEst = 0, totalErr = 0, totalLf = 0;
+    rows.forEach(function(r) {
+      var a = byA[r.action] || (byA[r.action] = {action: r.action, n: 0, est: 0, sumMs: 0, max: 0, err: 0, lwSum: 0, lwMax: 0, lf: 0});
+      a.n += r.n; a.est += r.est; a.sumMs += r.avg * r.n; if (r.max > a.max) a.max = r.max; a.err += r.err; a.lwSum += r.lwAvg * r.n; if (r.lwMax > a.lwMax) a.lwMax = r.lwMax; a.lf += r.lf;
+      totalEst += r.est; totalErr += r.err; totalLf += r.lf;
+      byH[r.hour] = (byH[r.hour] || 0) + r.est;
+      var hh = r.hour.slice(11, 13); byHD[hh] = (byHD[hh] || 0) + r.est;
+    });
+    var actions = Object.keys(byA).map(function(k) { var a = byA[k]; return {action: a.action, samples: a.n, est: a.est, avgMs: a.n ? Math.round(a.sumMs / a.n) : 0, maxMs: a.max, err: a.err, lockAvgMs: a.n ? Math.round(a.lwSum / a.n) : 0, lockMaxMs: a.lwMax, lockFails: a.lf}; })
+      .sort(function(x, y) { return y.est - x.est; });
+    var peak = null; Object.keys(byH).forEach(function(h) { if (!peak || byH[h] > peak.est) peak = {hour: h, est: byH[h]}; });
+    var hours = Object.keys(byHD).sort().map(function(h) { return {h: h, est: byHD[h]}; });
+    var sv = byA["saveAttendance"], measured = !!(sv && sv.n >= 20), saveMs = measured ? Math.round(sv.sumMs / sv.n) : USAGE_DIAG_BASELINE.saveAssumedMs, lockAvg = (sv && sv.n) ? Math.round(sv.lwSum / sv.n) : 0;
+    var tips = [];
+    tips.push("diagTimings (तुमचा निकाल): ८ से. पेक्षा धीमी कृती " + USAGE_DIAG_BASELINE.over8s + "; सर्वात धीमी " + USAGE_DIAG_BASELINE.maxAction + " ≈ " + (USAGE_DIAG_BASELINE.maxMs / 1000).toFixed(1) + " से. (Super साठी, क्वचित) — म्हणून कोणतेही ऑप्टिमायझेशन केलेले नाही.");
+    if (!measured) tips.push("saveAttendance चे पुरेसे नमुने अजून नाहीत (" + (sv ? sv.n : 0) + "/20) — ताण-अंदाजात गृहीत " + saveMs + " ms वापरले आहे. सकाळच्या हजेरीनंतर पुन्हा पाहा.");
+    if (totalLf > 0) tips.push("⚠️ Lock अपयश " + totalLf + " — एकाच वेळी जास्त Save होत आहेत. क्लायंटची Pending Saves रांग नोंदी वाचवते; वर्गांना हजेरी थोड्या वेळाने भरण्यास सांगण्याचा विचार करा.");
+    if (totalEst && totalErr / totalEst > 0.05) tips.push("⚠️ त्रुटींचे प्रमाण " + Math.round(totalErr * 100 / totalEst) + "% — 🐞 त्रुटी टॅब पाहा.");
+    tips.push("Google मर्यादा (अधिकृत पान, २०२६-०९-०३ अद्ययावत): एका वापरकर्त्याचे एकाच वेळी ३० executions, प्रति script १,०००; प्रत्येक execution कमाल ६ मिनिटे. वेब-ॲप 'मी' म्हणून चालत असल्यास सर्व शिक्षक एकाच खात्याच्या ३० मर्यादेत मोजले जातात.");
+    return wrap(cb, {status: "ok", days: days, sampleRate: USAGE_SAMPLE_RATE, hasData: rows.length > 0, totalEst: totalEst, totalErr: totalErr, totalLockFails: totalLf, actions: actions.slice(0, 40), peak: peak, hours: hours,
+      scenarios: usageScenarios_(saveMs, lockAvg, teachers), scenarioBasis: {saveMs: saveMs, measured: measured, lockAvgMs: lockAvg, teachers: teachers}, baseline: USAGE_DIAG_BASELINE, tips: tips,
+      note: "आकडे नमुन्यावरून काढलेले अंदाज (दर " + Math.round(USAGE_SAMPLE_RATE * 100) + "%); खऱ्या Sheet/Apps Script वर मोजलेले."});
+  } catch (err) { return wrap(cb, {status: "error", message: err.toString()}); }
+}
+// Usage_YYYY_MM चे जतन-धोरण (पर्याय ब: १२ महिने) — पुसण्याआधी यादी; स्वयंचलित पुसणे नाही (ब-११ मध्ये मंजुरी)
+function usageRetentionReport() {
+  var cutoff = Utilities.formatDate(new Date(Date.now() - 365 * 86400000), "Asia/Kolkata", "yyyy_MM"), out = [];
+  SpreadsheetApp.getActiveSpreadsheet().getSheets().forEach(function(sh) { var m = /^Usage_(\d{4}_\d{2})$/.exec(sh.getName()); if (m && m[1] < cutoff) out.push(sh.getName() + " (" + sh.getLastRow() + " ओळी)"); });
+  Logger.log("१२ महिन्यांपेक्षा जुन्या Usage Sheets: " + (out.join(", ") || "नाहीत")); return out;
+}
+
+// ---------- अ-७: Backup restore drill — फक्त वाचन (स्रोतावर किंवा प्रतीवर काहीही लिहित नाही; logAudit सुद्धा नाही) ----------
+// निकाल: Logger + Script Property LAST_DRILL {time, ok, level, details}; अपयश/इशारा असल्यास ईमेल (BACKUP_ALERT_EMAIL). Restore स्वयंचलित नाही — RESTORE_चेकलिस्ट.md पाहा.
+var DRILL_MAX_FILES_PER_RUN = 2;
+var DRILL_BUDGET_MS = 270000;                // ६ मिनिटांच्या मर्यादेपेक्षा खूप आधी थांबतो
+var DRILL_WEB_BUDGET_MS = 15000;             // Super बटण (वेब विनंती) — क्लायंट Timeout पूर्वी
+function drillStamp_(name) {
+  var m = /_BACKUP_(\d{4})-(\d{2})-(\d{2})_(\d{2})(\d{2})$/.exec(String(name));
+  return m ? new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4] - 5, +m[5] - 30)) : null;   // नावातील वेळ IST → UTC
+}
+function drillSources_() {
+  var out = [];
+  getBackupSpreadsheetIds_().forEach(function(id) {
+    var name = ""; try { name = DriveApp.getFileById(id).getName(); } catch (e) { name = ""; }
+    out.push({id: id, name: name});
+  });
+  return out;
+}
+function drillLatestCopy_(folder, baseName) {
+  var prefix = baseName + "_BACKUP_", best = null, it = folder.getFiles();
+  while (it.hasNext()) { var f = it.next(); if (f.getName().indexOf(prefix) === 0 && (!best || f.getName() > best.getName())) best = f; }
+  return best;
+}
+function drillCheckSource_(src) {
+  var r = {id: src.id, name: src.name || src.id, level: "ok", notes: []};
+  function note(level, msg) { r.notes.push({level: level, msg: msg}); if (level === "fail" || (level === "warn" && r.level === "ok")) r.level = level; }
+  try {
+    if (!src.name) { note("fail", "स्रोत फाइल उघडता/नाव मिळाले नाही"); return r; }
+    var copyFile = drillLatestCopy_(getBackupFolder_(), src.name);
+    if (!copyFile) { note("fail", "Backup फोल्डरमध्ये प्रत सापडली नाही"); return r; }
+    r.copy = copyFile.getName();
+    // (१) प्रतीचे वय
+    var st = drillStamp_(r.copy), sched = PropertiesService.getScriptProperties().getProperty("BACKUP_SCHEDULE") || "off";
+    if (!st) note("warn", "प्रतीच्या नावावरून वेळ कळली नाही");
+    else {
+      var ageH = (Date.now() - st.getTime()) / 3600000; r.ageH = Math.round(ageH);
+      var warnH = sched === "daily" ? 36 : 8 * 24, failH = sched === "daily" ? 8 * 24 : 15 * 24;
+      if (ageH > failH) note("fail", "प्रत खूप जुनी — " + Math.round(ageH / 24) + " दिवस"); else if (ageH > warnH) note("warn", "प्रत जुनी — " + Math.round(ageH / 24 * 10) / 10 + " दिवस (वेळापत्रक: " + sched + ")");
+      else note("ok", "प्रतीचे वय ~" + Math.round(ageH) + " तास");
+    }
+    var copySS, srcSS, isMain = false;
+    try { copySS = SpreadsheetApp.openById(copyFile.getId()); } catch (eo) { note("fail", "प्रत उघडत नाही: " + String(eo).slice(0, 80)); return r; }
+    try { isMain = SpreadsheetApp.getActiveSpreadsheet().getId() === src.id; } catch (e1) {}
+    try { srcSS = isMain ? SpreadsheetApp.getActiveSpreadsheet() : SpreadsheetApp.openById(src.id); } catch (e2) { note("warn", "स्रोत उघडता आला नाही — तुलना करता आली नाही"); srcSS = null; }
+    // (२)(३)(४) महत्त्वाच्या Sheets
+    var names = [];
+    if (isMain && srcSS) {
+      ["Students", "Users", "LC", "Class_Teacher", "Student_Audit"].forEach(function(n) { names.push({n: n, must: n === "Students" || n === "Users" || n === "LC"}); });
+      var cy = currentAcYear_(), ym = Utilities.formatDate(new Date(), "Asia/Kolkata", "yyyy_MM");
+      ["Fees_" + cy, "Attendance_" + ym].forEach(function(n) { names.push({n: n, must: false}); });
+    } else if (srcSS) { srcSS.getSheets().slice(0, 12).forEach(function(sh) { names.push({n: sh.getName(), must: false}); }); }
+    var checked = 0;
+    names.forEach(function(x) {
+      var sSh = srcSS ? srcSS.getSheetByName(x.n) : null, cSh = copySS.getSheetByName(x.n);
+      if (!sSh && !x.must) return;                                   // स्रोतात नाही = तपासायचे नाही
+      if (!cSh) { note(x.must ? "fail" : "warn", "प्रतीत Sheet नाही: " + x.n); return; }
+      var sRows = sSh ? sSh.getLastRow() : 0, cRows = cSh.getLastRow(), cCols = Math.max(1, Math.min(cSh.getLastColumn(), 8));
+      checked++;
+      if (cRows <= 1 && sRows > 1) { note("fail", x.n + ": प्रत रिकामी (स्रोत " + sRows + " ओळी)"); return; }
+      if (sSh && cRows > sRows) note("warn", x.n + ": प्रत स्रोतापेक्षा मोठी (" + cRows + " > " + sRows + ")");
+      else if (sSh && sRows > 20 && cRows < sRows * 0.8) note("warn", x.n + ": प्रतीत खूप कमी ओळी (" + cRows + " / " + sRows + ")");
+      try { cSh.getRange(1, 1, 1, cCols).getValues(); if (cRows > 0) cSh.getRange(cRows, 1, 1, cCols).getValues(); }
+      catch (er) { note("fail", x.n + ": पहिली/शेवटची ओळ वाचता आली नाही"); }
+    });
+    r.sheetsChecked = checked;
+    // (५) Users मध्ये किमान एक super
+    if (isMain) {
+      var us = copySS.getSheetByName("Users");
+      if (us && us.getLastRow() > 1) {
+        var hasSuper = us.getRange(2, 3, us.getLastRow() - 1, 1).getValues().some(function(v) { return String(v[0]).trim().toLowerCase() === "super"; });
+        if (!hasSuper) note("fail", "प्रतीतील Users मध्ये एकही super नाही");
+        else note("ok", "Users मध्ये super आहे");
+      }
+    }
+    if (r.level === "ok" && !r.notes.some(function(n) { return n.level !== "ok"; })) r.notes.push({level: "ok", msg: "सर्व तपासण्या ठीक (" + checked + " Sheets)"});
+  } catch (e) { note("fail", "तपासणी त्रुटी: " + String(e).slice(0, 120)); }
+  return r;
+}
+function drillNotify_(res) {
+  try {
+    var to = PropertiesService.getScriptProperties().getProperty("BACKUP_ALERT_EMAIL") || "";
+    if (!to) { try { to = Session.getEffectiveUser().getEmail(); } catch (e0) {} }
+    if (!to) return;
+    MailApp.sendEmail(to, (res.level === "fail" ? "❌" : "⚠️") + " SGS School System — Backup तपासणी: " + (res.level === "fail" ? "अपयश" : "इशारा"),
+      "Backup restore-तपासणी (फक्त वाचन) चा निकाल: " + res.level + "\nवेळ: " + res.time + "\n\n" + res.details.join("\n") + "\n\nपुनर्संचयनाच्या पायऱ्यांसाठी RESTORE_चेकलिस्ट.md पाहा.");
+  } catch (e) { /* ईमेल जाऊ शकला नाही तरी LAST_DRILL मध्ये निकाल आहे */ }
+}
+// एक टप्पा: DRILL_MAX_FILES_PER_RUN फाइल्स / budgetMs. अपूर्ण असल्यास स्थिती DRILL_STATE मध्ये (२४ तास); पूर्ण = LAST_DRILL.
+function drillRun_(budgetMs) {
+  var props = PropertiesService.getScriptProperties(), t0 = Date.now(), st = null;
+  try { st = JSON.parse(props.getProperty("DRILL_STATE") || "null"); } catch (e) { st = null; }
+  if (!st || (Date.now() - st.startedAt) > 24 * 3600000) st = {startedAt: Date.now(), done: [], results: []};
+  var sources = drillSources_(), processed = 0;
+  for (var i = 0; i < sources.length; i++) {
+    var s = sources[i]; if (st.done.indexOf(s.id) >= 0) continue;
+    if (processed >= DRILL_MAX_FILES_PER_RUN || (Date.now() - t0) > budgetMs) break;
+    st.results.push(drillCheckSource_(s)); st.done.push(s.id); processed++;
+  }
+  var complete = sources.every(function(s) { return st.done.indexOf(s.id) >= 0; });
+  if (!complete) { props.setProperty("DRILL_STATE", JSON.stringify(st).slice(0, 8500)); return {complete: false, done: st.done.length, total: sources.length}; }
+  var level = "ok", lines = [];
+  st.results.forEach(function(r) {
+    if (r.level === "fail") level = "fail"; else if (r.level === "warn" && level === "ok") level = "warn";
+    r.notes.forEach(function(n) { if (n.level !== "ok" || r.notes.length === 1) lines.push((n.level === "fail" ? "❌ " : (n.level === "warn" ? "⚠️ " : "✅ ")) + r.name + (r.copy ? " [" + r.copy + "]" : "") + " — " + n.msg); });
+    if (r.level === "ok" && !lines.some(function(l) { return l.indexOf(r.name) >= 0; })) lines.push("✅ " + r.name + " — ठीक");
+  });
+  var res = {time: new Date().toISOString(), ok: level === "ok", level: level, files: st.results.length, details: lines.slice(0, 30)};
+  var json = JSON.stringify(res); if (json.length > 8500) { res.details = res.details.slice(0, 8); json = JSON.stringify(res); }
+  props.setProperty("LAST_DRILL", json); props.deleteProperty("DRILL_STATE");
+  Logger.log("Backup तपासणी: " + level + "\n" + lines.join("\n"));
+  if (level !== "ok") drillNotify_(res);
+  return {complete: true, last: res};
+}
+function backupRestoreDrill() {              // Editor / मासिक Trigger
+  var t0 = Date.now(), r;
+  do { r = drillRun_(DRILL_BUDGET_MS); } while (!r.complete && (Date.now() - t0) < DRILL_BUDGET_MS - 20000);   // अपूर्ण राहिल्यास स्थिती DRILL_STATE मध्ये — पुढच्या धावेत/बटणाने पुढे
+  return r;
+}
+function setupRestoreDrillTrigger() {        // Editor मधून एकदा: दर महिन्याच्या १ तारखेला पहाटे ~४ वा.
+  ScriptApp.getProjectTriggers().forEach(function(t) { if (t.getHandlerFunction() === "backupRestoreDrill") ScriptApp.deleteTrigger(t); });
+  ScriptApp.newTrigger("backupRestoreDrill").timeBased().onMonthDay(1).atHour(4).create();
+}
+function doRunRestoreDrill(p, cb) {
+  try {
+    var e = authSuperOnly_(p, "Backup तपासणी"); if (e) return wrap(cb, {status: "error", code: "forbidden", message: e});
+    var r = drillRun_(DRILL_WEB_BUDGET_MS);
+    return wrap(cb, {status: "ok", complete: r.complete, done: r.done, total: r.total, last: r.last || null});
+  } catch (err) { return wrap(cb, {status: "error", message: err.toString()}); }
+}
+function doGetRestoreDrill(p, cb) {
+  try {
+    var e = authSuperOnly_(p, "Backup तपासणी"); if (e) return wrap(cb, {status: "error", code: "forbidden", message: e});
+    var props = PropertiesService.getScriptProperties(), last = null, st = null;
+    try { last = JSON.parse(props.getProperty("LAST_DRILL") || "null"); } catch (e1) {}
+    try { st = JSON.parse(props.getProperty("DRILL_STATE") || "null"); } catch (e2) {}
+    return wrap(cb, {status: "ok", last: last, running: !!st, progress: st ? st.done.length : 0});
+  } catch (err) { return wrap(cb, {status: "error", message: err.toString()}); }
+}
+
+
+// =====================================================================
+// ===== V19.63 — ब-९ वर्ष-अखेर मार्गदर्शक (wizard) + ब-१० मुख्याध्यापकांचा रोजचा सारांश =====
+// =====================================================================
+// ---------- ब-९: वर्ष-अखेर मार्गदर्शक ----------
+// कोणताही नवा विध्वंसक तर्क नाही: प्रत्येक पायरी विद्यमान action ला (runBackup, archivePassedOut, promoteStudents, startNewYear, archiveYear) क्लायंटकडून बोलावते;
+// त्यांचे गेट/पुष्टी (ARCHIVE / PROMOTE / NEWYEAR / ARCHIVEYEAR, backupStaleErr_) तसेच राहतात. हे सर्व्हर-कोड फक्त स्थिती ओळखते व "पायरी पूर्ण/वगळली + कारण" नोंदवते (Script Property YEAREND_<वर्ष>).
+// क्रम (विद्यमान कोडच्या टिप्पणीप्रमाणे, doArchivePassedOut वर्गानुसार निवडतो म्हणून Pass-out बढतीच्या आधी): १ Backup → २ डेटा तपासणी → ३ थकबाकी आढावा → ४ शेवटच्या वर्गाची LC → ५ Pass-out Archive → ६ बढती → ७ नवे वर्ष → ८ जुने वर्ष Archive → ९ अंतिम पडताळणी
+var YE_STEP_COUNT = 9;
+function prevAcYear_(y) { var s = acYearStart_(y) - 1; return s + "-" + String(s + 1).slice(-2); }
+function yeKey_(year) { return "YEAREND_" + year; }
+function yeLoad_(year) {
+  try { var o = JSON.parse(PropertiesService.getScriptProperties().getProperty(yeKey_(year)) || "null"); if (o && o.steps) return o; } catch (e) {}
+  return {steps: {}};
+}
+function yeSave_(year, rec) {
+  var json = JSON.stringify(rec); if (json.length > 8500) { Object.keys(rec.steps).forEach(function(k) { if (rec.steps[k].r) rec.steps[k].r = String(rec.steps[k].r).slice(0, 60); }); json = JSON.stringify(rec); }
+  PropertiesService.getScriptProperties().setProperty(yeKey_(year), json);
+}
+function yeIsComplete_(st) { return st === "done" || st === "auto" || st === "skipped"; }
+function yeClosingYear_(p) {
+  var y = String((p && p.year) || "").trim(), cur = currentAcYear_();
+  if (/^\d{4}-\d{2}$/.test(y)) return y;
+  var prev = prevAcYear_(cur), rec = yeLoad_(prev);
+  if (rec.steps && Object.keys(rec.steps).length && !yeIsComplete_(rec.steps[9] ? rec.steps[9].s : "")) return prev;   // नवे वर्ष सुरू झाल्यावरही (पायरी ९ बाकी) मागील वर्षाचा wizard चालू
+  return cur;
+}
+function yeCompute_(closing) {
+  var cur = currentAcYear_(), newYear = nextAcYear_(closing), rec = yeLoad_(closing), ss = SpreadsheetApp.getActiveSpreadsheet();
+  var roster = getRosterCached_("", "", false).data, last = CLASS_ORDER_SRV[CLASS_ORDER_SRV.length - 1], counts = {};
+  roster.forEach(function(st) { var c = (st.iyatta || "").toString().trim() || "—"; counts[c] = (counts[c] || 0) + 1; });
+  var lastCount = counts[last] || 0, det = {}, info = {};
+  // १ Backup (४८ तास)
+  var lastBk = null; try { lastBk = JSON.parse(PropertiesService.getScriptProperties().getProperty("LAST_BACKUP") || "null"); } catch (e1) {}
+  var bkT = (lastBk && lastBk.ok && lastBk.time) ? new Date(lastBk.time).getTime() : 0, fresh = !!(bkT && (Date.now() - bkT) <= 48 * 3600000);
+  det[1] = fresh; info[1] = {fresh: fresh, hoursAgo: bkT ? Math.round((Date.now() - bkT) / 3600000) : null};
+  // २ डेटा तपासणी
+  var q = dqCompute_(roster, 3), dqN = Object.keys(q.byStudent).length; det[2] = dqN === 0; info[2] = {issues: dqN};
+  // ३ थकबाकी आढावा — फक्त नवे वर्ष सुरू होण्यापूर्वी मोजतो
+  info[3] = {};
+  if (acYearStart_(cur) <= acYearStart_(closing)) { try { var dues = computeCarryDues_(closing); info[3] = {count: dues.list.length, total: Math.round(dues.total), lastClassCount: dues.list.filter(function(x) { return (x.iyatta || "").toString().trim() === last; }).length}; } catch (e2) {} }
+  // ४ शेवटच्या वर्गाची LC
+  var lcSet = {}, lcSh = ss.getSheetByName("LC");
+  if (lcSh && lcSh.getLastRow() > 1) lcSh.getRange(2, 3, lcSh.getLastRow() - 1, 1).getValues().forEach(function(r) { var k = (r[0] || "").toString().trim().toLowerCase(); if (k) lcSet[k] = 1; });
+  var lcPending = 0; roster.forEach(function(st) { if ((st.iyatta || "").toString().trim() === last && !lcSet[(st.regNo || "").toString().trim().toLowerCase()]) lcPending++; });   // doGetYearEndCheck प्रमाणेच: LC स्तंभ ३ च्या मूल्याशी regNo जुळवतो
+  det[4] = lastCount === 0 || lcPending === 0; info[4] = {lastClass: last, lastCount: lastCount, lcPending: lcPending};
+  // ६ बढती: PromotionLog मध्ये newYear साठी (Undo न झालेल्या) ओळी
+  var promoN = 0, pl = ss.getSheetByName("PromotionLog");
+  if (pl && pl.getLastRow() > 1) pl.getRange(2, 1, pl.getLastRow() - 1, 11).getValues().forEach(function(r) { if ((r[8] || "").toString().trim() === newYear && (r[10] || "").toString() !== "Y") promoN++; });
+  det[6] = promoN > 0; info[6] = {promoted: promoN};
+  det[5] = lastCount === 0 || promoN > 0; info[5] = {lastClass: last, count: lastCount, label: closing};
+  det[7] = acYearStart_(cur) >= acYearStart_(newYear); info[7] = {newYear: newYear, cur: cur};
+  det[8] = archivedYears_().indexOf(closing) >= 0; info[8] = {year: closing, startedAt: rec.steps[7] ? rec.steps[7].t : null};
+  // बढतीपूर्वीची वर्गनिहाय संख्या (पडताळणीसाठी) — फक्त ५/६/७ आढळण्यापूर्वी एकदाच
+  if (!rec.snap && !det[6] && !det[7] && lastCount > 0) { rec.snap = {t: new Date().toISOString(), counts: counts, total: roster.length}; try { yeSave_(closing, rec); } catch (e3) {} }
+  // ९ अंतिम पडताळणी
+  var verify = null;
+  if (det[7]) {
+    var snap = rec.snap ? rec.snap.counts : null, rows = [], allOk = (cur === newYear);
+    CLASS_ORDER_SRV.forEach(function(c, i) {
+      var before = snap ? (snap[c] || 0) : null, expected = null;
+      if (snap && i > 0) expected = snap[CLASS_ORDER_SRV[i - 1]] || 0;     // पाचवी: नवे प्रवेश अज्ञात → तुलना नाही
+      var actual = counts[c] || 0, ok = (expected === null) ? true : (expected === actual);
+      if (expected !== null && !ok) allOk = false;
+      rows.push({cls: c, before: before, expected: expected, actual: actual, ok: ok});
+    });
+    var poName = ARCHIVE_PREFIX + closing, poSh = ss.getSheetByName(poName), poActual = poSh ? Math.max(0, poSh.getLastRow() - 1) : null, poExp = snap ? (snap[last] || 0) : null;
+    if (poExp !== null && poActual !== null && poActual !== poExp) allOk = false;
+    var notNew = roster.filter(function(st) { return (st.acYear || "").toString().trim() !== newYear; }).length;
+    if (notNew > 0) allOk = false;
+    verify = {curOk: cur === newYear, current: cur, newYear: newYear, noSnapshot: !snap, classes: rows, passedOut: {sheet: poName, expected: poExp, actual: poActual}, notNewYear: notNew, allOk: allOk && !!snap, archived: det[8]};
+  }
+  var steps = [], active = 0;
+  for (var n = 1; n <= YE_STEP_COUNT; n++) {
+    var r = rec.steps[n], status = r ? r.s : (det[n] ? "auto" : "pending");
+    steps.push({n: n, status: status, by: r ? r.by : (det[n] ? "आपोआप" : ""), time: r ? r.t : null, reason: r ? (r.r || "") : "", info: info[n] || {}});
+  }
+  for (var k = 0; k < steps.length; k++) { if (!yeIsComplete_(steps[k].status)) { active = steps[k].n; steps[k].status = "active"; break; } }
+  if (active) for (var m = active; m < steps.length; m++) { if (steps[m].n > active && !yeIsComplete_(steps[m].status)) steps[m].status = "locked"; }
+  return {closing: closing, newYear: newYear, current: cur, lastClass: last, active: active, complete: active === 0, steps: steps, verify: verify, det: det, hasSnapshot: !!rec.snap};
+}
+function doGetYearEndWizard(p, cb) {
+  try {
+    var e = authSuperOnly_(p, "वर्ष-अखेर मार्गदर्शक"); if (e) return wrap(cb, {status: "error", code: "forbidden", message: e});
+    var st = yeCompute_(yeClosingYear_(p)); delete st.det; st.status = "ok";
+    return wrap(cb, st);
+  } catch (err) { return wrap(cb, {status: "error", message: err.toString()}); }
+}
+function doSetYearEndStep(p, cb) {
+  try {
+    var e = authSuperOnly_(p, "वर्ष-अखेर मार्गदर्शक"); if (e) return wrap(cb, {status: "error", code: "forbidden", message: e});
+    var closing = String(p.year || "").trim();
+    if (!/^\d{4}-\d{2}$/.test(closing)) return wrap(cb, {status: "error", message: "वर्ष 2026-27 या स्वरूपात हवे."});
+    var n = parseInt(p.step, 10); if (!(n >= 1 && n <= YE_STEP_COUNT)) return wrap(cb, {status: "error", message: "पायरी १ ते ९ मध्ये हवी."});
+    var status = String(p.status || ""); if (status !== "done" && status !== "skipped") return wrap(cb, {status: "error", message: "स्थिती done किंवा skipped हवी."});
+    var reason = String(p.reason || "").trim().slice(0, 150);
+    if (status === "skipped" && reason.length < 5) return wrap(cb, {status: "error", message: "वगळण्याचे/स्वीकारण्याचे कारण (किमान ५ अक्षरे) लिहा."});
+    var st = yeCompute_(closing);
+    for (var i = 1; i < n; i++) if (!yeIsComplete_(st.steps[i - 1].status)) return wrap(cb, {status: "error", message: "आधी पायरी " + i + " पूर्ण करा किंवा कारणासह वगळा."});
+    var cs = st.steps[n - 1].status;
+    if (cs === "done" || cs === "skipped") return wrap(cb, {status: "error", message: "ही पायरी आधीच नोंदवलेली आहे."});   // "auto" (डेटावरून आढळलेली) पायरी "done" म्हणून नोंदवता येते (कोणी/केव्हा)
+    if (status === "done") {
+      var okDone = (n === 3) ? true : (n === 9 ? !!(st.verify && st.verify.allOk) : !!st.det[n]);
+      if (!okDone) return wrap(cb, {status: "error", message: "या पायरीची पूर्वअट पूर्ण नाही — तपशील पाहा, किंवा कारण लिहून वगळा/स्वीकारा."});
+    }
+    var rec = yeLoad_(closing); rec.steps[n] = {s: status, by: String(p.requesterUser || ""), t: new Date().toISOString(), r: reason};
+    yeSave_(closing, rec);
+    logAudit(p.requesterUser, p.requesterRole, "yearEndStep", closing + ":" + n + ":" + status + (reason ? ":" + reason : ""));
+    var out = yeCompute_(closing); delete out.det; out.status = "ok";
+    return wrap(cb, out);
+  } catch (err) { return wrap(cb, {status: "error", message: err.toString()}); }
+}
+
+// ---------- ब-१०: मुख्याध्यापकांचा रोजचा सारांश (super / master) ----------
+// फक्त वाचन; एक तारीख. स्रोत: AttMarks_YYYY_MM (वर्गनिहाय हजेरी), Users (वर्ग-शिक्षक), EL_<सोमवार> (घरी जाणारे), Fees_<वर्ष> (जमा = cumulative FeePaid मधील फरक), Notices, Student_Audit.
+// टीप: Timestamp स्तंभ en-IN स्वरूपात (दिवस/महिना/वर्ष) लिहिले जातात — Sheet चे locale भारत असल्याचे गृहीत; Date मूल्य आल्यास IST मध्ये बदलतो.
+function dsParseDay_(v) {
+  if (Object.prototype.toString.call(v) === "[object Date]") { try { return Utilities.formatDate(v, "Asia/Kolkata", "yyyy-MM-dd"); } catch (e) { return ""; } }
+  var t = String(v === null || v === undefined ? "" : v).trim(), m;
+  if ((m = /^(\d{4})-(\d{2})-(\d{2})/.exec(t))) return m[1] + "-" + m[2] + "-" + m[3];
+  if ((m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(t))) return m[3] + "-" + (m[2].length < 2 ? "0" : "") + m[2] + "-" + (m[1].length < 2 ? "0" : "") + m[1];
+  return "";
+}
+function dsTeachers_() {
+  var out = [], uSh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Users");
+  if (!uSh || uSh.getLastRow() < 2) return out;
+  var ucols = Math.min(6, uSh.getMaxColumns());
+  uSh.getRange(2, 1, uSh.getLastRow() - 1, ucols).getValues().forEach(function(u) {
+    if (normRole_(u[2]) !== "teacher") return;
+    var parts = (u[4] || "").toString().split("|"); if (!parts[0]) return;
+    out.push({username: u[0], label: u[3] || u[0], iyatta: parts[0].trim(), tukdi: (parts[1] || "").trim(), mobile: ucols >= 6 ? phoneDigits_(u[5]) : ""});
+  });
+  return out;
+}
+function dailySummaryCompute_(date) {
+  var today = todayStr(), dm = ISO_DATE_RE.exec(date), dow = new Date(+dm[1], +dm[2] - 1, +dm[3]).getDay();
+  var res = {date: date, weekday: dow, isSunday: dow === 0, today: date === today, future: date > today};
+  if (res.future) { res.dayType = "future"; res.message = "भविष्यातील तारीख — माहिती उपलब्ध नाही."; return res; }
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  // १ उपस्थिती
+  var marks = attMarksRowsForDate_(date), byKey = {};
+  (marks || []).forEach(function(m) { byKey[(m[1] || "").toString().trim() + "-" + (m[2] || "").toString().trim()] = {iyatta: (m[1] || "").toString().trim(), tukdi: (m[2] || "").toString().trim(), total: parseInt(m[3], 10) || 0, absent: parseInt(m[4], 10) || 0, present: parseInt(m[5], 10) || 0, by: m[6] || "", time: (m[7] || "").toString().split(",").pop().trim()}; });
+  var classes = Object.keys(byKey).map(function(k) { var c = byKey[k]; c.pct = c.total ? Math.round(c.present * 1000 / c.total) / 10 : null; return c; })
+    .sort(function(a, b) { return classSortKey_(a.iyatta) - classSortKey_(b.iyatta) || (a.tukdi < b.tukdi ? -1 : (a.tukdi > b.tukdi ? 1 : 0)); });
+  var tot = {total: 0, absent: 0, present: 0}; classes.forEach(function(c) { tot.total += c.total; tot.absent += c.absent; tot.present += c.present; });
+  tot.pct = tot.total ? Math.round(tot.present * 1000 / tot.total) / 10 : null;
+  var pending = [], covered = {};
+  dsTeachers_().forEach(function(t) { var k = t.iyatta + "-" + t.tukdi; covered[k] = true; if (!byKey[k]) pending.push({iyatta: t.iyatta, tukdi: t.tukdi, teacher: t.label, mobile: t.mobile}); });
+  pending.sort(function(a, b) { return classSortKey_(a.iyatta) - classSortKey_(b.iyatta) || (a.tukdi < b.tukdi ? -1 : 1); });
+  var noTeacher = {}; getRosterCached_("", "", false).data.forEach(function(st) { var ci = (st.iyatta || "").toString().trim(), ct = (st.tukdi || "").toString().trim(), k = ci + "-" + ct; if (ci && !covered[k] && !byKey[k]) noTeacher[k] = {iyatta: ci, tukdi: ct}; });
+  res.attendance = {hasMarks: marks !== null, filled: classes.length, classes: classes, totals: tot, pending: pending, noTeacher: Object.keys(noTeacher).map(function(k) { return noTeacher[k]; }).sort(function(a, b) { return classSortKey_(a.iyatta) - classSortKey_(b.iyatta); })};
+  if (res.isSunday) { res.dayType = "sunday"; res.message = "रविवार — सुट्टी"; }
+  else if (!classes.length) { res.dayType = res.today ? "nodata_today" : "nodata_past"; res.message = res.today ? "आज अजून कोणत्याही वर्गाची हजेरी भरलेली नाही." : "या दिवशी कोणत्याही वर्गाची हजेरी नोंदलेली नाही — सुट्टी असावी."; }
+  else res.dayType = "normal";
+  // २ घरी जाणारे (EL_<आठवडा>)
+  var el = {permitted: 0, gone: 0, notGone: 0, other: 0, total: 0};
+  try {
+    var esh = getELWeekSheet_(date, false);
+    if (esh) elReadAll_(esh).forEach(function(r) {
+      if (fmt(r[1]) !== date) return; el.total++;
+      var type = (r[7] || "").toString(), stt = (r[11] || "").toString();
+      if (type === "permitted") { el.permitted++; if (stt === "gone") el.gone++; else if (stt === "notgone") el.notGone++; } else el.other++;
+    });
+  } catch (eE) {}
+  res.earlyLeave = el;
+  // ३ फी जमा (त्या दिवसाची) — Fees_<वर्ष> मध्ये FeePaid cumulative असतो; जमा = त्या विद्यार्थ्याच्या मागील नोंदीतील फरक. एकाच वाचनात.
+  var fees = {total: 0, count: 0, byClass: [], year: acYearOfDate_(date)}, fcls = {};
+  try {
+    var ev = findYearSheet_("Fees", fees.year);
+    if (ev && ev.getLastRow() > 1) {
+      var prev = {};
+      ev.getRange(2, 1, ev.getLastRow() - 1, 11).getValues().forEach(function(r) {
+        var rg = (r[1] || "").toString().trim().toLowerCase(); if (!rg || (r[10] || "").toString() === "OPENING") return;
+        var paid = parseFloat(r[8]) || 0, delta = paid - (prev[rg] || 0); prev[rg] = paid;
+        if (delta > 0 && dsParseDay_(r[0]) === date) { fees.total += delta; fees.count++; var c = (r[4] || "").toString().trim() || "—"; fcls[c] = (fcls[c] || 0) + delta; }
+      });
+    }
+  } catch (eF) {}
+  fees.total = Math.round(fees.total * 100) / 100;
+  fees.byClass = Object.keys(fcls).sort(function(a, b) { return classSortKey_(a) - classSortKey_(b); }).map(function(c) { return {cls: c, amount: Math.round(fcls[c] * 100) / 100}; });
+  res.fees = fees;
+  // ४ नोटीस
+  var notices = [], nSh = ss.getSheetByName("Notices");
+  if (nSh && nSh.getLastRow() > 1) nSh.getRange(2, 1, nSh.getLastRow() - 1, 6).getValues().forEach(function(r) { if (fmt(r[1]) === date) notices.push({title: (r[2] || "").toString().slice(0, 120), postedBy: (r[4] || "").toString(), targetClass: (r[5] || "").toString()}); });
+  res.notices = notices;
+  // ५ विद्यार्थी-बदल (Student_Audit — फक्त संख्या; फोन/माहिती नाही)
+  var ch = {total: 0, students: 0, byAction: []}, aSh = ss.getSheetByName("Student_Audit");
+  if (aSh && aSh.getLastRow() > 1) {
+    var take = Math.min(aSh.getLastRow() - 1, 4000), seen = {}, acts = {};
+    aSh.getRange(aSh.getLastRow() - take + 1, 1, take, 5).getValues().forEach(function(r) {
+      if (dsParseDay_(r[0]) !== date) return; ch.total++;
+      var rg = (r[3] || "").toString().trim().toLowerCase(); if (rg && rg !== "—") seen[rg] = 1;
+      var a = (r[4] || "").toString(); acts[a] = (acts[a] || 0) + 1;
+    });
+    ch.students = Object.keys(seen).length;
+    ch.byAction = Object.keys(acts).sort(function(a, b) { return acts[b] - acts[a]; }).slice(0, 8).map(function(a) { return {action: a, count: acts[a]}; });
+  }
+  res.changes = ch;
+  return res;
+}
+function doGetDailySummary(p, cb) {
+  try {
+    var e = authSuperMaster_(p, "रोजचा सारांश"); if (e) return wrap(cb, {status: "error", code: "forbidden", message: e});
+    var date = ISO_DATE_RE.test((p.date || "").toString().trim()) ? p.date.toString().trim() : todayStr();
+    var ckey = "dsum_" + date + "_" + attVer_() + "_" + rosterVer_(), hit = (p.nocache === "1") ? null : cacheGetBig_(ckey);
+    if (hit) { hit.cached = true; hit.status = "ok"; return wrap(cb, hit); }
+    var res = dailySummaryCompute_(date);
+    try { cachePutBig_(ckey, res, date === todayStr() ? 120 : 600); } catch (eC) {}
+    res.status = "ok";
+    return wrap(cb, res);
+  } catch (err) { return wrap(cb, {status: "error", message: err.toString()}); }
 }

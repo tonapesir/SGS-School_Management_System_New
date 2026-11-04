@@ -1,15 +1,17 @@
-SGS School Management System — V19.61 (अ-२ ते अ-६)
+SGS School Management System — V19.63 (V19.62 + ब-९ वर्ष-अखेर मार्गदर्शक + ब-१० रोजचा सारांश)
 
 Deploy क्रम:
-1) Apps Script: apps_script/Code.gs paste करा → Deploy → Manage deployments → ✏️ Edit → Version: "New version" → Deploy.
-   (SERVER_VERSION = V19.61.) एकदा Editor मधून setupClientErrorPurgeTrigger चालवा (दर रविवारी ९० दिवसांपेक्षा जुन्या त्रुटी पुसतो). पर्यायी: auditGrowthReport (केवळ वाचन).
-2) GitHub Pages: github_pages/ मधील index.html, script.js, style.css, sw.js अपलोड करा (APP_VERSION = V19.61, sw = sgs-v19.61-1).
-   manifest.json, privacy-policy.html, icons बदललेले नाहीत.
+1) Apps Script: apps_script/Code.gs paste → Deploy → Manage deployments → ✏️ → "New version" → Deploy. (SERVER_VERSION = V19.63)
+   नवे Editor-फंक्शन Run करण्याची गरज नाही (V19.62 चे setup* आधी केले असतील). नवे Trigger नाही.
+2) GitHub Pages: github_pages/ मधील index.html, script.js, style.css, sw.js अपलोड (APP_VERSION = V19.63, sw = sgs-v19.63-1).
 
-चाचण्या (तुमच्या tests/ फोल्डरमध्ये नवीन फाइल्स टाका; run_all.sh test_*.js आपोआप घेत असल्यास तसेच चालेल):
-  node tests/test_static_refs.js          (अ-२)
-  node tests/test_ui_contrast_all.js      (अ-३; Playwright + Chromium)
-  node tests/test_server_v1961.js         (अ-४/अ-६ सर्व्हर; tests/lib/gas_mock.js लागते — बनावट Apps Script)
-  node tests/test_ui_v1961.js             (अ-४/अ-५ क्लायंट; Playwright)
-env: SGS_WEB = index.html चा फोल्डर, SGS_GS = Code.gs चा path.
-सर्व बनावट (mock) वातावरणावर — खऱ्या Sheet/Drive/Apps Script/फोनवर चाचणी झालेली नाही.
+नवे: डेटा तपासणी पानात "🎓 वर्ष-अखेर मार्गदर्शक" टॅब (Super); डॅशबोर्डवर "📋 रोजचा सारांश" कार्ड (Super + Master). ईमेल पर्याय नाही (निर्णय).
+
+चाचण्या (tests/ मध्ये टाका):
+  node tests/test_static_refs.js
+  node tests/test_ui_contrast_all.js
+  node tests/test_server_v1961.js
+  SGS_GS_BASE=<V19.61 Code.gs> node tests/test_server_v1962.js
+  SGS_GS_BASE=<V19.62 Code.gs> node tests/test_server_v1963.js   (BASE ऐच्छिक: "विद्यमान कृती बदलल्या नाहीत" ही तुलना-चाचणी)
+  node tests/test_ui_v1961.js ; node tests/test_ui_v1962.js ; node tests/test_ui_v1963.js
+सर्व बनावट (mock) Apps Script / बनावट backend वर — खऱ्या Sheet/Drive/Apps Script/फोनवर चाचणी झालेली नाही.

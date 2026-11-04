@@ -377,6 +377,16 @@
     </div>
   </div>
 
+  <!-- ===== रोजचा सारांश (Super Master / Master) — V19.63 ===== -->
+  <div class="card master-only" style="margin-bottom:16px">
+    <div class="card-header"><div>📋 रोजचा सारांश</div><div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><input type="date" id="ds_date" onchange="dsLoad()" style="padding:4px 8px;border-radius:6px"><button class="btn btn-blue btn-sm" onclick="dsLoad()">🔄 दाखवा</button></div></div>
+    <div class="card-body">
+      <div id="ds_body" style="font-size:13px">⏳ Load होत आहे...</div>
+      <div style="margin-top:10px"><textarea id="ds_msg" readonly rows="7" style="width:100%;box-sizing:border-box;font-family:inherit;font-size:13px;padding:8px;border-radius:8px"></textarea></div>
+      <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap"><button class="btn btn-gray btn-sm" onclick="dsCopy()">📋 कॉपी</button><button class="btn btn-green btn-sm" onclick="dsWhatsApp()">💬 WhatsApp</button><button class="btn btn-blue btn-sm" id="ds_pdfBtn" onclick="dsPdf()">🖨️ PDF</button></div>
+    </div>
+  </div>
+
   <!-- ===== आज वाढदिवस असलेले विद्यार्थी (Super Master / Master) — V19.34 ===== -->
   <div class="card master-only" style="margin-bottom:16px">
     <div class="card-header"><div>🎂 आज वाढदिवस असलेले विद्यार्थी</div></div>
@@ -1326,6 +1336,8 @@
     <button class="btn btn-gray dq-tabbtn" data-tab="y" onclick="dqTab('y')">🗓️ वर्ष-अखेर पूर्वतपासणी</button>
     <button class="btn btn-gray dq-tabbtn" data-tab="c" onclick="dqTab('c')">📏 Sheet आकार</button>
     <button class="btn btn-gray dq-tabbtn" data-tab="e" onclick="dqTab('e')">🐞 त्रुटी</button>
+    <button class="btn btn-gray dq-tabbtn" data-tab="u" onclick="dqTab('u')">📈 वापर</button>
+    <button class="btn btn-gray dq-tabbtn" data-tab="g" onclick="dqTab('g')">🎓 वर्ष-अखेर मार्गदर्शक</button>
   </div>
   <div id="dq_status" style="font-size:12.5px;color:rgba(240,232,216,.8);margin-bottom:6px"></div>
   <div id="dq_body" class="pm-box"></div>
@@ -1600,9 +1612,11 @@
         <div class="fg" style="min-width:220px;flex:1"><label>Backup अपयशाची सूचना — Email</label><input id="sa_bkEmail" type="email" placeholder="रिकामे = खाते-मालकाचा Email"></div>
         <div class="fg" style="flex:0 0 auto"><button class="btn btn-gold" onclick="saSaveBackupSchedule()">💾 जतन करा</button></div>
         <div class="fg" style="flex:0 0 auto"><button class="btn btn-blue" onclick="saRunBackupNow()">▶️ आत्ताच Backup घ्या</button></div>
+<div class="fg" style="flex:0 0 auto"><button class="btn btn-gray" id="sa_drillBtn" onclick="saRunDrill()" title="सर्वात ताजी प्रत उघडून तपासते — फक्त वाचन; काहीही बदलत नाही">🔍 Backup तपासणी</button></div>
         <div class="fg" style="flex:0 0 auto"><button class="btn btn-orange" onclick="saMigrateLogs()" title="जुन्या Log व Log_Archive चे एकदाचे स्थलांतर — मासिक Log_YYYY_MM">🗂️ Log → मासिक Sheets (एकदाच)</button></div>
       </div>
       <div id="sa_bkStatus" style="font-size:12.5px;margin-top:10px;color:#cfd8e8"></div>
+<div id="sa_drillInfo" style="font-size:12.5px;margin-top:10px;color:rgba(240,232,216,.88)"></div>
     </div>
   </div>
 </div>

@@ -32,7 +32,7 @@ window.androidBackPressed = function() {
 
 
 // URL persistence
-var DEFAULT_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbwocGjIsaGHW4BwpbadJ3Knf9_Lm31YHunFO5XhIRzhv5Y5Blw7LLdSwZrPPTfub4mJ/exec';
+var DEFAULT_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbyFQ9g2IctwniTD8zrOuMLewGYzOHxRFgiwCooiI2ktsd0qL0nz7aQ7vCizGuKADrOc/exec';
 
 // =====================================================
 // 🔐 LOGIN + ROLE PERMISSIONS
@@ -860,7 +860,7 @@ var clientPerf = [];
 // नियम: पैसा/थकबाकी/फी जमा स्क्रीनवर कधीही जुना डेटा नाही • २४ तासांहून जुना cache वापरत नाही • अॅप-आवृत्ती बदलल्यास रद्द •
 //       प्रत्येकी ~300 KB / एकूण ~1 MB मर्यादा • Logout वर पूर्ण पुसले जाते • Token कधीही साठवत नाही (फक्त उत्तर).
 // =====================================================================
-var APP_VERSION = 'V19.61';
+var APP_VERSION = 'V19.63';
 var SWR_PREFIX = 'sgs_swr:';
 var SWR_ROSTER_MAX_AGE_MS = 3 * 24 * 3600 * 1000;   // V19.60.1: शिक्षकाची वर्ग-यादी ३ दिवस (ऑफलाइन Login च्या मुदतीइतकी); बाकी २४ तास
 var SWR_MAX_AGE_MS = 24 * 3600 * 1000, SWR_MAX_ENTRY = 300 * 1024, SWR_MAX_TOTAL = 1024 * 1024;
@@ -4014,6 +4014,7 @@ showPage = function(name, btn) {
     var dashCards = [];
     if (currentUser && (currentUser.role === 'master' || currentUser.role === 'super')) {
       dashCards.push({el: 'mst_attPending', load: mstLoadAttendancePending, eager: true});   // आजची हजेरी — सर्वात महत्त्वाचे, लगेच (जुना डेटा आधी)
+      dashCards.push({el: 'ds_body', load: dsLoad});   // V19.63: रोजचा सारांश
       dashCards.push({el: 'mst_birthdaysToday', load: mstLoadTodayBirthdays});
       dashCards.push({el: 'mst_recentNotices', load: mstLoadRecentNotices});
     }
@@ -5837,6 +5838,38 @@ function saLoadBackupStatus() {
     if (r.last && r.last.logArchived > 0) warn += '<br><span style="opacity:.7">शेवटच्या Backup सोबत ' + r.last.logArchived + ' जुन्या Log नोंदी Archive झाल्या.</span>';
     el.innerHTML += warn;
     if (r.schedule && document.getElementById('sa_bkMode')) document.getElementById('sa_bkMode').value = r.schedule;
+    saLoadDrill();
+  });
+}
+// ---- V19.62 (अ-७): 🔍 Backup तपासणी (restore drill) — फक्त वाचन; Super ----
+function saDrillRender(last, running) {
+  var el = document.getElementById('sa_drillInfo'); if (!el) return;
+  if (!last) { el.innerHTML = '🔍 Backup तपासणी अजून झालेली नाही.' + (running ? ' (चालू आहे…)' : ''); return; }
+  var t = new Date(last.time).getTime(), days = Math.floor((Date.now() - t) / 86400000);
+  var icon = last.level === 'ok' ? '✅' : (last.level === 'warn' ? '⚠️' : '❌');
+  var h = '🔍 शेवटची Backup तपासणी: ' + (days <= 0 ? 'आज' : days + ' दिवसांपूर्वी') + ' ' + icon + ' (' + last.files + ' फाइल)';
+  if (days > 40) h += '<br><b style="color:#ffb0b0">⚠️ मासिक तपासणी झालेली दिसत नाही — Editor मध्ये setupRestoreDrillTrigger एकदा Run करा.</b>';
+  if (last.details && last.details.length) h += '<ul class="us-tips">' + last.details.map(function(d) { return '<li>' + pmEsc(d) + '</li>'; }).join('') + '</ul>';
+  h += '<span style="opacity:.85">ही तपासणी फक्त वाचन करते; Restore हाताने करायचा असेल तर RESTORE_चेकलिस्ट.md पाहा.</span>';
+  el.innerHTML = h;
+}
+function saLoadDrill() {
+  jsonpRequest({action: 'getRestoreDrill', requesterRole: currentUser.role}, function(r) {
+    if (!r || r.status !== 'ok') { var el = document.getElementById('sa_drillInfo'); if (el) el.textContent = '❌ ' + friendlyMsg((r && r.message) || 'Load Failed'); return; }
+    saDrillRender(r.last, r.running);
+  });
+}
+function saRunDrill(round) {
+  round = round || 1;
+  var el = document.getElementById('sa_drillInfo'), btn = document.getElementById('sa_drillBtn');
+  if (btn) btn.disabled = true;
+  if (el) el.textContent = '⏳ Backup तपासणी चालू आहे' + (round > 1 ? ' (भाग ' + round + ')' : '') + '… (फक्त वाचन)';
+  jsonpRequest({action: 'runRestoreDrill', requesterRole: currentUser.role}, function(r) {
+    if (!r || r.status !== 'ok') { if (btn) btn.disabled = false; if (el) el.textContent = '❌ ' + friendlyMsg((r && r.message) || 'तपासणी अयशस्वी'); return; }
+    if (!r.complete && round < 8) { saRunDrill(round + 1); return; }
+    if (btn) btn.disabled = false;
+    if (!r.complete) { if (el) el.textContent = '⏳ तपासणी अपूर्ण (' + r.done + '/' + r.total + ') — थोड्या वेळाने पुन्हा दाबा.'; return; }
+    saDrillRender(r.last, false);
   });
 }
 function saRunBackupNow() {
@@ -7615,7 +7648,7 @@ function dqTab(name) {
   dqS.tab = name; var seq = ++dqS.seq;
   [].forEach.call(document.querySelectorAll('.dq-tabbtn'), function(b) { b.className = 'btn ' + (b.getAttribute('data-tab') === name ? 'btn-gold' : 'btn-gray') + ' dq-tabbtn'; });
   var body = document.getElementById('dq_body'); body.innerHTML = '';
-  if (name === 'q') dqLoadQuality(seq); else if (name === 'y') dqLoadYearEnd(seq); else if (name === 'e') dqLoadErrors(seq); else dqLoadCap(seq, false);
+  if (name === 'q') dqLoadQuality(seq); else if (name === 'y') dqLoadYearEnd(seq); else if (name === 'e') dqLoadErrors(seq); else if (name === 'u') dqLoadUsage(seq); else if (name === 'g') dqLoadWizard(seq); else dqLoadCap(seq, false);
 }
 // ---- V19.61 (अ-४): 🐞 त्रुटी टॅब (फक्त Super) — वापरकर्त्यांच्या फोनवर आलेल्या त्रुटी, संदेशानुसार गट ----
 function dqLoadErrors(seq) {
@@ -7635,6 +7668,338 @@ function dqLoadErrors(seq) {
       '<div class="hs-empty">शेवटच्या वेळेनुसार क्रम. Stack फक्त CSV मध्ये (५०० अक्षरांपर्यंत). नोंदी ९० दिवसांनी पुसल्या जातात.</div>';
     arFilt('ce_tbl');
   });
+}
+// ---- V19.62 (अ-८): 📈 वापर टॅब (फक्त Super) — विनंत्यांची संख्या, वेळ, त्रुटी, Lock प्रतीक्षा/अपयश, ताण-अंदाज ----
+function dqLoadUsage(seq, days, teachers) {
+  days = days || dqS.usDays || 7; teachers = teachers || dqS.usT || 100; dqS.usDays = days; dqS.usT = teachers;
+  dqSt('⏳ वापर-आकडेवारी Load होत आहे...');
+  jsonpRequest({action: 'getUsageStats', requesterRole: currentUser.role, days: days, teachers: teachers}, function(r) {
+    if (seq !== dqS.seq) return;
+    if (!r || r.status !== 'ok') { dqSt(errTxt(r)); return; }
+    dqSt('');
+    var body = document.getElementById('dq_body');
+    var ctl = '<div class="ar-filter">कालावधी: <select id="us_days" onchange="dqLoadUsage(dqS.seq, parseInt(this.value, 10), dqS.usT)">' +
+      [1, 7, 14, 31].map(function(d) { return '<option value="' + d + '"' + (d === r.days ? ' selected' : '') + '>शेवटचे ' + d + ' दिवस</option>'; }).join('') + '</select> ' +
+      'शिक्षक (अंदाजासाठी): <input type="number" id="us_teachers" min="1" max="1000" value="' + (r.scenarioBasis.teachers) + '" style="width:80px" onchange="dqLoadUsage(dqS.seq, dqS.usDays, parseInt(this.value, 10) || 100)"></div>';
+    if (!r.hasData) {
+      body.innerHTML = ctl + '<div class="hs-empty">ℹ️ अजून वापर-डेटा जमा झालेला नाही. (नमुना-दर ' + Math.round(r.sampleRate * 100) + '%; तासाचा Trigger: Editor मध्ये <b>setupUsageFlushTrigger</b> एकदा Run करा.) काही तासांनी पुन्हा पाहा.</div>' + usTips(r);
+      return;
+    }
+    var errPct = r.totalEst ? Math.round(r.totalErr * 1000 / r.totalEst) / 10 : 0;
+    var cards = '<div class="us-cards"><div class="us-card"><b>' + fmtIN(r.totalEst) + '</b>विनंत्या (अंदाज)</div><div class="us-card"><b>' + errPct + '%</b>त्रुटी (' + r.totalErr + ')</div>' +
+      '<div class="us-card"><b>' + r.totalLockFails + '</b>Lock अपयश</div><div class="us-card"><b>' + (r.peak ? pmEsc(r.peak.hour) + ':००' : '—') + '</b>सर्वाधिक ताण' + (r.peak ? ' (~' + fmtIN(r.peak.est) + ')' : '') + '</div></div>';
+    var hd = ['कृती', 'विनंत्या (अंदाज)', 'नमुने', 'सरासरी ms', 'कमाल ms', 'त्रुटी', 'Lock सरासरी ms', 'Lock कमाल ms', 'Lock अपयश'];
+    var rows = r.actions.map(function(a) { return [a.action, a.est, a.samples, a.avgMs, a.maxMs, a.err, a.lockAvgMs, a.lockMaxMs, a.lockFails]; });
+    arCsvStore.us1 = {name: 'Usage_' + r.days + 'd.csv', rows: [hd].concat(rows)};
+    var maxH = 0; r.hours.forEach(function(h) { if (h.est > maxH) maxH = h.est; });
+    var hours = '<div class="us-hours">' + r.hours.map(function(h) { return '<div class="us-hrow"><span>' + pmEsc(h.h) + ':००</span><div class="us-bar" style="width:' + Math.max(2, Math.round(h.est * 100 / (maxH || 1))) + '%"></div><span>' + fmtIN(h.est) + '</span></div>'; }).join('') + '</div>';
+    var lv = {ok: '✅ ठीक', mid: '⚠️ ताण', high: '❌ Lock अपयश संभव'};
+    var sc = '<div style="overflow-x:auto"><table class="hist-table"><thead><tr><th>सर्व ' + r.scenarioBasis.teachers + ' शिक्षक इतक्या वेळात</th><th>Lock उपयोग</th><th>शेवटच्याला प्रतीक्षा</th><th>एकाच वेळी</th><th>स्थिती</th></tr></thead><tbody>' +
+      r.scenarios.map(function(x) { return '<tr><td>' + x.windowMin + ' मिनिटे</td><td>' + x.util + '%</td><td>~' + x.maxWaitSec + ' से.</td><td>~' + x.concurrent + '</td><td>' + lv[x.level] + '</td></tr>'; }).join('') + '</tbody></table></div>' +
+      '<div class="hs-empty">आधार: हजेरी-Save ≈ ' + r.scenarioBasis.saveMs + ' ms (' + (r.scenarioBasis.measured ? 'मोजलेले' : 'गृहीत — अजून पुरेसे नमुने नाहीत') + '). Lock मध्ये Save एकामागून एक होतात असे धरले (वरची मर्यादा); Google मर्यादा: एकाच वेळी ३० executions/वापरकर्ता.</div>';
+    body.innerHTML = ctl + cards + '<div class="sec-title" style="margin:12px 0 6px">⚙️ कृतीनिहाय</div>' +
+      '<div class="ar-filter"><input type="text" id="arq_us_tbl" placeholder="🔎 कृती..." oninput="arFilt(\'us_tbl\')"> ' + arCsvBtn('us1', 'वापर') + '</div>' + arTbl(hd, rows, null, {id: 'us_tbl'}) +
+      '<div class="sec-title" style="margin:12px 0 6px">🕒 तासानुसार (भारतीय वेळ)</div>' + hours +
+      '<div class="sec-title" style="margin:12px 0 6px">🧮 सकाळच्या गर्दीचा अंदाज</div>' + sc + usTips(r);
+    arFilt('us_tbl');
+  });
+}
+function usTips(r) {
+  return '<div class="sec-title" style="margin:12px 0 6px">💡 शिफारसी</div><ul class="us-tips">' + (r.tips || []).map(function(t) { return '<li>' + pmEsc(t) + '</li>'; }).join('') + '</ul>' +
+    '<div class="hs-empty">' + pmEsc(r.note || '') + '</div>';
+}
+// =====================================================================
+// ===== V19.63 (ब-९) — 🎓 वर्ष-अखेर मार्गदर्शक (Super) =====
+// कोणताही नवा विध्वंसक तर्क नाही: प्रत्येक पायरी विद्यमान action (runBackup, archivePassedOut, promoteStudents, startNewYear, archiveYear) बोलावते; त्यांचे गेट व पुष्टी तसेच (ARCHIVE / PROMOTE / NEWYEAR / ARCHIVEYEAR + saBackupGate).
+// स्थिती सर्व्हरवरून (डेटा + Script Property YEAREND_<वर्ष>) — पान Refresh केल्यावरही बरोबर. अयशस्वी पायरी = पुढे जात नाही. क्रम: Pass-out बढतीच्या आधी (archivePassedOut वर्गानुसार निवडतो).
+// =====================================================================
+var YE_TEXT = [
+  {t: 'ताजा Backup', w: 'Drive फोल्डरमध्ये पूर्ण फाइलची प्रत बनते (४८ तासांत यशस्वी Backup असल्यास ही पायरी आपोआप पूर्ण).', u: 'प्रत बनवणे सुरक्षित — परत करण्याची गरज नाही.'},
+  {t: 'डेटा तपासणी', w: 'फक्त तपासणी: दुबार Reg No, जन्मतारीख, WhatsApp, वय-वर्ग, फोटो. बदल काहीही होत नाही.', u: 'फक्त वाचन.'},
+  {t: 'थकबाकी आढावा', w: 'विद्यार्थ्यांची थकबाकी यादी (CSV). नवे वर्ष सुरू करताना ती "OPENING" म्हणून पुढे जाते — पण Pass-out होणाऱ्या (शेवटच्या वर्गाच्या) विद्यार्थ्यांची थकबाकी पुढे जात नाही, ती आताच वसूल करा/नोंदवा.', u: 'फक्त वाचन.'},
+  {t: 'शेवटच्या वर्गाची LC', w: 'शेवटच्या वर्गात LC नोंद नसलेले विद्यार्थी दाखवते (उत्तीर्ण होण्यापूर्वी LC लागेल).', u: 'फक्त तपासणी.'},
+  {t: 'शेवटच्या वर्गाचा Pass-out Archive', w: 'शेवटच्या वर्गाचे सर्व विद्यार्थी Students यादीतून "PassedOut_<वर्ष>" Sheet मध्ये जातात. बदलापूर्वीची प्रत आपोआप जतन होते.', u: '✅ परत करता येते: Super Admin → 🧹 वर्षअखेर साफसफाई → यादीतील ↩️ परत आणा. ⚠️ बढतीच्या आधीच करा — हे वर्गानुसार निवडते; बढतीनंतर या वर्गात नवे विद्यार्थी येतात.'},
+  {t: 'वर्ग-बढती', w: 'प्रत्येक वर्गाचे विद्यार्थी पुढच्या वर्गात जातात व शैक्षणिक वर्ष नवे होते. बदलापूर्वीची प्रत आपोआप जतन होते.', u: '✅ परत करता येते: Super Admin → 🎓 वर्ग-बढती कार्ड → बढतीच्या नोंदीतील ↩️ Undo.'},
+  {t: 'नवे वर्ष सुरू करा', w: 'चालू शैक्षणिक वर्ष बदलते; थकबाकी नव्या वर्षात OPENING म्हणून पुढे येते; नवी फी/Diary/प्रवास Sheets बनतात. वर्ग बदलत नाही.', u: '⚠️ सहज परत करता येत नाही (OPENING नोंदी राहतात; वर्ष हाताने बदलावे लागेल). Backup असल्याची खात्री करा.'},
+  {t: 'जुने वर्ष Archive', w: 'जुन्या वर्षाची Sheets (फी, डायरी, प्रवास, हजेरी, घरी जाणारे) Archive फाइलमध्ये हलतात; प्रत पडताळूनच मूळ काढली जाते. ॲपमध्ये जुना डेटा Archive मधून वाचता येतो.', u: '⚠️ मुख्य फाइलमधून Sheets निघतात; Archive फाइल Drive मध्ये राहते — परत आणणे हाताने (सोपे नाही). नवे वर्ष सुरू करून २–३ दिवस तपासणी करून मगच करा.'},
+  {t: 'अंतिम पडताळणी', w: 'वर्गनिहाय संख्या (अपेक्षित/प्रत्यक्ष), चालू वर्ष, Pass-out संख्या व Archive आरोग्य तपासते. फक्त वाचन.', u: 'फक्त वाचन.'}
+];
+var yeS = {year: ''};
+function yeIcon(st) { return st === 'done' ? '✅' : st === 'auto' ? '✅' : st === 'skipped' ? '⏭️' : st === 'active' ? '▶️' : '🔒'; }
+function yeStLabel(x) { return x.status === 'done' ? 'पूर्ण' + (x.by ? ' (' + pmEsc(x.by) + ')' : '') : x.status === 'auto' ? 'पूर्ण (आपोआप आढळले)' : x.status === 'skipped' ? 'वगळले/स्वीकारले — कारण: ' + pmEsc(x.reason) : x.status === 'active' ? 'आता ही करा' : 'आधीच्या पायऱ्या पूर्ण झाल्यावर'; }
+function yeReq(extra, cb) { var p = {requesterRole: currentUser.role, requesterUser: currentUser.username}; if (yeS.year) p.year = yeS.year; for (var k in extra) p[k] = extra[k]; jsonpRequest(p, cb); }
+function dqLoadWizard(seq) {
+  dqSt('⏳ वर्ष-अखेर स्थिती Load होत आहे (थोडा वेळ लागू शकतो)...');
+  yeReq({action: 'getYearEndWizard'}, function(r) {
+    if (seq !== dqS.seq) return;
+    if (!r || r.status !== 'ok') { dqSt(errTxt(r)); return; }
+    dqSt(''); yeS.year = r.closing; yeS.data = r; yeRender(r);
+  });
+}
+function yeRefresh() { dqLoadWizard(dqS.seq); }
+function yeMsg(n, t) { var e = document.getElementById('ye_msg' + n); if (e) e.textContent = t || ''; }
+function yeRender(r) {
+  var body = document.getElementById('dq_body'); if (!body) return;
+  var h = '<div class="ye-head"><b>🎓 वर्ष ' + pmEsc(r.closing) + ' → ' + pmEsc(r.newYear) + '</b> · चालू वर्ष: ' + pmEsc(r.current) + ' · शेवटचा वर्ग: ' + pmEsc(r.lastClass) + '</div>' +
+    '<div class="ye-note">ℹ️ क्रम महत्त्वाचा: <b>Pass-out आधी, बढती नंतर</b> (Pass-out वर्गानुसार निवडते). प्रत्येक पायरी विद्यमान कृतीच बोलावते; त्यांची पुष्टी तशीच आहे. पूर्वतपासणीसाठी जुना "वर्ष-अखेर" टॅबही पाहू शकता.</div>';
+  if (r.complete) h += '<div class="ye-done">🎉 ' + pmEsc(r.closing) + ' चे वर्ष-अखेर काम पूर्ण झाले आहे.</div>';
+  r.steps.forEach(function(x) {
+    var tx = YE_TEXT[x.n - 1];
+    h += '<div class="ye-step ye-' + x.status + '"><div class="ye-title">' + yeIcon(x.status) + ' पायरी ' + x.n + ' — ' + pmEsc(tx.t) + '</div>' +
+      '<div class="ye-state">' + yeStLabel(x) + '</div>' +
+      '<div class="ye-info"><b>काय होईल:</b> ' + pmEsc(tx.w) + '<br><b>परत करता येते का:</b> ' + pmEsc(tx.u) + '</div>' + yeBody(x, r) + '</div>';
+  });
+  body.innerHTML = h;
+}
+function yeInfoLine(x) {
+  var i = x.info || {};
+  if (x.n === 1) return i.hoursAgo !== null && i.hoursAgo !== undefined ? 'शेवटचा यशस्वी Backup: ' + i.hoursAgo + ' तासांपूर्वी' : 'यशस्वी Backup आढळला नाही';
+  if (x.n === 2) return 'डेटा-त्रुटी असलेले विद्यार्थी: <b>' + (i.issues || 0) + '</b>';
+  if (x.n === 3) return i.count !== undefined ? 'थकबाकी: ' + i.count + ' विद्यार्थी, ₹' + fmtIN(i.total) + ' (त्यातील शेवटच्या वर्गाचे: ' + (i.lastClassCount || 0) + ')' : '';
+  if (x.n === 4) return pmEsc(i.lastClass) + ': ' + i.lastCount + ' विद्यार्थी, LC बाकी: <b>' + i.lcPending + '</b>';
+  if (x.n === 5) return pmEsc(i.lastClass) + ' मध्ये सध्या ' + i.count + ' विद्यार्थी';
+  if (x.n === 6) return 'बढती मिळालेले (नोंद): ' + (i.promoted || 0);
+  if (x.n === 7) return 'नवे वर्ष: ' + pmEsc(i.newYear) + ' (चालू: ' + pmEsc(i.cur) + ')';
+  if (x.n === 8) { var d = i.startedAt ? (Date.now() - new Date(i.startedAt).getTime()) / 86400000 : null; return d === null ? 'नवे वर्ष सुरू केल्याची वेळ नोंद नाही' : 'नवे वर्ष सुरू करून ' + (Math.round(d * 10) / 10) + ' दिवस' + (d < 2 ? ' — ⚠️ २–३ दिवस तपासणी सुचवली आहे' : ''); }
+  return '';
+}
+function yeBody(x, r) {
+  var h = '', line = yeInfoLine(x);
+  if (line) h += '<div class="ye-line">' + line + '</div>';
+  var n = x.n, act = x.status === 'active';
+  if (!act) {
+    if (x.status === 'auto' && x.by === 'आपोआप' && (n === 5 || n === 6 || n === 7 || n === 8)) h += '<div><button class="btn btn-gray btn-sm" onclick="yeRecordDone(' + n + ')">🕒 कोणी/केव्हा नोंद करा</button></div>';
+    if (n === 9 && r.verify && (x.status === 'active' || x.status === 'done' || x.status === 'skipped')) { /* खाली */ }
+    if (n !== 9 || !r.verify) return h;
+  }
+  var skipBtn = '<button class="btn btn-gray btn-sm" onclick="yeSkip(' + n + ')">⏭️ वगळा / स्वीकारा (कारणासह)</button>';
+  if (n === 1 && act) h += '<div class="ye-act"><button class="btn btn-blue btn-sm" onclick="yeBackupNow()">▶️ आत्ता Backup घ्या</button> ' + skipBtn + '</div>';
+  if (n === 2 && act) h += '<div class="ye-act"><button class="btn btn-blue btn-sm" onclick="dqTab(\'q\')">🔎 डेटा तपासणी पाहा</button> ' + skipBtn + '</div>';
+  if (n === 3 && act) h += '<div class="ye-act"><button class="btn btn-blue btn-sm" onclick="yeDuesCsv()">⬇️ थकबाकी यादी CSV</button> <button class="btn btn-gold btn-sm" onclick="yeMarkDone(3)">✅ आढावा घेतला</button> ' + skipBtn + '</div>';
+  if (n === 4 && act) h += '<div class="ye-act"><button class="btn btn-blue btn-sm" onclick="showPage(\'lc\')">📋 LC पानावर जा</button> ' + skipBtn + '</div>';
+  if (n === 5 && act) h += '<div class="ye-act"><label>Archive चे नाव: <input type="text" id="ye_l5" value="' + pmEsc(r.closing) + '" style="width:110px"></label> <input type="text" id="ye_c5" placeholder="ARCHIVE टाइप करा" style="width:150px"> <button class="btn btn-red btn-sm" onclick="yePassOut()">📦 Pass-out Archive करा</button> ' + skipBtn + '</div>';
+  if (n === 6 && act) h += '<div id="ye_pv6" class="ye-line">⏳ बढतीचा आराखडा Load होत आहे...</div><div class="ye-act"><input type="text" id="ye_c6" placeholder="PROMOTE टाइप करा" style="width:150px"> <button class="btn btn-red btn-sm" onclick="yePromote()">🎓 बढती द्या</button> ' + skipBtn + '</div>';
+  if (n === 7 && act) h += '<div class="ye-act"><label><input type="checkbox" id="ye_k7" checked> थकबाकी पुढे आणा</label> <input type="text" id="ye_c7" placeholder="NEWYEAR टाइप करा" style="width:150px"> <button class="btn btn-red btn-sm" onclick="yeNewYear()">🗓️ नवे वर्ष सुरू करा</button> ' + skipBtn + '</div>';
+  if (n === 8 && act) h += '<div class="ye-act"><input type="text" id="ye_c8" placeholder="ARCHIVEYEAR टाइप करा" style="width:170px"> <button class="btn btn-red btn-sm" onclick="yeArchiveYear()">📦 ' + pmEsc(r.closing) + ' Archive करा</button> ' + skipBtn + '</div>';
+  if (n === 9 && r.verify) {
+    var v = r.verify;
+    h += '<div class="ye-line">चालू वर्ष: ' + pmEsc(v.current) + ' ' + (v.curOk ? '✅' : '❌ (अपेक्षित ' + pmEsc(v.newYear) + ')') + ' · जुन्या वर्षाचे विद्यार्थी: ' + v.notNewYear + (v.notNewYear ? ' ❌' : ' ✅') + '</div>';
+    if (v.noSnapshot) h += '<div class="ye-line">⚠️ बढतीपूर्वीची संख्या जतन नाही (wizard बढतीनंतर उघडला) — अपेक्षित संख्या तुलना करता येत नाही; "स्वीकारा" वापरा.</div>';
+    h += '<div style="overflow-x:auto"><table class="hist-table"><thead><tr><th>वर्ग</th><th>आधी</th><th>अपेक्षित</th><th>प्रत्यक्ष</th><th></th></tr></thead><tbody>' + v.classes.map(function(c) {
+      return '<tr><td>' + pmEsc(c.cls) + '</td><td>' + (c.before === null ? '—' : c.before) + '</td><td>' + (c.expected === null ? (v.noSnapshot ? '—' : 'नवे प्रवेश') : c.expected) + '</td><td>' + c.actual + '</td><td>' + (c.ok ? '✅' : '❌') + '</td></tr>'; }).join('') + '</tbody></table></div>' +
+      '<div class="ye-line">Pass-out (' + pmEsc(v.passedOut.sheet) + '): अपेक्षित ' + (v.passedOut.expected === null ? '—' : v.passedOut.expected) + ', प्रत्यक्ष ' + (v.passedOut.actual === null ? 'Sheet नाही' : v.passedOut.actual) + '</div>';
+    h += '<div id="ye_ah" class="ye-line"></div>';
+    if (act) h += '<div class="ye-act"><button class="btn btn-blue btn-sm" onclick="yeArchiveHealth()">🩺 Archive आरोग्य तपासणी</button> ' + (v.allOk ? '<button class="btn btn-gold btn-sm" onclick="yeMarkDone(9)">✅ सर्व ठीक — पूर्ण करा</button> ' : '') + skipBtn + '</div>';
+  }
+  h += '<div id="ye_msg' + n + '" class="ye-err"></div>';
+  if (n === 6 && act) setTimeout(yeLoadPromoPreview, 0);
+  return h;
+}
+function yeSkip(n) {
+  var why = prompt('कारण लिहा (किमान ५ अक्षरे) — ही पायरी वगळली/स्वीकारली जाईल व नोंद राहील:'); if (why === null) return;
+  yeSet(n, 'skipped', why.trim());
+}
+function yeMarkDone(n) { yeSet(n, 'done', ''); }
+function yeRecordDone(n) { yeSet(n, 'done', ''); }
+function yeSet(n, status, reason, then) {
+  yeReq({action: 'setYearEndStep', step: n, status: status, reason: reason}, function(r) {
+    if (!r || r.status !== 'ok') { yeMsg(n, '❌ ' + friendlyMsg((r && r.message) || 'Failed')); if (then) then(false); return; }
+    yeS.data = r; yeRender(r); if (then) then(true);
+  });
+}
+function yeAfter(n, r0, okText) {   // विद्यमान action यशस्वी झाल्यावर: नोंद करा व स्थिती Refresh
+  yeMsg(n, '✅ ' + okText + ' — स्थिती नोंदवत आहे...');
+  yeSet(n, 'done', '', function(ok) { if (!ok) yeRefresh(); });
+}
+function yeBackupNow() {
+  yeMsg(1, '⏳ Backup चालू आहे...');
+  smartSaveRaw({action: 'runBackup', requesterUser: currentUser.username, requesterRole: currentUser.role}, function(r) {
+    if (r && r.status === 'ok') yeRefresh(); else yeMsg(1, '❌ Backup अयशस्वी: ' + friendlyMsg((r && r.message) || '') + ' — पुढे जात नाही.');
+  });
+}
+function yeDuesCsv() {
+  yeMsg(3, '⏳ यादी तयार होत आहे...');
+  jsonpRequest({action: 'getYearEndCheck', requesterRole: currentUser.role}, function(r) {
+    if (!r || r.status !== 'ok') { yeMsg(3, '❌ ' + friendlyMsg((r && r.message) || 'Failed')); return; }
+    arCsvStore.ye1 = {name: 'Thakbaki_' + (yeS.year || '') + '.csv', rows: [['Reg No', 'नाव', 'वर्ग', 'तुकडी', 'हजेरी क्र.', 'थकबाकी ₹']].concat(r.dues || [])};
+    yeMsg(3, '✅ ' + (r.dues || []).length + ' विद्यार्थी, एकूण ₹' + fmtIN(r.total ? r.total.dueSum : 0)); arDoCsv('ye1');
+  });
+}
+function yePassOut() {
+  var r = yeS.data, c = (document.getElementById('ye_c5') || {}).value || '', label = ((document.getElementById('ye_l5') || {}).value || '').trim(), cls = r.lastClass, n = (r.steps[4].info || {}).count || 0;
+  if (c.trim() !== 'ARCHIVE') { yeMsg(5, '⚠️ खात्रीसाठी ARCHIVE टाइप करा.'); return; }
+  if (!/^[0-9A-Za-z_\- ]{3,20}$/.test(label)) { yeMsg(5, '⚠️ Archive चे नाव (उदा. ' + r.closing + ') टाका.'); return; }
+  if (!confirm(cls + ' चे ' + n + ' विद्यार्थी Students यादीतून काढून "PassedOut_' + label + '" मध्ये ठेवायचे?\n\nबदलापूर्वीची प्रत आपोआप जतन होते व परत आणता येते.')) return;
+  yeMsg(5, '⏳ चालू आहे — पान बंद करू नका...');
+  smartSave({action: 'archivePassedOut', iyatta: cls, label: label, confirm: 'ARCHIVE', requesterUser: currentUser.username, requesterRole: currentUser.role}, function(x) {
+    if (x && x.status === 'ok') { try { clearStudentCache(); } catch (e) {} yeAfter(5, x, x.count + ' विद्यार्थी Archive झाले'); } else yeMsg(5, '❌ ' + friendlyMsg((x && x.message) || 'Failed') + ' — पुढे जात नाही.');
+  });
+}
+var yePromo = {map: {}, total: 0};
+function yeLoadPromoPreview() {
+  var el = document.getElementById('ye_pv6'); if (!el) return;
+  jsonpRequest({action: 'previewPromotion', requesterRole: currentUser.role}, function(r) {
+    el = document.getElementById('ye_pv6'); if (!el) return;
+    if (!r || r.status !== 'ok') { el.textContent = '❌ ' + friendlyMsg((r && r.message) || 'Failed'); return; }
+    var last = yeS.data.lastClass, map = {}, total = 0, parts = [];
+    r.classes.forEach(function(c) { if (c.iyatta !== last && c.suggestedNext) { map[c.iyatta] = c.suggestedNext; total += c.count; parts.push(pmEsc(c.iyatta) + ' → ' + pmEsc(c.suggestedNext) + ' (' + c.count + ')'); } });
+    yePromo = {map: map, total: total};
+    el.innerHTML = 'आराखडा (सुचवलेला; ' + pmEsc(last) + ' वगळून): ' + (parts.join(', ') || '— काहीही नाही —') + '<br>एकूण <b>' + total + '</b> विद्यार्थी. तुकड्या बदलायच्या असतील तर बढतीनंतर Super Admin मधून.';
+  });
+}
+function yePromote() {
+  var r = yeS.data, c = (document.getElementById('ye_c6') || {}).value || '';
+  if (!Object.keys(yePromo.map).length) { yeMsg(6, '⚠️ बढतीचा आराखडा अजून Load झाला नाही / रिकामा आहे.'); return; }
+  if (c.trim() !== 'PROMOTE') { yeMsg(6, '⚠️ खात्रीसाठी PROMOTE टाइप करा.'); return; }
+  if (!confirm('एकूण ' + yePromo.total + ' विद्यार्थ्यांना पुढच्या वर्गात हलवायचे? (नवीन वर्ष: ' + r.newYear + ')\n\nबढतीपूर्वीची Students ची प्रत आपोआप जतन होईल व Undo करता येईल.')) return;
+  yeMsg(6, '⏳ बढती चालू आहे — पान बंद करू नका...');
+  smartSave({action: 'promoteStudents', mapJson: JSON.stringify(yePromo.map), newAcYear: r.newYear, confirm: 'PROMOTE', requesterUser: currentUser.username, requesterRole: currentUser.role}, function(x) {
+    if (x && x.status === 'ok') { try { clearStudentCache(); } catch (e) {} yeAfter(6, x, x.count + ' विद्यार्थ्यांना बढती मिळाली'); } else yeMsg(6, '❌ ' + friendlyMsg((x && x.message) || 'Failed') + ' — पुढे जात नाही.');
+  });
+}
+function yeNewYear() {
+  var r = yeS.data, c = (document.getElementById('ye_c7') || {}).value || '', carry = !!(document.getElementById('ye_k7') || {}).checked;
+  if (c.trim() !== 'NEWYEAR') { yeMsg(7, '⚠️ खात्रीसाठी NEWYEAR टाइप करा.'); return; }
+  if (!confirm('नवे शैक्षणिक वर्ष ' + r.newYear + ' सुरू करायचे?\n\n' + (carry ? 'मागील थकबाकी नव्या वर्षात "सुरुवातीची बाकी" म्हणून पुढे येईल.' : 'थकबाकी पुढे आणली जाणार नाही.') + '\n\n⚠️ हे सहज परत करता येत नाही.')) return;
+  yeMsg(7, '⏳ चालू आहे — कृपया थांबा...');
+  saBackupGate(function(ack) {
+    smartSaveRaw({action: 'startNewYear', ackNoBackup: ack, newYear: r.newYear, carry: carry ? '1' : '0', confirm: 'NEWYEAR', requesterUser: currentUser.username, requesterRole: currentUser.role}, function(x) {
+      if (x && x.status === 'ok') { try { clearStudentCache(); } catch (e) {} yeAfter(7, x, 'चालू वर्ष आता ' + x.extra.newYear + '; ' + x.extra.carried + ' विद्यार्थ्यांची बाकी पुढे आणली'); } else yeMsg(7, '❌ ' + friendlyMsg((x && x.message) || 'Failed') + ' — पुढे जात नाही.');
+    });
+  });
+}
+function yeArchiveYear() {
+  var r = yeS.data, c = (document.getElementById('ye_c8') || {}).value || '', i = r.steps[7].info || {};
+  if (c.trim() !== 'ARCHIVEYEAR') { yeMsg(8, '⚠️ खात्रीसाठी ARCHIVEYEAR टाइप करा.'); return; }
+  var d = i.startedAt ? (Date.now() - new Date(i.startedAt).getTime()) / 86400000 : null;
+  if (d !== null && d < 2 && !confirm('⚠️ नवे वर्ष सुरू करून फक्त ' + (Math.round(d * 10) / 10) + ' दिवस झाले. २–३ दिवस तपासणी करून मग Archive करणे सुचवले जाते.\n\nतरीही आता करायचे?')) return;
+  if (!confirm(r.closing + ' ची सर्व Sheets (फी, डायरी, प्रवास, हजेरी, घरी जाणारे) मुख्य फाइलमधून Archive फाइलमध्ये हलवायची?\n\nप्रत बनवून पडताळणी झाल्यावरच मूळ Sheet काढली जाते.')) return;
+  yeMsg(8, '⏳ चालू आहे (१–२ मिनिटे लागू शकतात)...');
+  saBackupGate(function(ack) {
+    smartSaveRaw({action: 'archiveYear', ackNoBackup: ack, year: r.closing, confirm: 'ARCHIVEYEAR', requesterUser: currentUser.username, requesterRole: currentUser.role}, function(x) {
+      if (x && x.status === 'ok') yeAfter(8, x, x.extra.moved.length + ' Sheets हलवल्या' + (x.extra.failed.length ? ' (⚠️ अयशस्वी: ' + x.extra.failed.length + ')' : '')); else yeMsg(8, '❌ ' + friendlyMsg((x && x.message) || 'Failed') + ' — पुढे जात नाही.');
+    });
+  });
+}
+function yeArchiveHealth() {
+  var el = document.getElementById('ye_ah'); if (el) el.textContent = '⏳ तपासत आहे...';
+  jsonpRequest({action: 'getArchiveHealth', year: yeS.year, requesterRole: currentUser.role}, function(r) {
+    el = document.getElementById('ye_ah'); if (!el) return;
+    if (!r || r.status !== 'ok') { el.textContent = '❌ ' + friendlyMsg((r && r.message) || 'Failed'); return; }
+    el.innerHTML = '🩺 Archive ' + pmEsc(yeS.year) + ': ' + (r.ok ? '✅ ठीक' : '❌ समस्या') + (r.problems || []).map(function(p) { return '<div class="ye-err">❌ ' + pmEsc(p) + '</div>'; }).join('') + (r.warnings || []).map(function(w) { return '<div>⚠️ ' + pmEsc(w) + '</div>'; }).join('');
+  });
+}
+// =====================================================================
+// ===== V19.63 (ब-१०) — 📋 मुख्याध्यापकांचा रोजचा सारांश (Super / Master) =====
+// एका तारखेचा सारांश: उपस्थिती (वर्गनिहाय), हजेरी बाकी वर्ग + वर्ग-शिक्षक, घरी जाणारे, फी जमा, नोटीस, विद्यार्थी-बदल. मराठी संदेश (कॉपी / WhatsApp) व A4 PDF.
+// ईमेल पाठवणे जाणीवपूर्वक नाही (मालकाचा निर्णय).
+// =====================================================================
+var DS_SCHOOL = 'श्री. गोविंदराव सेक्सरिया हायस्कूल, पाचोरा';
+var _ds = {data: null};
+function dsLocalToday() { var d = new Date(); function z(n) { return (n < 10 ? '0' : '') + n; } return d.getFullYear() + '-' + z(d.getMonth() + 1) + '-' + z(d.getDate()); }
+function dsClsName(iyatta, tukdi) { return classToMr(String(iyatta || '')) + (tukdi ? ' ' + tukdi : ''); }
+function dsBuildMessage(r) {
+  if (!r) return '';
+  var L = ['📋 ' + DS_SCHOOL + ' — ' + pvFmtDate(r.date)];
+  if (r.dayType === 'future') { L.push('ℹ️ ' + r.message); return L.join('\n'); }
+  var a = r.attendance || {}, t = a.totals || {};
+  if (r.dayType === 'sunday' || r.dayType === 'nodata_past' || r.dayType === 'nodata_today') L.push('ℹ️ ' + r.message);
+  else {
+    L.push('उपस्थिती: ' + t.present + '/' + t.total + (t.pct !== null && t.pct !== undefined ? ' (' + t.pct + '%)' : '') + ' — गैरहजर ' + t.absent);
+    L.push(a.pending && a.pending.length ? 'हजेरी बाकी (' + a.pending.length + '): ' + a.pending.map(function(p) { return dsClsName(p.iyatta, p.tukdi) + (p.teacher ? ' (' + p.teacher + ')' : ''); }).join(', ') : 'हजेरी बाकी: नाही ✅');
+  }
+  var el = r.earlyLeave || {};
+  if (el.total) L.push('घरी गेले: ' + el.gone + ' (परवानगी ' + el.permitted + (el.notGone ? ', न गेलेले ' + el.notGone : '') + ')');
+  var f = r.fees || {};
+  L.push('फी जमा: ₹' + fmtIN(f.total) + ' (' + (f.count || 0) + ' नोंदी)');
+  if (r.notices && r.notices.length) L.push('नोटीस: ' + r.notices.length + ' — ' + r.notices.map(function(n) { return n.title; }).join(', '));
+  var c = r.changes || {};
+  if (c.total) L.push('विद्यार्थी-बदल: ' + c.total + ' (' + c.students + ' विद्यार्थी)');
+  return L.join('\n');
+}
+function dsLoad(done) {
+  var inp = document.getElementById('ds_date'), body = document.getElementById('ds_body');
+  if (!body) { if (done) done(); return; }
+  if (inp && !inp.value) inp.value = dsLocalToday();
+  var date = inp ? inp.value : dsLocalToday();
+  body.innerHTML = '⏳ Load होत आहे...';
+  jsonpRequest({action: 'getDailySummary', date: date, requesterRole: currentUser.role}, function(r) {
+    if (done) done();
+    if (!r || r.status !== 'ok') { body.innerHTML = '<div class="pm-note">❌ ' + pmEsc(errTxt(r)) + '</div>'; return; }
+    _ds.data = r; dsRender(r);
+  });
+}
+function dsWaLink(mobile) { var d = String(mobile || '').replace(/\D/g, ''); if (d.length === 10) d = '91' + d; return d.length >= 11 ? 'https://wa.me/' + d : ''; }
+function dsRender(r) {
+  var body = document.getElementById('ds_body'), msgBox = document.getElementById('ds_msg'); if (!body) return;
+  var a = r.attendance, h = '';
+  if (r.message) h += '<div class="ds-banner">ℹ️ ' + pmEsc(r.message) + '</div>';
+  if (a && r.dayType !== 'future') {
+    var t = a.totals || {};
+    if (r.dayType === 'normal') {
+      h += '<div class="us-cards"><div class="us-card"><b>' + t.present + '/' + t.total + '</b>उपस्थिती' + (t.pct !== null ? ' (' + t.pct + '%)' : '') + '</div><div class="us-card"><b>' + t.absent + '</b>गैरहजर</div><div class="us-card"><b>' + (a.pending ? a.pending.length : 0) + '</b>हजेरी बाकी वर्ग</div></div>';
+      h += '<div style="overflow-x:auto"><table class="hist-table"><thead><tr><th>वर्ग</th><th>एकूण</th><th>हजर</th><th>गैरहजर</th><th>%</th></tr></thead><tbody>' + a.classes.map(function(c) { return '<tr><td>' + pmEsc(dsClsName(c.iyatta, c.tukdi)) + '</td><td>' + c.total + '</td><td>' + c.present + '</td><td>' + c.absent + '</td><td>' + (c.pct === null ? '—' : c.pct) + '</td></tr>'; }).join('') + '</tbody></table></div>';
+    }
+    if (a.pending && a.pending.length && r.dayType !== 'nodata_past') {
+      h += '<div class="sec-title" style="margin:10px 0 4px">⏳ हजेरी बाकी (' + a.pending.length + ')</div><ul class="us-tips">' + a.pending.map(function(p) {
+        var wa = dsWaLink(p.mobile); return '<li>' + pmEsc(dsClsName(p.iyatta, p.tukdi)) + ' — ' + pmEsc(p.teacher) + (wa ? ' <a href="' + pmEsc(wa) + '" target="_blank" rel="noopener">💬 WhatsApp</a>' : '') + '</li>'; }).join('') + '</ul>';
+    }
+    if (a.noTeacher && a.noTeacher.length && r.dayType === 'normal') h += '<div class="hs-empty">वर्ग-शिक्षक नेमलेला नाही: ' + a.noTeacher.map(function(c) { return pmEsc(dsClsName(c.iyatta, c.tukdi)); }).join(', ') + '</div>';
+  }
+  if (r.dayType !== 'future') {
+    var el = r.earlyLeave || {}, f = r.fees || {}, c2 = r.changes || {};
+    h += '<div class="ds-lines">' + (el.total ? '🚪 घरी गेले: <b>' + el.gone + '</b> (परवानगी ' + el.permitted + (el.notGone ? ', न गेलेले ' + el.notGone : '') + (el.other ? ', इतर ' + el.other : '') + ')<br>' : '') +
+      '💰 फी जमा: <b>₹' + fmtIN(f.total) + '</b> (' + (f.count || 0) + ' नोंदी' + (f.byClass && f.byClass.length ? '; ' + f.byClass.map(function(x) { return pmEsc(classToMr(x.cls)) + ' ₹' + fmtIN(x.amount); }).join(', ') : '') + ')<br>' +
+      '📢 नोटीस: <b>' + ((r.notices || []).length) + '</b>' + ((r.notices || []).length ? ' — ' + r.notices.map(function(n) { return pmEsc(n.title); }).join(', ') : '') + '<br>' +
+      '🧑‍🎓 विद्यार्थी-बदल: <b>' + (c2.total || 0) + '</b>' + (c2.total ? ' (' + c2.students + ' विद्यार्थी)' : '') + '</div>';
+  }
+  body.innerHTML = h;
+  if (msgBox) msgBox.value = dsBuildMessage(r);
+}
+function dsCopy() {
+  var box = document.getElementById('ds_msg'); if (!box || !box.value) return;
+  var done = function() { showCacheToast('✅ संदेश कॉपी झाला.', '#14301a', '#9be0a8'); };
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(box.value).then(done).catch(function() { box.select(); try { document.execCommand('copy'); done(); } catch (e) {} });
+  else { box.select(); try { document.execCommand('copy'); done(); } catch (e) {} }
+}
+function dsWhatsApp() { var box = document.getElementById('ds_msg'); if (!box || !box.value) return; window.open('https://wa.me/?text=' + encodeURIComponent(box.value), '_blank'); }
+function dsPdfHtml(r) {
+  var a = r.attendance || {}, t = a.totals || {}, f = r.fees || {}, el = r.earlyLeave || {}, c = r.changes || {};
+  var h = '<div style="text-align:center;margin-bottom:5mm"><div style="font-size:16pt;font-weight:800;color:#1a2a4a">श्री. गो. से. हायस्कूल, पाचोरा</div><div style="font-size:12pt;font-weight:700;margin-top:1mm">रोजचा सारांश — ' + pmEsc(pvFmtDate(r.date)) + '</div></div>';
+  if (r.message) h += '<div style="border:0.3mm solid #bbb;padding:2mm 3mm;margin-bottom:3mm;font-size:10pt">ℹ️ ' + pmEsc(r.message) + '</div>';
+  if (r.dayType === 'normal') {
+    h += '<div style="font-size:10.5pt;margin-bottom:2mm"><b>उपस्थिती:</b> ' + t.present + '/' + t.total + (t.pct !== null ? ' (' + t.pct + '%)' : '') + ' — गैरहजर ' + t.absent + '</div>' +
+      '<table style="width:100%;border-collapse:collapse;font-size:9.5pt;margin-bottom:3mm"><tr style="background:#eee"><th style="border:0.3mm solid #999;padding:1mm 2mm;text-align:left">वर्ग</th><th style="border:0.3mm solid #999;padding:1mm">एकूण</th><th style="border:0.3mm solid #999;padding:1mm">हजर</th><th style="border:0.3mm solid #999;padding:1mm">गैरहजर</th><th style="border:0.3mm solid #999;padding:1mm">%</th></tr>' +
+      a.classes.map(function(x) { return '<tr><td style="border:0.3mm solid #999;padding:1mm 2mm">' + pmEsc(dsClsName(x.iyatta, x.tukdi)) + '</td><td style="border:0.3mm solid #999;padding:1mm;text-align:center">' + x.total + '</td><td style="border:0.3mm solid #999;padding:1mm;text-align:center">' + x.present + '</td><td style="border:0.3mm solid #999;padding:1mm;text-align:center">' + x.absent + '</td><td style="border:0.3mm solid #999;padding:1mm;text-align:center">' + (x.pct === null ? '—' : x.pct) + '</td></tr>'; }).join('') + '</table>';
+    h += '<div style="font-size:10pt;margin-bottom:2mm"><b>हजेरी बाकी:</b> ' + (a.pending && a.pending.length ? a.pending.map(function(p) { return pmEsc(dsClsName(p.iyatta, p.tukdi)) + ' (' + pmEsc(p.teacher) + ')'; }).join(', ') : 'नाही') + '</div>';
+  }
+  h += '<div style="font-size:10pt;line-height:1.7">' + (el.total ? '<b>घरी गेले:</b> ' + el.gone + ' (परवानगी ' + el.permitted + ')<br>' : '') + '<b>फी जमा:</b> ₹' + fmtIN(f.total) + ' (' + (f.count || 0) + ' नोंदी)' + (f.byClass && f.byClass.length ? ' — ' + f.byClass.map(function(x) { return pmEsc(classToMr(x.cls)) + ' ₹' + fmtIN(x.amount); }).join(', ') : '') + '<br><b>नोटीस:</b> ' + ((r.notices || []).length ? r.notices.map(function(n) { return pmEsc(n.title); }).join(', ') : 'नाही') + '<br><b>विद्यार्थी-बदल:</b> ' + (c.total || 0) + (c.total ? ' (' + c.students + ' विद्यार्थी)' : '') + '</div>';
+  return h;
+}
+function dsPdf() {
+  var r = _ds.data; if (!r || r.dayType === 'future') return;
+  var btn = document.getElementById('ds_pdfBtn'), orig = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ PDF...'; }
+  var container = document.createElement('div'); container.style.cssText = 'position:fixed;left:-99999px;top:0;';
+  var page = document.createElement('div');
+  page.style.cssText = 'width:210mm;min-height:297mm;padding:12mm;box-sizing:border-box;background:#fff;font-family:"Kokila","Noto Sans Devanagari","Mukta",sans-serif;color:#111';
+  page.innerHTML = dsPdfHtml(r); container.appendChild(page); document.body.appendChild(container);
+  function done(err) {
+    if (container.parentNode) container.parentNode.removeChild(container);
+    if (btn) { btn.disabled = false; btn.textContent = orig; }
+    if (err) alert('❌ PDF त्रुटी: ' + err.message);
+  }
+  var go = function() {
+    requestAnimationFrame(function() { requestAnimationFrame(function() {
+      html2canvas(page, {scale: 2.5, useCORS: true, backgroundColor: '#ffffff', logging: false}).then(function(canvas) {
+        var pdfW = 210, pdfH = 297, asp = canvas.width / canvas.height, w = pdfW, h = pdfW / asp; if (h > pdfH) { h = pdfH; w = pdfH * asp; }
+        var doc = new window.jspdf.jsPDF({orientation: 'portrait', unit: 'mm', format: 'a4', compress: true});
+        doc.addImage(canvas.toDataURL('image/jpeg', 0.95), 'JPEG', (pdfW - w) / 2, 0, w, h);
+        doc.save('Daily_Summary_' + r.date + '.pdf'); done(null);
+      }).catch(done);
+    }); });
+  };
+  if (document.fonts && document.fonts.ready) Promise.all([document.fonts.load('400 12pt "Noto Sans Devanagari"'), document.fonts.load('700 12pt "Noto Sans Devanagari"'), document.fonts.ready]).then(go).catch(go); else go();
 }
 function dqFilterBar(id, rows, clsIdx, csvName) {   // ids arq_/arc_/arn_ — arFilt() वापरतो
   var cls = {}; rows.forEach(function(r) { var v = String(r[clsIdx] === null || r[clsIdx] === undefined ? '' : r[clsIdx]); if (v) cls[v] = 1; });

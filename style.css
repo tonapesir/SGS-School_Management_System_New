@@ -19,7 +19,7 @@ body.role-deo .master-only,
 body.role-cert .master-only,
 body.role-cert .edit-only,
 body.role-cert .user-hidden{display:none!important}
-body.role-deo .navbtn:not([data-page="student"]):not([data-page="search"]):not([data-page="history"]):not([data-page="users"]):not([data-page="profile"]):not([data-page="teacherlist"]),
+body.role-deo .navbtn:not([data-page="help"]):not([data-page="student"]):not([data-page="search"]):not([data-page="history"]):not([data-page="users"]):not([data-page="profile"]):not([data-page="teacherlist"]),
 body.role-deo .dcard:not([data-page="student"]):not([data-page="search"]):not([data-page="history"]):not([data-page="users"]):not([data-page="profile"]):not([data-page="teacherlist"]){display:none!important}
 /* cert role can save BF/AT */
 body.role-cert .cert-save{display:inline-flex!important}
@@ -36,7 +36,7 @@ body.role-master #userMgmtAdminCards{display:none!important}
 /* सर्व Users ला आता Google Sheets URL + Load Students सुविधा उपलब्ध (V19.15) */
 
 /* ===== CLASS TEACHER ROLE (V19.32) — फक्त स्वतःच्या वर्गाचे Teacher पान दिसते ===== */
-body.role-teacher .navbtn:not([data-page="teacher"]):not([data-page="earlyleave"]):not([data-page="report"]):not([data-page="scholarship"]),
+body.role-teacher .navbtn:not([data-page="help"]):not([data-page="teacher"]):not([data-page="earlyleave"]):not([data-page="report"]):not([data-page="scholarship"]),
 body.role-teacher .dcard:not([data-page="teacher"]):not([data-page="earlyleave"]):not([data-page="report"]){display:none!important}
 body.role-teacher .master-only,
 body.role-teacher .edit-only{display:none!important}
@@ -395,7 +395,7 @@ body.auth-locked #pwaInstallBtn{display:none!important}
 }
 
 /* ===== V19.37 — घरी जाणारे विद्यार्थी + Peon भूमिका ===== */
-body.role-peon .navbtn:not([data-page="search"]):not([data-page="profile"]):not([data-page="earlyleave"]):not([data-page="teacherlist"]),
+body.role-peon .navbtn:not([data-page="help"]):not([data-page="search"]):not([data-page="profile"]):not([data-page="earlyleave"]):not([data-page="teacherlist"]),
 body.role-peon .dcard{display:none!important}
 body.role-peon .master-only,body.role-peon .edit-only,body.role-peon .super-only,body.role-peon .cert-save{display:none!important}
 body.role-cert .navbtn[data-page="earlyleave"],body.role-cert .dcard[data-page="earlyleave"]{display:none!important}
@@ -545,3 +545,21 @@ input::placeholder,textarea::placeholder{color:#5c5c5c;opacity:1}
 .ds-banner{background:var(--navy3);border:1px solid var(--gold2);border-radius:8px;padding:8px 10px;margin-bottom:8px;color:var(--txt)}
 .ds-lines{margin-top:10px;line-height:1.8;color:var(--txt)}
 .us-tips a,.ds-lines a{color:var(--gold2);text-decoration:underline}   /* V19.63: ब्राउझरचा निळा दुवा गडद पार्श्वभूमीवर 1.5:1 होता */
+
+/* V19.64 (ब-१२): ❓ मदत पान — गडद थीम */
+#help_body{color:var(--txt);font-size:14px;line-height:1.65}
+.hp-sec{background:var(--navy3);border:1px solid rgba(240,232,216,.3);border-radius:10px;padding:10px 14px;margin-bottom:12px}
+.hp-sec h3{font-size:16px;color:var(--gold2);margin:2px 0 6px}
+.hp-sec h4{font-size:14px;color:var(--txt);margin:12px 0 2px;border-bottom:1px solid rgba(240,232,216,.25);padding-bottom:2px}
+.hp-sec p,.hp-sec li{font-size:13.5px;color:var(--txt)}
+.hp-sec ul,.hp-sec ol{margin:4px 0 4px 20px;padding:0}
+.hp-sec figure{margin:10px 0;text-align:center}
+.hp-sec figure img{max-width:100%;width:300px;border:1px solid rgba(240,232,216,.35);border-radius:8px}
+.hp-sec figcaption{font-size:12px;color:rgba(240,232,216,.85);margin-top:3px}
+.hp-tip{background:#14233f;border:1px solid var(--gold2);border-radius:8px;padding:7px 10px;margin:8px 0;font-size:13px;color:var(--txt)}
+.hp-small{font-size:12px;color:rgba(240,232,216,.85)}
+.hp-tblwrap{overflow-x:auto;margin:6px 0}
+.hp-tbl{border-collapse:collapse;width:100%;min-width:300px;font-size:13px;color:var(--txt)}
+.hp-tbl th,.hp-tbl td{border:1px solid rgba(240,232,216,.35);padding:5px 8px;vertical-align:top;text-align:left}
+.hp-tbl th{background:#14233f;color:var(--gold2)}
+.hp-sec a{color:var(--gold2)}

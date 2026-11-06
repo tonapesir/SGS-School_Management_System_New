@@ -32,7 +32,7 @@ window.androidBackPressed = function() {
 
 
 // URL persistence
-var DEFAULT_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbyFQ9g2IctwniTD8zrOuMLewGYzOHxRFgiwCooiI2ktsd0qL0nz7aQ7vCizGuKADrOc/exec';
+var DEFAULT_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbzYboWgy7FfCTg2zGHV3Us5Y8xWicnNY7p80q14-5fqc9OaRwy_2OUaZ_8wLRZdntzw/exec';
 
 // =====================================================
 // 🔐 LOGIN + ROLE PERMISSIONS
@@ -174,12 +174,12 @@ function handleAuthExpired() {
   setTimeout(function() { _authExpiredHandled = false; }, 2000);
 }
 var USER_ALLOWED_PAGES = {
-  master: ['dashboard','student','lc','bonafide','attendance','search','history','users','profile','stats','maintenance','classinfo','report','attanalytics','earlyleave','scholarship','teacherlist','archive'],
-  deo:    ['student','search','history','users','profile','teacherlist'],
-  cert:   ['bonafide','attendance','search','history','users','profile'],
-  super:  ['dashboard','student','lc','bonafide','attendance','search','history','users','profile','stats','maintenance','classinfo','report','superadmin','attanalytics','earlyleave','scholarship','teacherlist','archive','dataqc'],
-  teacher:['teacher','profile','report','earlyleave','scholarship'],
-  peon:   ['search','profile','earlyleave','teacherlist']   // शिपाई: विद्यार्थी शोध, प्रोफाइल, घरी जाणाऱ्यांची मार्क-आउट यादी
+  master: ['dashboard','student','lc','bonafide','attendance','search','history','users','profile','stats','maintenance','classinfo','report','attanalytics','earlyleave','scholarship','teacherlist','archive','help'],
+  deo:    ['student','search','history','users','profile','teacherlist','help'],
+  cert:   ['bonafide','attendance','search','history','users','profile','help'],
+  super:  ['dashboard','student','lc','bonafide','attendance','search','history','users','profile','stats','maintenance','classinfo','report','superadmin','attanalytics','earlyleave','scholarship','teacherlist','archive','dataqc','help'],
+  teacher:['teacher','profile','report','earlyleave','scholarship','help'],
+  peon:   ['search','profile','earlyleave','teacherlist','help']   // शिपाई: विद्यार्थी शोध, प्रोफाइल, घरी जाणाऱ्यांची मार्क-आउट यादी
 };
 var CERT_EDITABLE_FIELDS = {
   bf: ['bf_regNo','bf_stxt2','bf_stxt57','bf_stxt3','bf_stxt3_sel','bf_stxt6'],
@@ -860,7 +860,7 @@ var clientPerf = [];
 // नियम: पैसा/थकबाकी/फी जमा स्क्रीनवर कधीही जुना डेटा नाही • २४ तासांहून जुना cache वापरत नाही • अॅप-आवृत्ती बदलल्यास रद्द •
 //       प्रत्येकी ~300 KB / एकूण ~1 MB मर्यादा • Logout वर पूर्ण पुसले जाते • Token कधीही साठवत नाही (फक्त उत्तर).
 // =====================================================================
-var APP_VERSION = 'V19.63';
+var APP_VERSION = 'V19.64';
 var SWR_PREFIX = 'sgs_swr:';
 var SWR_ROSTER_MAX_AGE_MS = 3 * 24 * 3600 * 1000;   // V19.60.1: शिक्षकाची वर्ग-यादी ३ दिवस (ऑफलाइन Login च्या मुदतीइतकी); बाकी २४ तास
 var SWR_MAX_AGE_MS = 24 * 3600 * 1000, SWR_MAX_ENTRY = 300 * 1024, SWR_MAX_TOTAL = 1024 * 1024;
@@ -4004,6 +4004,7 @@ function bulkExportCertificates() {
 var _origShowPage = showPage;
 showPage = function(name, btn) {
   _origShowPage(name, btn);
+  if (name === 'help') { try { helpRender(); } catch (e) {} }   // V19.64: भूमिकेनुसार मदत
   if (name === 'search') {
     var stat = document.getElementById('srch_status');
     if (stat && !stat.textContent) runSearch();
@@ -8000,6 +8001,25 @@ function dsPdf() {
     }); });
   };
   if (document.fonts && document.fonts.ready) Promise.all([document.fonts.load('400 12pt "Noto Sans Devanagari"'), document.fonts.load('700 12pt "Noto Sans Devanagari"'), document.fonts.ready]).then(go).catch(go); else go();
+}
+// =====================================================================
+// ===== V19.64 (ब-१२) — ❓ मदत: भूमिकेनुसार वापरकर्ता-मार्गदर्शिका =====
+// मजकूर index.html मधील <template id="help_tpl"> मध्ये (स्थिर HTML; स्रोत tools/help_content.html). इतर भूमिकांचे विभाग DOM मध्ये कधीच येत नाहीत.
+// =====================================================================
+var HELP_ROLE_VIEW = {teacher: ['teacher'], deo: ['deo'], cert: ['cert'], peon: ['peon'], master: ['master'], super: ['master', 'super']};
+var HELP_ROLE_NAME = {teacher: 'वर्ग शिक्षक', deo: 'DEO', cert: 'प्रमाणपत्र-वापरकर्ता (Cert)', peon: 'शिपाई', master: 'मुख्याध्यापक / Master', super: 'Super Admin'};
+function helpRender() {
+  var tpl = document.getElementById('help_tpl'), body = document.getElementById('help_body');
+  if (!tpl || !body || !currentUser) return;
+  var mine = HELP_ROLE_VIEW[currentUser.role] || [], frag = tpl.content.cloneNode(true), mineSecs = [], common = [];
+  Array.prototype.slice.call(frag.querySelectorAll('section.hp-sec')).forEach(function(sec) {
+    var roles = (sec.getAttribute('data-roles') || '').split(',');
+    if (roles.indexOf('all') >= 0) common.push(sec);
+    else if (roles.some(function(r) { return mine.indexOf(r) >= 0; })) mineSecs.push(sec);
+  });
+  body.innerHTML = '';
+  mineSecs.concat(common).forEach(function(sec) { body.appendChild(sec); });
+  var rl = document.getElementById('help_roleLine'); if (rl) rl.textContent = 'तुमची भूमिका: ' + (HELP_ROLE_NAME[currentUser.role] || currentUser.role) + ' — फक्त तुमच्यासाठीची माहिती दाखवली आहे.';
 }
 function dqFilterBar(id, rows, clsIdx, csvName) {   // ids arq_/arc_/arn_ — arFilt() वापरतो
   var cls = {}; rows.forEach(function(r) { var v = String(r[clsIdx] === null || r[clsIdx] === undefined ? '' : r[clsIdx]); if (v) cls[v] = 1; });

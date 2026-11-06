@@ -101,7 +101,7 @@ function doPostCore_(e) {
   return handleAction(p, ""); // "" = JSON response — serial परत frontend ला येतो
 }
 
-var SERVER_VERSION = "V19.63";   // V19.58: ॲप (script.js APP_VERSION) शी जुळते का हे क्लायंट ping वरून तपासतो
+var SERVER_VERSION = "V19.64";   // V19.58: ॲप (script.js APP_VERSION) शी जुळते का हे क्लायंट ping वरून तपासतो
 function doGetCore_(e) {
   var p = e.parameter || {};
   var cb = p.callback || "";
@@ -6160,4 +6160,60 @@ function doGetDailySummary(p, cb) {
     res.status = "ok";
     return wrap(cb, res);
   } catch (err) { return wrap(cb, {status: "error", message: err.toString()}); }
+}
+
+
+// =====================================================================
+// ===== V19.64 — ब-११ डेटा-धारण: जतन-अहवाल (केवळ वाचन) =====
+// =====================================================================
+// कालावधी = मालकाने निवडलेला "पर्याय ब (मध्यम)". हे फंक्शन काहीही पुसत नाही, काहीही लिहित नाही (Sheet तयार करणेही नाही) — फक्त "काय पुसले जाईल" याची यादी देते.
+// पुसणे: स्वयंचलित नाही; मंजुरीनंतर हाताने, आणि पुसण्यापूर्वी backupDeleted_ किंवा Archive. अपवाद: purgeClientErrors() (९० दिवस; V19.61) — ते Trigger ने स्वतः चालते.
+var RET_POLICY = {logMonths: 24, auditYears: 3, errDays: 90, usageMonths: 12, deletedYears: 3, perfDays: 90};
+function retCutoffDay_(days) { return Utilities.formatDate(new Date(Date.now() - days * 86400000), "Asia/Kolkata", "yyyy-MM-dd"); }
+function retCountOlder_(sh, col, cutoffDay) {   // col = १-आधारित; Timestamp स्तंभ dsParseDay_ ने (Date / en-IN / ISO)
+  if (!sh || sh.getLastRow() < 2) return {rows: 0, old: 0, oldest: ""};
+  var vals = sh.getRange(2, col, sh.getLastRow() - 1, 1).getValues(), old = 0, oldest = "";
+  vals.forEach(function(r) { var d = dsParseDay_(r[0]); if (!d) return; if (!oldest || d < oldest) oldest = d; if (d < cutoffDay) old++; });
+  return {rows: vals.length, old: old, oldest: oldest};
+}
+function retentionReport() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet(), P = RET_POLICY, items = [];
+  function add(name, policy, found, detail) { items.push({data: name, policy: policy, found: found, detail: detail || ""}); }
+  // १ Activity Log — Log_YYYY_MM मासिक Sheets (२४ महिन्यांपेक्षा जुन्या)
+  var cutMonth = Utilities.formatDate(new Date(Date.now() - P.logMonths * 30.44 * 86400000), "Asia/Kolkata", "yyyy_MM"), oldLogs = [];
+  ss.getSheets().forEach(function(sh) { var m = /^Log_(\d{4}_\d{2})$/.exec(sh.getName()); if (m && m[1] < cutMonth) oldLogs.push(sh.getName() + " (" + Math.max(0, sh.getLastRow() - 1) + " ओळी)"); });
+  add("Activity Log (Log_YYYY_MM)", P.logMonths + " महिने", oldLogs.length, oldLogs.join(", "));
+  // २ Student_Audit / User_Audit (३ वर्षांपेक्षा जुन्या ओळी)
+  var cutA = retCutoffDay_(P.auditYears * 365);
+  var a1 = retCountOlder_(ss.getSheetByName("Student_Audit"), 1, cutA), a2 = retCountOlder_(ss.getSheetByName("User_Audit"), 1, cutA);
+  add("Student_Audit", P.auditYears + " वर्षे", a1.old, "एकूण " + a1.rows + " ओळी; सर्वात जुनी: " + (a1.oldest || "—"));
+  add("User_Audit", P.auditYears + " वर्षे", a2.old, "एकूण " + a2.rows + " ओळी; सर्वात जुनी: " + (a2.oldest || "—"));
+  // ३ ClientErrors (९० दिवस) — purgeClientErrors() आधीच चालते
+  var c1 = retCountOlder_(ss.getSheetByName("ClientErrors"), 1, retCutoffDay_(P.errDays));
+  add("ClientErrors", P.errDays + " दिवस", c1.old, "एकूण " + c1.rows + " ओळी (purgeClientErrors() साप्ताहिक Trigger ने पुसते)");
+  // ४ Perf_Log (धीम्या विनंत्यांची नोंद) — ९० दिवस (प्रस्ताव)
+  var p1 = retCountOlder_(ss.getSheetByName("Perf_Log"), 1, retCutoffDay_(P.perfDays));
+  add("Perf_Log", P.perfDays + " दिवस (प्रस्ताव)", p1.old, "एकूण " + p1.rows + " ओळी");
+  // ५ Usage_YYYY_MM (१२ महिने)
+  var cutU = Utilities.formatDate(new Date(Date.now() - P.usageMonths * 30.44 * 86400000), "Asia/Kolkata", "yyyy_MM"), oldU = [];
+  ss.getSheets().forEach(function(sh) { var m = /^Usage_(\d{4}_\d{2})$/.exec(sh.getName()); if (m && m[1] < cutU) oldU.push(sh.getName() + " (" + Math.max(0, sh.getLastRow() - 1) + " ओळी)"); });
+  add("Usage_YYYY_MM", P.usageMonths + " महिने", oldU.length, oldU.join(", "));
+  // ६ हटवलेल्या नोंदींचा Backup (Deleted_*) — फक्त DELETED_BACKUP_ID असल्यास उघडतो; नवीन फाइल कधीही बनवत नाही
+  var delId = PropertiesService.getScriptProperties().getProperty("DELETED_BACKUP_ID"), delOld = 0, delTotal = 0, delNote = "DELETED_BACKUP_ID नाही — तपासले नाही";
+  if (delId) {
+    try {
+      var dss = SpreadsheetApp.openById(delId), cutD = retCutoffDay_(P.deletedYears * 365);
+      dss.getSheets().forEach(function(sh) { if (/^Deleted_/.test(sh.getName())) { var r = retCountOlder_(sh, 1, cutD); delOld += r.old; delTotal += r.rows; } });
+      delNote = "एकूण " + delTotal + " ओळी (Deleted_* Sheets)";
+    } catch (e) { delNote = "Deleted Backup फाइल उघडली नाही: " + String(e).slice(0, 80); }
+  }
+  add("हटवलेल्या नोंदींचा Backup (Deleted_*)", P.deletedYears + " वर्षे", delOld, delNote);
+  // ७ Backup प्रती (Drive) — संख्या (विद्यमान pruning: keep)
+  add("Backup प्रती (Drive)", "प्रत्येक फाइलच्या शेवटच्या " + BACKUP_KEEP_COPIES + " प्रती (विद्यमान pruning)", 0, "जुन्या प्रती आपोआप कचऱ्यात जातात (setTrashed; नावात _BACKUP_)");
+  // ८ फक्त माहितीसाठी (कायम): Archive फाइल्स
+  var po = ss.getSheets().filter(function(sh) { return sh.getName().indexOf(ARCHIVE_PREFIX) === 0; }).map(function(sh) { return sh.getName() + " (" + Math.max(0, sh.getLastRow() - 1) + ")"; });
+  add("PassedOut_* (Archive) व वर्षनिहाय Archive फाइल्स", "कायम", 0, po.join(", ") || "PassedOut_ Sheet नाही");
+  var total = items.reduce(function(a, x) { return a + (x.found || 0); }, 0);
+  var out = {generated: new Date().toISOString(), policy: "पर्याय ब (मध्यम)", totalOld: total, items: items, note: "फक्त यादी — काहीही पुसले नाही. पुसण्यापूर्वी backupDeleted_ किंवा Archive; मंजुरीशिवाय स्वयंचलित पुसणे नाही."};
+  Logger.log(JSON.stringify(out, null, 1)); return out;
 }

@@ -1,20 +1,11 @@
-SGS School Management System — V19.64 (V19.63 + ब-११ गोपनीयता/डेटा-धारण + ब-१२ वापरकर्ता-मार्गदर्शिका)
+SGS School Management System — V19.64.1 (फक्त क्लायंट दुरुस्ती; Apps Script पुन्हा Deploy करण्याची गरज नाही)
 
-Deploy क्रम:
-1) Apps Script: apps_script/Code.gs paste → Deploy → Manage deployments → ✏️ → "New version" → Deploy. (SERVER_VERSION = V19.64)
-   नवे Editor-फंक्शन: retentionReport() — केवळ वाचन (काहीही पुसत/लिहित नाही). Trigger नाही.
-2) GitHub Pages: github_pages/ मधील index.html, script.js, style.css, sw.js, privacy-policy.html आणि नवा फोल्डर help/ (५ चित्रे) अपलोड.
-3) privacy-policy.html हा मसुदा आहे — मुख्याध्यापक/कायदेशीर सल्लागाराच्या मंजुरीनंतरच प्रकाशित/App Store लिंक म्हणून वापरा.
-4) SGS_वापरकर्ता_मार्गदर्शिका.pdf — शिक्षकांना वाटण्यासाठी (A4, मराठी फॉन्ट embed).
+दुरुस्ती: डॅशबोर्डवर "मदत" कार्ड चुकून "डेटा तपासणी" कार्डाच्या आत घुसले होते (V19.64 मधील माझी चूक — बिल्ड-टूलचा anchor चुकीचा होता).
+परिणाम: कार्डे एकमेकांत अडकली; (index_1.html मधील हाताने केलेल्या दुरुस्तीनंतर) <div> संतुलन बिघडून आजची हजेरी/वाढदिवस/सूचना कार्डे आयकॉनच्या ग्रिडमध्ये घुसली.
 
-मदत-मजकूर बदलायचा असल्यास: tools/help_content.html संपादित करा →
-   node tools/build_help.js                                     (index.html मधील ❓ मदत पान अद्ययावत)
-   node tools/build_help.js --pdf out.pdf --font-dir tools/fonts (PDF)
-   node tools/make_help_shots.js                                (बनावट डेटासह स्क्रीनशॉट; ॲप बदलल्यास)
-(Node + Playwright + Chromium लागते.)
+अपलोड (GitHub Pages): github_pages/index.html, script.js, sw.js — फक्त हे ३. (style.css, privacy-policy.html, help/ बदललेले नाहीत; Code.gs V19.64 तसाच.)
+नंतर ॲप Refresh करा (PWA नवी आवृत्ती घेईल: APP_VERSION = V19.64.1, sw = sgs-v19.64.1-1).
 
-चाचण्या (tests/ मध्ये टाका):
-  node tests/test_static_refs.js ; node tests/test_ui_contrast_all.js ; node tests/test_privacy_policy.js
-  node tests/test_server_v1961.js ; SGS_GS_BASE=<V19.61 Code.gs> node tests/test_server_v1962.js ; SGS_GS_BASE=<V19.62 Code.gs> node tests/test_server_v1963.js ; node tests/test_server_v1964.js
-  node tests/test_ui_v1961.js ; node tests/test_ui_v1962.js ; node tests/test_ui_v1963.js ; SGS_PDF=<guide.pdf> node tests/test_ui_v1964.js
-सर्व बनावट (mock) Apps Script / बनावट backend वर — खऱ्या Sheet/Drive/Apps Script/फोनवर चाचणी झालेली नाही.
+नवी चाचणी: tests/test_html_structure.js — <div>/टॅग संतुलन, सर्व .page एकाच पालकाखाली, .dcard एकमेकांत नाहीत, widgets ग्रिडमध्ये नाहीत.
+  node tests/test_html_structure.js          (SGS_INDEX=<file> ने दुसरी फाइल तपासता येते)
+tools/build_help.js: मदत-कार्ड आता संतुलित </div> नंतर घालतो.

@@ -32,7 +32,7 @@ window.androidBackPressed = function() {
 
 
 // URL persistence
-var DEFAULT_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbzYboWgy7FfCTg2zGHV3Us5Y8xWicnNY7p80q14-5fqc9OaRwy_2OUaZ_8wLRZdntzw/exec';
+var DEFAULT_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbzZ-iYnkyTkFAq3lE9hzWyBTP9_KRWAJgplGy80ix-kLcS3SW3c_pVE_aGn334rpuNq/exec';
 
 // =====================================================
 // 🔐 LOGIN + ROLE PERMISSIONS
@@ -860,7 +860,7 @@ var clientPerf = [];
 // नियम: पैसा/थकबाकी/फी जमा स्क्रीनवर कधीही जुना डेटा नाही • २४ तासांहून जुना cache वापरत नाही • अॅप-आवृत्ती बदलल्यास रद्द •
 //       प्रत्येकी ~300 KB / एकूण ~1 MB मर्यादा • Logout वर पूर्ण पुसले जाते • Token कधीही साठवत नाही (फक्त उत्तर).
 // =====================================================================
-var APP_VERSION = 'V19.64';
+var APP_VERSION = 'V19.64.1';
 var SWR_PREFIX = 'sgs_swr:';
 var SWR_ROSTER_MAX_AGE_MS = 3 * 24 * 3600 * 1000;   // V19.60.1: शिक्षकाची वर्ग-यादी ३ दिवस (ऑफलाइन Login च्या मुदतीइतकी); बाकी २४ तास
 var SWR_MAX_AGE_MS = 24 * 3600 * 1000, SWR_MAX_ENTRY = 300 * 1024, SWR_MAX_TOTAL = 1024 * 1024;

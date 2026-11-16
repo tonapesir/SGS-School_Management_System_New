@@ -563,3 +563,14 @@ input::placeholder,textarea::placeholder{color:#5c5c5c;opacity:1}
 .hp-tbl th,.hp-tbl td{border:1px solid rgba(240,232,216,.35);padding:5px 8px;vertical-align:top;text-align:left}
 .hp-tbl th{background:#14233f;color:var(--gold2)}
 .hp-sec a{color:var(--gold2)}
+
+/* V19.65: चालू शैक्षणिक वर्ष बॅज (डॅशबोर्ड/वर्ग शिक्षक पानाच्या उजव्या कोपऱ्यात, ठळक) */
+.ay-row{display:flex;justify-content:flex-end;margin:2px 0 6px}
+.ay-badge{font-weight:800;font-size:16px;background:var(--gold);color:#1a1a1a;padding:7px 16px;border-radius:22px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.35);border:2px solid #fff3d6;white-space:nowrap;letter-spacing:.2px}
+.ay-badge.ay-ro{cursor:default}
+.ay-badge.ay-warn{background:#ff9a9a;border-color:#fff}
+.ay-panel{background:var(--navy3);border:1px solid var(--gold2);border-radius:10px;padding:10px 12px;margin:0 0 10px;color:var(--txt);font-size:13px;line-height:1.6}
+.ay-p-head{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:4px;font-size:14px}
+.ay-small{font-size:12.5px;color:rgba(240,232,216,.9);margin-top:4px}
+.ay-err{font-size:12.5px;margin-top:6px;color:#ffb0b0}
+.ay-ok{font-size:12.5px;margin-top:6px;color:#9be0a8}

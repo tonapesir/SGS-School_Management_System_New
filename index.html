@@ -267,6 +267,8 @@
 
 <!-- ==================== DASHBOARD ==================== -->
 <div class="page active" id="pg-dashboard">
+  <div class="ay-row"><span class="ay-badge" id="acYearBadge" onclick="ayTogglePanel()">📅 शैक्षणिक वर्ष: —</span></div>
+  <div id="ay_panel" class="ay-panel" style="display:none"></div>
   <div style="text-align:center;padding:20px 0 24px">
     <div style="font-size:48px">🏫</div>
     <h1 style="font-size:22px;color:var(--gold2);font-weight:700;margin-top:8px">श्री.गोविंदराव सक्सेरिया हायस्कूल, पाचोरा</h1>
@@ -1399,6 +1401,7 @@
 <section class="hp-sec" data-roles="master" data-title="मुख्याध्यापक / Master साठी">
   <h3>🏫 मुख्याध्यापक / Master साठी</h3>
   <p><b>🏠 मुख्यपृष्ठ</b> वर कार्डे दिसतात: आजची हजेरी बाकी, <b>📋 रोजचा सारांश</b>, आजचे वाढदिवस, अलीकडील सूचना, अहवाल.</p>
+  <p><b>📅 शैक्षणिक वर्ष</b> बॅज उजव्या कोपऱ्यात दिसतो (चालू शैक्षणिक वर्ष). तो लाल (⚠️) असल्यास Students मधील काही विद्यार्थ्यांचे वर्ष चालू वर्षापेक्षा वेगळे आहे — बॅज दाबून पाहा; जुळवणी फक्त Super करू शकतो.</p>
   <h4>📋 रोजचा सारांश</h4>
   <ol>
     <li>तारीख निवडा (डीफॉल्ट आज).</li>
@@ -1440,8 +1443,9 @@
   <h4>🛡️ Super Admin पान</h4>
   <ul>
     <li><b>Backup:</b> ▶️ आत्ताच Backup घ्या; <b>🔍 Backup तपासणी</b> (प्रत उघडून तपासते — काहीही बदलत नाही). "शेवटची तपासणी X दिवसांपूर्वी ✅" पाहा; ४० दिवसांपेक्षा जुनी असल्यास इशारा येतो.</li>
-    <li><b>🎓 वर्ग-बढती</b> आणि <b>🧹 वर्षअखेर साफसफाई</b>: प्रत्येक बदलापूर्वी Students ची प्रत आपोआप जतन होते; ↩️ Undo / ↩️ परत आणा उपलब्ध.</li>
+    <li><b>🎓 वर्ग-बढती</b> आणि <b>🧹 वर्षअखेर साफसफाई</b>: प्रत्येक बदलापूर्वी Students चा Backup आपोआप घेतला व तपासला जातो (अयशस्वी झाल्यास बढती होत नाही) आणि नाव/ठिकाण दाखवले जाते; ↩️ Undo / ↩️ परत आणा उपलब्ध. बढतीनंतर बढती मिळालेल्यांचा column B पुढचे वर्ष होतो.</li>
     <li><b>Users:</b> नवीन User, Role, वर्ग-नेमणूक, Password. प्रत्येक बदल User_Audit मध्ये (Password कधीही नाही).</li>
+    <li><b>📅 शैक्षणिक वर्ष जुळवा:</b> डॅशबोर्डवरील बॅज दाबा → Students च्या column B चे वेगळे वर्ष चालू वर्षाशी जुळवा (SYNC टाइप). आधी Students चा Backup घेतला व तपासला जातो; फक्त column B बदलतो.</li>
   </ul>
   <div class="hp-tip">🔐 सुरक्षित सवय: दुसऱ्याच्या फोनवर वापरले असल्यास Logout करा. <b>Super साठी ऑफलाइन Login नाही</b> — नेट आवश्यक.</div>
 </section>
@@ -1917,6 +1921,7 @@
 </div>
 
 <div id="pg-teacher" class="page">
+  <div class="ay-row"><span class="ay-badge ay-ro" id="acYearBadgeT">📅 शैक्षणिक वर्ष: —</span></div>
   <div class="sec-title" style="margin-bottom:4px">🏫 वर्ग शिक्षक — <span id="tch_classLabel">—</span></div>
   <div style="font-size:12px;opacity:.75;margin-bottom:14px">फक्त आपल्या वर्गाची माहिती येथे दिसेल.</div>
 

@@ -32,7 +32,7 @@ window.androidBackPressed = function() {
 
 
 // URL persistence
-var DEFAULT_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbzZ-iYnkyTkFAq3lE9hzWyBTP9_KRWAJgplGy80ix-kLcS3SW3c_pVE_aGn334rpuNq/exec';
+var DEFAULT_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbzSbEcA-pJJsZXDVpvHFcoueODgIj5kqBNSTO_TnfgWMcYnGmD-dVnDqcM5l0sA2pI/exec';
 
 // =====================================================
 // 🔐 LOGIN + ROLE PERMISSIONS
@@ -860,7 +860,7 @@ var clientPerf = [];
 // नियम: पैसा/थकबाकी/फी जमा स्क्रीनवर कधीही जुना डेटा नाही • २४ तासांहून जुना cache वापरत नाही • अॅप-आवृत्ती बदलल्यास रद्द •
 //       प्रत्येकी ~300 KB / एकूण ~1 MB मर्यादा • Logout वर पूर्ण पुसले जाते • Token कधीही साठवत नाही (फक्त उत्तर).
 // =====================================================================
-var APP_VERSION = 'V19.64.1';
+var APP_VERSION = 'V19.65';
 var SWR_PREFIX = 'sgs_swr:';
 var SWR_ROSTER_MAX_AGE_MS = 3 * 24 * 3600 * 1000;   // V19.60.1: शिक्षकाची वर्ग-यादी ३ दिवस (ऑफलाइन Login च्या मुदतीइतकी); बाकी २४ तास
 var SWR_MAX_AGE_MS = 24 * 3600 * 1000, SWR_MAX_ENTRY = 300 * 1024, SWR_MAX_TOTAL = 1024 * 1024;
@@ -4005,6 +4005,8 @@ var _origShowPage = showPage;
 showPage = function(name, btn) {
   _origShowPage(name, btn);
   if (name === 'help') { try { helpRender(); } catch (e) {} }   // V19.64: भूमिकेनुसार मदत
+  if (name === 'dashboard') { try { ayLoadInfo(); } catch (e) {} }   // V19.65: चालू शैक्षणिक वर्ष / जुळवणी-स्थिती
+  if (name === 'student') { try { ayFillForm(); } catch (e) {} }
   if (name === 'search') {
     var stat = document.getElementById('srch_status');
     if (stat && !stat.textContent) runSearch();
@@ -5788,13 +5790,13 @@ function promoRun() {
   if (!/^\d{4}-\d{2}$/.test(newYear)) { st.textContent = '⚠️ नवीन शैक्षणिक वर्ष 2027-28 या स्वरूपात टाका.'; return; }
   if (!n) { st.textContent = '⚠️ किमान एका वर्गाला बढती द्या.'; return; }
   if (confirmTxt !== 'PROMOTE') { st.textContent = '⚠️ खात्रीसाठी खालील चौकटीत PROMOTE टाइप करा.'; return; }
-  if (!confirm('एकूण ' + total + ' विद्यार्थ्यांना पुढच्या वर्गात हलवायचे? (नवीन वर्ष: ' + newYear + ')\n\nबढतीपूर्वीची Students ची प्रत आपोआप जतन होईल व Undo करता येईल.')) return;
+  if (!confirm('एकूण ' + total + ' विद्यार्थ्यांना पुढच्या वर्गात हलवायचे? (नवीन वर्ष: ' + newYear + ')\n\nबढतीपूर्वी Students चा Backup आधी घेतला जाईल व तपासला जाईल (अयशस्वी झाल्यास बढती होणार नाही); Undo करता येईल.')) return;
   st.textContent = '⏳ बढती चालू आहे — कृपया थांबा, पान बंद करू नका...';
   smartSave({action:'promoteStudents', mapJson: JSON.stringify(map), newAcYear: newYear, confirm: 'PROMOTE',
     requesterUser: currentUser.username, requesterRole: currentUser.role}, function(r) {
     if (r && r.status === 'ok') {
       var det = (r.extra && r.extra.perClass) ? Object.keys(r.extra.perClass).map(function(k){ return k + ': ' + r.extra.perClass[k]; }).join(', ') : '';
-      st.textContent = '✅ ' + r.count + ' विद्यार्थ्यांना बढती मिळाली. ' + det;
+      st.textContent = '✅ ' + r.count + ' विद्यार्थ्यांना बढती मिळाली. ' + det + ' ' + ayBackupText(r.extra);
       document.getElementById('sa_promoConfirm').value = '';
       try { clearStudentCache(); } catch (e) {}
       promoLoadPreview();
@@ -7571,7 +7573,7 @@ function verShowIfNeeded() {
 function verCheck() {
   if (_verAsked) { verShowIfNeeded(); return; }
   _verAsked = true;
-  try { jsonpRequest({action: 'ping'}, function(r) { if (r && r.status === 'ok' && r.version) { _srvVer = r.version; verShowIfNeeded(); } }); } catch (e) {}
+  try { jsonpRequest({action: 'ping'}, function(r) { if (r && r.status === 'ok' && r.version) { _srvVer = r.version; verShowIfNeeded(); } if (r && r.status === 'ok' && r.acYear) acYearSet(r.acYear); }); } catch (e) {}
 }
 (function() {
   var _aru = applyRoleUI;
@@ -7790,6 +7792,7 @@ function yeBody(x, r) {
       return '<tr><td>' + pmEsc(c.cls) + '</td><td>' + (c.before === null ? '—' : c.before) + '</td><td>' + (c.expected === null ? (v.noSnapshot ? '—' : 'नवे प्रवेश') : c.expected) + '</td><td>' + c.actual + '</td><td>' + (c.ok ? '✅' : '❌') + '</td></tr>'; }).join('') + '</tbody></table></div>' +
       '<div class="ye-line">Pass-out (' + pmEsc(v.passedOut.sheet) + '): अपेक्षित ' + (v.passedOut.expected === null ? '—' : v.passedOut.expected) + ', प्रत्यक्ष ' + (v.passedOut.actual === null ? 'Sheet नाही' : v.passedOut.actual) + '</div>';
     h += '<div id="ye_ah" class="ye-line"></div>';
+    if (v.notNewYear > 0 && currentUser.role === 'super') h += '<div class="ye-line">⚠️ ' + v.notNewYear + ' विद्यार्थ्यांचे वर्ष (column B) ' + pmEsc(v.newYear) + ' नाही. <button class="btn btn-gray btn-sm" onclick="yeOpenSync()">📅 वर्ष जुळवा…</button></div><div id="ay_panel_w" class="ay-panel" style="display:none"></div>';
     if (act) h += '<div class="ye-act"><button class="btn btn-blue btn-sm" onclick="yeArchiveHealth()">🩺 Archive आरोग्य तपासणी</button> ' + (v.allOk ? '<button class="btn btn-gold btn-sm" onclick="yeMarkDone(9)">✅ सर्व ठीक — पूर्ण करा</button> ' : '') + skipBtn + '</div>';
   }
   h += '<div id="ye_msg' + n + '" class="ye-err"></div>';
@@ -7852,10 +7855,10 @@ function yePromote() {
   var r = yeS.data, c = (document.getElementById('ye_c6') || {}).value || '';
   if (!Object.keys(yePromo.map).length) { yeMsg(6, '⚠️ बढतीचा आराखडा अजून Load झाला नाही / रिकामा आहे.'); return; }
   if (c.trim() !== 'PROMOTE') { yeMsg(6, '⚠️ खात्रीसाठी PROMOTE टाइप करा.'); return; }
-  if (!confirm('एकूण ' + yePromo.total + ' विद्यार्थ्यांना पुढच्या वर्गात हलवायचे? (नवीन वर्ष: ' + r.newYear + ')\n\nबढतीपूर्वीची Students ची प्रत आपोआप जतन होईल व Undo करता येईल.')) return;
+  if (!confirm('एकूण ' + yePromo.total + ' विद्यार्थ्यांना पुढच्या वर्गात हलवायचे? (नवीन वर्ष: ' + r.newYear + ')\n\nबढतीपूर्वी Students चा Backup आधी घेतला जाईल व तपासला जाईल (अयशस्वी झाल्यास बढती होणार नाही); Undo करता येईल.')) return;
   yeMsg(6, '⏳ बढती चालू आहे — पान बंद करू नका...');
   smartSave({action: 'promoteStudents', mapJson: JSON.stringify(yePromo.map), newAcYear: r.newYear, confirm: 'PROMOTE', requesterUser: currentUser.username, requesterRole: currentUser.role}, function(x) {
-    if (x && x.status === 'ok') { try { clearStudentCache(); } catch (e) {} yeAfter(6, x, x.count + ' विद्यार्थ्यांना बढती मिळाली'); } else yeMsg(6, '❌ ' + friendlyMsg((x && x.message) || 'Failed') + ' — पुढे जात नाही.');
+    if (x && x.status === 'ok') { try { clearStudentCache(); } catch (e) {} yeAfter(6, x, x.count + ' विद्यार्थ्यांना बढती मिळाली. ' + ayBackupText(x.extra)); } else yeMsg(6, '❌ ' + friendlyMsg((x && x.message) || 'Failed') + ' — पुढे जात नाही.');
   });
 }
 function yeNewYear() {
@@ -7882,6 +7885,7 @@ function yeArchiveYear() {
     });
   });
 }
+function yeOpenSync() { var p = document.getElementById('ay_panel_w'); if (!p) return; p.style.display = 'block'; ayRenderPanel('_w'); ayLoadInfo(function() { ayRenderPanel('_w'); }); }
 function yeArchiveHealth() {
   var el = document.getElementById('ye_ah'); if (el) el.textContent = '⏳ तपासत आहे...';
   jsonpRequest({action: 'getArchiveHealth', year: yeS.year, requesterRole: currentUser.role}, function(r) {
@@ -8021,6 +8025,83 @@ function helpRender() {
   mineSecs.concat(common).forEach(function(sec) { body.appendChild(sec); });
   var rl = document.getElementById('help_roleLine'); if (rl) rl.textContent = 'तुमची भूमिका: ' + (HELP_ROLE_NAME[currentUser.role] || currentUser.role) + ' — फक्त तुमच्यासाठीची माहिती दाखवली आहे.';
 }
+// =====================================================================
+// ===== V19.65 — 📅 चालू शैक्षणिक वर्ष (डॅशबोर्ड बॅज) + Students column B जुळवणी =====
+// बॅज डॅशबोर्ड (Super/Master) व वर्ग शिक्षक पानाच्या उजव्या कोपऱ्यात; वर्ष ping मधून (सर्वांना), जुळवणी-माहिती Super/Master ला (getAcYearInfo).
+// Students चा column B सर्व्हर Save करताना चालू वर्ष ठेवतो; विद्यमान जुने/वेगळे वर्ष Super "जुळवा" ने (Backup सह) चालू वर्षाशी करतो.
+// =====================================================================
+var _srvAcYear = '', _ayInfo = null, _ayMsg = {}, AY_KEY = 'sgs_acyear_v1';
+try { _srvAcYear = localStorage.getItem(AY_KEY) || ''; } catch (e) {}
+function acYearSet(y) { if (!y) return; _srvAcYear = String(y); try { localStorage.setItem(AY_KEY, _srvAcYear); } catch (e) {} ayRenderBadges(); try { ayFillForm(); } catch (e) {} }
+function ayIsAdmin() { return !!(currentUser && (currentUser.role === 'super' || currentUser.role === 'master')); }
+function ayRenderBadges() {
+  var y = _srvAcYear || '—', i = _ayInfo, warn = '', cls = 'ay-badge', title = 'चालू शैक्षणिक वर्ष';
+  if (i && i.current === y) {
+    if (i.mismatch > 0) { warn = ' ⚠️ ' + i.mismatch; cls += ' ay-warn'; title = 'Students मधील ' + i.mismatch + ' विद्यार्थ्यांचे वर्ष चालू वर्षापेक्षा वेगळे आहे — दाबा'; }
+    else if (i.aheadOfDate) { warn = ' ⚠️'; cls += ' ay-warn'; title = 'चालू वर्ष आजच्या तारखेच्या वर्षापेक्षा पुढे आहे — दाबा'; }
+  }
+  var b = document.getElementById('acYearBadge'), t = document.getElementById('acYearBadgeT');
+  if (b) { b.className = cls + (ayIsAdmin() ? '' : ' ay-ro'); b.textContent = '📅 शैक्षणिक वर्ष: ' + y + warn; b.title = title; }
+  if (t) { t.className = 'ay-badge ay-ro'; t.textContent = '📅 शैक्षणिक वर्ष: ' + y; t.title = 'चालू शैक्षणिक वर्ष'; }
+}
+function ayLoadInfo(done) {
+  ayRenderBadges();
+  if (!ayIsAdmin() || !currentUser || currentUser.offline) { if (done) done(); return; }
+  jsonpRequest({action: 'getAcYearInfo', requesterRole: currentUser.role}, function(r) {
+    if (r && r.status === 'ok') { _ayInfo = r; if (r.current) acYearSet(r.current); ayRenderBadges(); ['', '_w'].forEach(function(sf) { var p = document.getElementById('ay_panel' + sf); if (p && p.style.display !== 'none') ayRenderPanel(sf); }); }
+    if (done) done();
+  });
+}
+function ayTogglePanel() {
+  if (!ayIsAdmin()) return;
+  var p = document.getElementById('ay_panel'); if (!p) return;
+  if (p.style.display === 'none') { p.style.display = 'block'; ayRenderPanel(''); ayLoadInfo(); } else p.style.display = 'none';
+}
+function ayRenderPanel(sfx) {   // sfx: '' = डॅशबोर्ड, '_w' = वर्ष-अखेर मार्गदर्शक (दोन्ही एकाच दस्तऐवजात — id अनन्य ठेवण्यासाठी)
+  sfx = sfx || ''; var p = document.getElementById('ay_panel' + sfx), i = _ayInfo; if (!p) return;
+  if (!i) { p.innerHTML = '⏳ Load होत आहे...'; return; }
+  var h = '<div class="ay-p-head"><b>📅 चालू शैक्षणिक वर्ष: ' + pmEsc(i.current) + '</b> <span class="ay-small">(' + (i.fromProperty ? 'सेटिंगनुसार — CURRENT_AC_YEAR' : 'आजच्या तारखेनुसार') + ')</span> <button class="btn btn-gray btn-sm" onclick="ayClosePanel(\'' + sfx + '\')">✖</button></div>';
+  h += '<div class="ay-small">आजच्या तारखेनुसार शैक्षणिक वर्ष (जून–मे): <b>' + pmEsc(i.dateYear) + '</b></div>';
+  if (i.aheadOfDate) h += '<div class="ay-err">⚠️ चालू वर्ष (' + pmEsc(i.current) + ') आजच्या तारखेच्या वर्षापेक्षा (' + pmEsc(i.dateYear) + ') पुढे आहे. नवे वर्ष चुकून सुरू झाले असेल तर Script Properties मधील <i>CURRENT_AC_YEAR</i> तपासा. (मे-जूनमध्ये नवे वर्ष लवकर सुरू केले असल्यास हे बरोबर असू शकते.)</div>';
+  if (i.behindDate) h += '<div class="ay-err">⚠️ चालू वर्ष आजच्या तारखेच्या वर्षापेक्षा मागे आहे — "नवे वर्ष सुरू करा" राहिले आहे का?</div>';
+  var yrs = Object.keys(i.counts || {}).sort();
+  h += '<div style="overflow-x:auto"><table class="hist-table"><thead><tr><th>Students मधील वर्ष (column B)</th><th>विद्यार्थी</th><th></th></tr></thead><tbody>' + yrs.map(function(y) { return '<tr><td>' + pmEsc(y) + '</td><td>' + i.counts[y] + '</td><td>' + (y === i.current ? '✅ चालू' : '⚠️ वेगळे') + '</td></tr>'; }).join('') + '</tbody></table></div>';
+  h += '<div class="ay-small">एकूण ' + i.total + ' विद्यार्थी; चालू वर्षाशी न जुळणारे: <b>' + i.mismatch + '</b></div>';
+  if (i.mismatch > 0) {
+    if (currentUser.role === 'super') {
+      if (i.canSync) h += '<div class="ye-act"><input type="text" id="ay_c' + sfx + '" placeholder="SYNC टाइप करा" style="width:130px"> <button class="btn btn-red btn-sm" onclick="aySync(\'' + sfx + '\')">🔄 Students चे वर्ष ' + pmEsc(i.current) + ' ला जुळवा</button></div><div class="ay-small">आधी Students चा Backup घेतला जातो व तपासला जातो; नंतर फक्त column B बदलतो; प्रत्येक बदल "बदलांचा इतिहास" मध्ये.</div>';
+      else h += '<div class="ay-err">जुळवणी आता शक्य नाही: ' + (i.future > 0 ? i.future + ' विद्यार्थ्यांचे वर्ष चालू वर्षापेक्षा पुढचे आहे (बढती झाली असून नवे वर्ष सुरू नाही, किंवा चालू वर्ष चुकीचे).' : '') + (i.promoPending > 0 ? ' बढती झाली आहे पण नवे वर्ष सुरू झालेले नाही — आधी "नवे वर्ष सुरू करा".' : '') + '</div>';
+    } else h += '<div class="ay-small">जुळवणी फक्त Super करू शकतो.</div>';
+  }
+  h += '<div class="ay-small">नियम: नवी/दुरुस्त नोंद Save करताना column B आपोआप चालू वर्ष ठेवला जातो. बढतीनंतर बढती मिळालेल्यांचा column B पुढचे वर्ष होतो; उर्वरित "नवे वर्ष सुरू करा" नंतर जुळवा.</div><div id="ay_msg' + sfx + '" class="' + (_ayMsg[sfx] && _ayMsg[sfx].ok ? 'ay-ok' : 'ay-err') + '">' + pmEsc(_ayMsg[sfx] ? _ayMsg[sfx].t : '') + '</div>';
+  p.innerHTML = h;
+}
+function ayClosePanel(sfx) { var p = document.getElementById('ay_panel' + (sfx || '')); if (p) p.style.display = 'none'; }
+function aySync(sfx, after) {
+  sfx = sfx || ''; var i = _ayInfo; if (!i) return; var c = ((document.getElementById('ay_c' + sfx) || {}).value || '').trim();
+  if (c !== 'SYNC') { _ayMsg[sfx] = {t: '⚠️ खात्रीसाठी SYNC टाइप करा.', ok: false}; var m = document.getElementById('ay_msg' + sfx); if (m) m.textContent = _ayMsg[sfx].t; return; }
+  if (!confirm(i.mismatch + ' विद्यार्थ्यांचे शैक्षणिक वर्ष (Students column B) ' + i.current + ' करायचे?\n\nआधी Students चा Backup घेतला जाईल व तपासला जाईल (अयशस्वी झाल्यास काहीही बदलणार नाही).')) return;
+  if (i.aheadOfDate && !confirm('⚠️ चालू वर्ष (' + i.current + ') आजच्या तारखेच्या वर्षापेक्षा (' + i.dateYear + ') पुढे आहे. तरीही सर्व विद्यार्थ्यांना ' + i.current + ' करायचे?')) return;
+  _ayMsg[sfx] = {t: '⏳ चालू आहे — पान बंद करू नका...', ok: false}; var m2 = document.getElementById('ay_msg' + sfx); if (m2) m2.textContent = _ayMsg[sfx].t;
+  jsonpRequest({action: 'syncStudentsAcYear', confirm: 'SYNC', requesterUser: currentUser.username, requesterRole: currentUser.role}, function(r) {
+    var mm = document.getElementById('ay_msg' + sfx);
+    if (!r || r.status !== 'ok') { _ayMsg[sfx] = {t: '❌ ' + friendlyMsg((r && r.message) || 'Failed'), ok: false}; if (mm) mm.textContent = _ayMsg[sfx].t; return; }
+    try { clearStudentCache(); } catch (e) {}
+    _ayMsg[sfx] = {t: '✅ ' + r.count + ' विद्यार्थ्यांचे वर्ष ' + r.current + ' झाले. ' + ayBackupText(r), ok: true}; if (mm) mm.textContent = _ayMsg[sfx].t;   // पॅनेल पुन्हा draw झाल्यावरही संदेश राहतो
+    ayLoadInfo(function() { if (sfx === '_w') yeRefresh(); if (typeof after === 'function') after(); });
+  });
+}
+function ayBackupText(x) {   // बढती/जुळवणीच्या यशानंतर: Backup कुठे घेतला ते
+  if (!x || !x.backupSheet) return '';
+  return '💾 Backup घेतला: ' + x.backupSheet + (x.backupRows ? ' (' + x.backupRows + ' ओळी)' : '') + (x.backupExternal ? ' — SGS_Deleted_Backup फाइलमध्ये' : ' — मुख्य फाइलमध्ये (लपवलेली Sheet)') + '.';
+}
+function ayFillForm() {   // विद्यार्थी फॉर्ममधील "Acad Year" — नवी नोंदीसाठी चालू वर्ष (सर्व्हर Save करताना ते स्वतःही ठेवतो)
+  var sel = document.getElementById('s_acYear'); if (!sel || !_srvAcYear) return;
+  var has = false; for (var k = 0; k < sel.options.length; k++) if (sel.options[k].value === _srvAcYear || sel.options[k].text === _srvAcYear) has = true;
+  if (!has) { var o = document.createElement('option'); o.text = _srvAcYear; sel.add(o); }
+  if (!sel.value) sel.value = _srvAcYear;
+  sel.title = 'Save करताना शैक्षणिक वर्ष आपोआप चालू वर्ष (' + _srvAcYear + ') ठेवले जाते';
+}
 function dqFilterBar(id, rows, clsIdx, csvName) {   // ids arq_/arc_/arn_ — arFilt() वापरतो
   var cls = {}; rows.forEach(function(r) { var v = String(r[clsIdx] === null || r[clsIdx] === undefined ? '' : r[clsIdx]); if (v) cls[v] = 1; });
   var opts = '<option value="">सर्व वर्ग</option>' + Object.keys(cls).sort(function(a, b) { return (parseInt(a, 10) || 99) - (parseInt(b, 10) || 99); }).map(function(v) { return '<option value="' + arE(v) + '">' + arE(classToMr(v)) + '</option>'; }).join('');
@@ -8136,7 +8217,8 @@ function capCheck() {
     var b = document.createElement('div'); b.id = 'capBanner';
     b.style.cssText = 'background:' + (r.level === 'high' ? '#fde4e1' : '#fff4d6') + ';border:1px solid ' + st.bg + ';color:#3a2a00';
     b.innerHTML = (r.level === 'high' ? '❌' : '⚠️') + ' Sheet क्षमता <b>' + r.pct + '%</b> वापरली आहे (१ कोटी cells मर्यादा). जुने वर्ष Archive करा.' + (currentUser.role === 'super' ? ' <button class="btn btn-gold btn-sm" onclick="showPage(\'dataqc\');dqTab(\'c\')">तपासा</button>' : '');
-    pg.insertBefore(b, pg.firstChild);
+    var ayP = document.getElementById('ay_panel');   // V19.65: 📅 शैक्षणिक वर्ष बॅज नेहमी पानाच्या सर्वात वर उजवीकडे राहावा — इशारा-पट्टी त्याच्या खाली
+    pg.insertBefore(b, ayP ? ayP.nextSibling : pg.firstChild);
   });
 }
 

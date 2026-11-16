@@ -101,7 +101,7 @@ function doPostCore_(e) {
   return handleAction(p, ""); // "" = JSON response — serial परत frontend ला येतो
 }
 
-var SERVER_VERSION = "V19.64";   // V19.58: ॲप (script.js APP_VERSION) शी जुळते का हे क्लायंट ping वरून तपासतो
+var SERVER_VERSION = "V19.65";   // V19.58: ॲप (script.js APP_VERSION) शी जुळते का हे क्लायंट ping वरून तपासतो
 function doGetCore_(e) {
   var p = e.parameter || {};
   var cb = p.callback || "";
@@ -117,7 +117,7 @@ function doGetCore_(e) {
   if (p.action === "ping") {
     try {
       var ssName = SpreadsheetApp.getActiveSpreadsheet().getName();
-      return wrap(cb, {status:"ok", message:"Connected! Sheet: " + ssName, version: SERVER_VERSION});
+      return wrap(cb, {status:"ok", message:"Connected! Sheet: " + ssName, version: SERVER_VERSION, acYear: currentAcYear_()});   // V19.65: डॅशबोर्ड बॅजसाठी (संवेदनशील नाही)
     } catch(ex) {
       return wrap(cb, {status:"error", message:"Script is deployed but NOT BOUND to a Sheet! Re-deploy from inside the Sheet."});
     }
@@ -207,6 +207,8 @@ function doGetCore_(e) {
   if (p.action === "getYearEndWizard") { return doGetYearEndWizard(p, cb); }      // V19.63 (फक्त super)
   if (p.action === "setYearEndStep") { return doSetYearEndStep(p, cb); }          // V19.63 (फक्त super; फक्त स्थिती-नोंद — विध्वंसक तर्क नाही)
   if (p.action === "getDailySummary") { return doGetDailySummary(p, cb); }        // V19.63 (super / master)
+  if (p.action === "getAcYearInfo") { return doGetAcYearInfo(p, cb); }            // V19.65 (super / master)
+  if (p.action === "syncStudentsAcYear") { return doSyncStudentsAcYear(p, cb); }  // V19.65 (फक्त super; Backup सह)
   if (p.action === "runRestoreDrill") { return doRunRestoreDrill(p, cb); }        // V19.62 (फक्त super; फक्त वाचन)
   if (p.action === "getLCByReg") {            // V19.59 — LC Sheet मधून त्या Reg No ची शेवटची LC नोंद (फक्त वाचन)
     return doGetLCByReg(p, cb);
@@ -335,6 +337,7 @@ function handleAction(d, cb) {
     }
 
     if (action === "save" || action === "update" || action === "upsert") {
+      d.acYear = currentAcYear_();   // V19.65: Students चा column B (शैक्षणिक वर्ष) नेहमी चालू शैक्षणिक वर्ष — बदल असल्यास बदलांच्या इतिहासात (AcYear) नोंदतो
       var sh = getOrCreateSheet("Students", MAIN_HEADERS);
       var rowToWrite = 0;
       if (action === "update" && d.rowIndex) rowToWrite = parseInt(d.rowIndex,10);
@@ -3571,6 +3574,11 @@ function doPromoteStudents(d) {
   try { map = JSON.parse(d.mapJson || "{}"); } catch (e) { return {status:"error", message:"वर्ग-नकाशा वाचता आला नाही."}; }
   var newAcYear = (d.newAcYear || "").toString().trim();
   if (!newAcYear) return {status:"error", message:"नवीन शैक्षणिक वर्ष (उदा. 2026-27) आवश्यक आहे."};
+  // V19.65: वर्ष-स्वरूप व क्रम पडताळा — चुकीचे वर्ष (उदा. 2026-26) Students च्या column B मध्ये जाऊ नये
+  var nyM = /^(\d{4})-(\d{2})$/.exec(newAcYear);
+  if (!nyM || ("0" + ((parseInt(nyM[1], 10) + 1) % 100)).slice(-2) !== nyM[2]) return {status:"error", message:"नवीन शैक्षणिक वर्ष 2026-27 या स्वरूपात (शेवटचे अंक = पुढचे वर्ष) हवे. मिळाले: " + newAcYear};
+  var nyDiff = acYearStart_(newAcYear) - acYearStart_(currentAcYear_());
+  if (nyDiff !== 0 && nyDiff !== 1) return {status:"error", message:"नवीन वर्ष (" + newAcYear + ") चालू वर्ष (" + currentAcYear_() + ") च्या पुढचे (किंवा तेच, नवे वर्ष आधीच सुरू झाले असल्यास) हवे."};
   var keys = Object.keys(map).filter(function(k) { return map[k] && map[k] !== k; });
   if (!keys.length) return {status:"error", message:"बढती द्यायचा किमान एक वर्ग निवडा."};
 
@@ -3587,6 +3595,14 @@ function doPromoteStudents(d) {
     var stamp = Utilities.formatDate(new Date(), "Asia/Kolkata", "yyyyMMdd_HHmm");
     var bkName = "Students_BeforePromotion_" + stamp;
     var bk = makeStudentsBackup_(sh, bkName, "Students_BeforePromotion_");   // V19.40: SGS_Deleted_Backup फाइलमध्ये (मुख्य फाइल हलकी)
+    // V19.65: बढती सुरू करण्यापूर्वी Backup खरोखर पूर्ण आहे का ते पडताळा (ओळी/स्तंभ + पहिली/शेवटची Reg No); नसेल तर बढती होत नाही
+    var bkOk = false;
+    try {
+      var lastR = sh.getLastRow(), bsh = bk && bk.sheet;
+      bkOk = !!bsh && bsh.getLastRow() === lastR && bsh.getLastColumn() === sh.getLastColumn() &&
+        String(bsh.getRange(2, 3).getValue()) === String(sh.getRange(2, 3).getValue()) && String(bsh.getRange(lastR, 3).getValue()) === String(sh.getRange(lastR, 3).getValue());
+    } catch (eBk) { bkOk = false; }
+    if (!bkOk) { try { dropBackup_(bk); } catch (eDr) {} return {status:"error", message:"Students चा Backup पडताळणीत अयशस्वी (ओळी/स्तंभ जुळले नाहीत) — बढती केलेली नाही. पुन्हा प्रयत्न करा."}; }
 
     var base = sh.getRange(2, 1, n, 11).getValues();             // A..K
     var accYearCol = base.map(function(r) { return [r[1]]; });    // B
@@ -3616,7 +3632,7 @@ function doPromoteStudents(d) {
     logSh.getRange(logSh.getLastRow() + 1, 1, logRows.length, PROMO_LOG_HEADERS.length).setValues(logRows);
     invalidateRosterCache_();
     return {rowIndex: 0, mode: "updated", count: logRows.length, ref: "promotion " + batchId,
-      extra: {batchId: batchId, backupSheet: bkName, perClass: perClass}};
+      extra: {batchId: batchId, backupSheet: bkName, backupExternal: !!bk.external, backupRows: n, perClass: perClass}};
   } catch (err) {
     return {status:"error", message:err.toString()};
   } finally {
@@ -6216,4 +6232,73 @@ function retentionReport() {
   var total = items.reduce(function(a, x) { return a + (x.found || 0); }, 0);
   var out = {generated: new Date().toISOString(), policy: "पर्याय ब (मध्यम)", totalOld: total, items: items, note: "फक्त यादी — काहीही पुसले नाही. पुसण्यापूर्वी backupDeleted_ किंवा Archive; मंजुरीशिवाय स्वयंचलित पुसणे नाही."};
   Logger.log(JSON.stringify(out, null, 1)); return out;
+}
+
+
+// =====================================================================
+// ===== V19.65 — शैक्षणिक वर्ष: डॅशबोर्ड बॅज, Students column B चालू वर्षाशी जुळवणी =====
+// =====================================================================
+// नियम: Students चा column B (शैक्षणिक वर्ष) = चालू शैक्षणिक वर्ष (CURRENT_AC_YEAR; नसल्यास तारखेवरून). नवी/दुरुस्त नोंद Save करताना सर्व्हर तो आपोआप ठेवतो (handleAction).
+// बढतीने (doPromoteStudents) बढती मिळालेल्यांचा column B पुढचे वर्ष होतो; उर्वरित (बढती न मिळालेले इ.) "नवे वर्ष सुरू करा" नंतर syncStudentsAcYear ने जुळवता येतात.
+function acYearInfo_() {
+  var cur = currentAcYear_(), dateYear = acYearOfDate_(todayStr()), fromProp = false;
+  try { fromProp = !!PropertiesService.getScriptProperties().getProperty("CURRENT_AC_YEAR"); } catch (e) {}
+  var roster = getRosterCached_("", "", false).data, counts = {}, mismatch = 0, future = 0, sample = [];
+  roster.forEach(function(st) {
+    var y = (st.acYear || "").toString().trim() || "—"; counts[y] = (counts[y] || 0) + 1;
+    if (y !== cur) {
+      mismatch++;
+      if (/^\d{4}-\d{2}$/.test(y) && acYearStart_(y) > acYearStart_(cur)) future++;
+      if (sample.length < 8) sample.push({regNo: st.regNo, name: st.fullName, year: y});
+    }
+  });
+  var promoPending = 0, pl = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("PromotionLog");
+  if (pl && pl.getLastRow() > 1) pl.getRange(2, 9, pl.getLastRow() - 1, 3).getValues().forEach(function(r) {   // [NewAcYear, By, Undone]
+    var ny = (r[0] || "").toString().trim();
+    if (/^\d{4}-\d{2}$/.test(ny) && acYearStart_(ny) > acYearStart_(cur) && (r[2] || "").toString() !== "Y") promoPending++;
+  });
+  var diff = acYearStart_(cur) - acYearStart_(dateYear);
+  return {current: cur, dateYear: dateYear, fromProperty: fromProp, aheadOfDate: diff > 0, behindDate: diff < 0, total: roster.length, counts: counts, mismatch: mismatch, future: future, promoPending: promoPending, sample: sample};
+}
+function doGetAcYearInfo(p, cb) {
+  try {
+    var e = authSuperMaster_(p, "शैक्षणिक वर्ष माहिती"); if (e) return wrap(cb, {status: "error", code: "forbidden", message: e});
+    var info = acYearInfo_(); info.status = "ok";
+    info.canSync = (p.requesterRole === "super") && info.mismatch > 0 && info.future === 0 && info.promoPending === 0;
+    return wrap(cb, info);
+  } catch (err) { return wrap(cb, {status: "error", message: err.toString()}); }
+}
+// फक्त Super: Students च्या column B मध्ये चालू वर्षापेक्षा वेगळे असलेले सर्व चालू वर्षाशी जुळवा. आधी Students चा Backup (पडताळणीसह); नंतर फक्त column B बदलतो.
+// नकार: चालू वर्षापेक्षा पुढचे वर्ष असलेले विद्यार्थी असल्यास, किंवा बढती झाली पण नवे वर्ष सुरू न झाल्यास (ती वर्ष-अखेरची मधली स्थिती आहे — आधी "नवे वर्ष सुरू करा").
+function doSyncStudentsAcYear(p, cb) {
+  var lock = LockService.getScriptLock(), locked = false;
+  try {
+    var e = authSuperOnly_(p, "Students शैक्षणिक वर्ष जुळवणी"); if (e) return wrap(cb, {status: "error", code: "forbidden", message: e});
+    if ((p.confirm || "") !== "SYNC") return wrap(cb, {status: "error", message: "खात्रीसाठी SYNC टाइप करणे आवश्यक आहे."});
+    lockWaitTimed_(lock, 30000); locked = true;
+    var info = acYearInfo_(), cur = info.current;
+    if (info.future > 0) return wrap(cb, {status: "error", message: "काही विद्यार्थ्यांचे वर्ष चालू वर्षापेक्षा (" + cur + ") पुढचे आहे (" + info.future + ") — बढती झाली असून नवे वर्ष सुरू झालेले नाही, किंवा चालू वर्ष (CURRENT_AC_YEAR) चुकीचे आहे. आधी ते तपासा; जुळवणी केलेली नाही."});
+    if (info.promoPending > 0) return wrap(cb, {status: "error", message: "बढती झाली आहे पण नवे वर्ष सुरू झालेले नाही — आधी 'नवे वर्ष सुरू करा'. जुळवणी केलेली नाही."});
+    if (info.mismatch === 0) return wrap(cb, {status: "ok", count: 0, current: cur, message: "सर्व विद्यार्थ्यांचे वर्ष आधीच " + cur + " आहे."});
+    var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Students"); if (!sh || sh.getLastRow() < 2) return wrap(cb, {status: "error", message: "Students sheet रिकामी आहे."});
+    var n = sh.getLastRow() - 1;
+    var stamp = Utilities.formatDate(new Date(), "Asia/Kolkata", "yyyyMMdd_HHmm"), bkName = "Students_BeforeAcYearSync_" + stamp;
+    var bk = makeStudentsBackup_(sh, bkName, "Students_BeforeAcYearSync_"), bkOk = false;
+    try {
+      var lastR = sh.getLastRow(), bsh = bk && bk.sheet;
+      bkOk = !!bsh && bsh.getLastRow() === lastR && bsh.getLastColumn() === sh.getLastColumn() && String(bsh.getRange(2, 3).getValue()) === String(sh.getRange(2, 3).getValue()) && String(bsh.getRange(lastR, 3).getValue()) === String(sh.getRange(lastR, 3).getValue());
+    } catch (eB) { bkOk = false; }
+    if (!bkOk) { try { dropBackup_(bk); } catch (eD) {} return wrap(cb, {status: "error", message: "Students चा Backup पडताळणीत अयशस्वी — जुळवणी केलेली नाही."}); }
+    var base = sh.getRange(2, 1, n, 11).getValues(), col = [], changes = [];
+    for (var i = 0; i < n; i++) {
+      var r = base[i], y = (r[1] || "").toString().trim();
+      if ((r[10] || r[2]) && y !== cur) { changes.push({reg: r[2], field: MAIN_HEADERS[1], old: y, nw: cur}); /* Field = Students च्या column B चे शीर्षक (बदलांचा इतिहास एकसमान) */ col.push([cur]); } else col.push([r[1]]);
+    }
+    sh.getRange(2, 2, n, 1).setValues(col);   // फक्त column B
+    invalidateRosterCache_();
+    auditApply_(p, "syncAcYear", changes);
+    logAudit(p.requesterUser, p.requesterRole, "syncAcYear", changes.length + " → " + cur);
+    return wrap(cb, {status: "ok", count: changes.length, current: cur, backupSheet: bkName, backupExternal: !!bk.external, backupRows: n});
+  } catch (err) { return wrap(cb, {status: "error", message: err.toString()}); }
+  finally { if (locked) lock.releaseLock(); }
 }

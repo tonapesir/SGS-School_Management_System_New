@@ -5338,6 +5338,19 @@ function rpEnsureFees(cb) {
 function rpSortStudents(list, order) {
   function byReg(a, b) { return String(a.regNo||'').localeCompare(String(b.regNo||''), undefined, {numeric:true}); }
   function byName(a, b) { return String(a.firstName||'').localeCompare(String(b.firstName||''), 'mr'); }
+  // Roll No. क्रमाने — संख्यात्मक (1,2,10 — 1,10,2 नव्हे); रिकामा Roll No. शेवटी; समान असल्यास Reg No नुसार
+  if (order === 'rollno') {
+    var allRn = list.slice();
+    allRn.sort(function(a, b) {
+      var ra = parseFloat(a.rollNo), rb = parseFloat(b.rollNo);
+      var ea = isNaN(ra), eb = isNaN(rb);
+      if (ea && eb) return byReg(a, b);
+      if (ea) return 1;
+      if (eb) return -1;
+      return (ra - rb) || byReg(a, b);
+    });
+    return allRn;
+  }
   if (order === 'name') { var allN = list.slice(); allN.sort(byName); return allN; }
   if (order === 'girlsfirst' || order === 'boysfirst') {
     var girls = list.filter(function(s){ return (s.gender||'').toLowerCase()==='female'; }).sort(byReg);

@@ -32,7 +32,7 @@ window.androidBackPressed = function() {
 
 
 // URL persistence
-var DEFAULT_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbzSbEcA-pJJsZXDVpvHFcoueODgIj5kqBNSTO_TnfgWMcYnGmD-dVnDqcM5l0sA2pI/exec';
+var DEFAULT_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbwxuyhQrvIUeghpGyqsK4SXvqlPv1rfcSalV90b67LIhDCgo4k3j0bK7ef3ZZUCdEA/exec';
 
 // =====================================================
 // 🔐 LOGIN + ROLE PERMISSIONS
@@ -8443,3 +8443,82 @@ function offReloginNow() {
 try { offCredPurge(); } catch (eOp) {}
 window.addEventListener('online', function() { offSessUpdate(); });
 window.addEventListener('offline', function() { offSessUpdate(); });
+
+
+// ===== BACK / BACKSPACE — थेट Dashboard (मुख्य पान) वर जा =====
+// Web / Mobile browser / PWA (installed app): Back बटण किंवा Backspace दाबल्यावर कोणत्याही पानावरून आपल्या Dashboard वर जाते.
+// Dashboard वर असताना Back दाबल्यास लगेच बाहेर पडत नाही — "पुन्हा Back दाबा" सूचना येते; २ सेकंदात पुन्हा दाबल्यास बाहेर पडते.
+(function() {
+  var exitArmed = false, exitTimer = null;
+
+  function homePageName() { return (currentUser && typeof defaultPageForRole === 'function') ? defaultPageForRole(currentUser.role) : 'dashboard'; }
+  function activePageName() {
+    var p = document.querySelector('.page.active');
+    return p && p.id ? p.id.replace(/^pg-/, '') : '';
+  }
+  function certOpen() { var m = document.getElementById('certModal'); return !!(m && m.classList.contains('open')); }
+  function teacherTabOffDash() {
+    if (!currentUser || currentUser.role !== 'teacher' || activePageName() !== 'teacher') return false;
+    var b = document.querySelector('.tch-tabbtn.active');
+    return !!(b && b.getAttribute('data-tch') && b.getAttribute('data-tch') !== 'dash');
+  }
+  function backToast(msg) {
+    var t = document.getElementById('sgsBackToast');
+    if (!t) {
+      t = document.createElement('div');
+      t.id = 'sgsBackToast';
+      t.style.cssText = 'position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:rgba(30,30,30,.92);color:#fff;padding:9px 18px;border-radius:20px;font-size:13px;z-index:99999;display:none;max-width:90%;text-align:center';
+      document.body.appendChild(t);
+    }
+    t.textContent = msg; t.style.display = 'block';
+    clearTimeout(t._t); t._t = setTimeout(function() { t.style.display = 'none'; }, 2000);
+  }
+  function pushGuard() {
+    try { if (!history.state || history.state.sgs !== 'app') history.pushState({ sgs: 'app' }, ''); } catch (e) {}
+  }
+
+  // true = काही हालचाल केली (modal बंद / Dashboard ला गेले); false = आधीच Dashboard वर आहोत
+  function goHome() {
+    if (!currentUser) return false;
+    if (certOpen()) { try { closeCert(); } catch (e) {} return true; }
+    if (teacherTabOffDash()) { try { tchShowTab('dash'); } catch (e) {} return true; }
+    var home = homePageName();
+    if (activePageName() !== home) {
+      showPage(home, document.querySelector('.navbtn[data-page="' + home + '"]'));
+      try { window.scrollTo(0, 0); } catch (e) {}
+      return true;
+    }
+    return false;
+  }
+
+  // Browser/Mobile Back बटण
+  window.addEventListener('popstate', function() {
+    if (!currentUser) return;                    // Login स्क्रीनवर — सामान्य Back (बाहेर पडू द्या)
+    if (history.state && history.state.sgs === 'app') return;
+    if (goHome()) { pushGuard(); exitArmed = false; return; }
+    if (exitArmed) { exitArmed = false; history.back(); return; }   // दुसऱ्यांदा Back — बाहेर पडा
+    exitArmed = true; clearTimeout(exitTimer);
+    exitTimer = setTimeout(function() { exitArmed = false; }, 2000);
+    backToast('बाहेर पडण्यासाठी पुन्हा Back दाबा');
+    pushGuard();
+  });
+
+  // Keyboard Backspace (टाइप करत नसताना)
+  document.addEventListener('keydown', function(ev) {
+    if (ev.key !== 'Backspace' || ev.ctrlKey || ev.metaKey || ev.altKey || !currentUser) return;
+    var t = ev.target, tag = t && t.tagName ? t.tagName.toUpperCase() : '';
+    if (tag === 'TEXTAREA' || tag === 'SELECT' || (t && t.isContentEditable)) return;
+    if (tag === 'INPUT' && !/^(checkbox|radio|button|submit|reset|file|range|color|image)$/i.test(t.type || 'text')) return;
+    ev.preventDefault();
+    goHome();
+  });
+
+  // प्रत्येक पान बदलल्यावर Back साठी history entry तयार ठेवा
+  var _prevShowPage = showPage;
+  showPage = function(name, btn) {
+    _prevShowPage(name, btn);
+    if (currentUser) pushGuard();
+  };
+
+  try { history.replaceState({ sgs: 'root' }, ''); } catch (e) {}
+})();

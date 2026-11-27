@@ -9225,7 +9225,7 @@ function salBuildBannerHtml() {
       '<div class="sal-b-title">शालार्थ</div>' +
       '<div class="sal-b-sub">शालेय शिक्षक शिक्षकेतर कर्मचारी वेतन व्यवस्थापन प्रणाली</div>' +
     '</div>' +
-    '<div class="sal-b-right">S.G.S.<br>पचोरा</div>' +
+    '<div class="sal-b-right">S.G.S.<br>पाचोरा</div>' +
   '</div>';
 }
 

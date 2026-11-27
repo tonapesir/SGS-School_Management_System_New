@@ -66,6 +66,7 @@
   <button class="navbtn" data-page="bonafide" onclick="showPage('bonafide',this)">📄 बोनाफाईड</button>
   <button class="navbtn" data-page="attendance" onclick="showPage('attendance',this)">✅ उपस्थिती प्रमाणपत्र</button>
   <button class="navbtn" data-page="salarycert" onclick="showPage('salarycert',this)">💼 पगार दाखला</button>
+  <button class="navbtn" data-page="staffleave" onclick="showPage('staffleave',this)">🏖️ रजा नोंदवही</button>
   <button class="navbtn" data-page="search" onclick="showPage('search',this)">🔍 विद्यार्थी शोधा</button>
   <button class="navbtn" data-page="history" onclick="showPage('history',this)">📁 History / Export</button>
   <button class="navbtn" data-page="profile" onclick="showPage('profile',this)">🪪 Profile</button>
@@ -301,7 +302,12 @@
     <div class="dcard" data-page="salarycert" onclick="showPage('salarycert',this)">
       <div class="icon">💼</div>
       <h3>पगार दाखला</h3>
-      <p>शालार्थ मासिक Certificate व वार्षिक विवरणपत्र</p>
+      <p>शालार्थ मासिक Certificate, वार्षिक विवरणपत्र व Form 16</p>
+    </div>
+    <div class="dcard" data-page="staffleave" onclick="showPage('staffleave',this)">
+      <div class="icon">🏖️</div>
+      <h3>रजा नोंदवही</h3>
+      <p>CL / EL / ML रजा अर्ज, शिल्लक व मंजुरी नोंदवही</p>
     </div>
     <div class="dcard" data-page="search" onclick="showPage('search',this)">
       <div class="icon">🔍</div>
@@ -920,6 +926,7 @@
       <div class="sal-modebar">
         <button type="button" class="sal-modebtn active" id="sal_modeMonthly" onclick="salSetMode('monthly')">📄 मासिक सर्टिफिकेट</button>
         <button type="button" class="sal-modebtn" id="sal_modeAnnual" onclick="salSetMode('annual')">📊 वार्षिक विवरणपत्र (FY — मार्च ते फेब्रुवारी)</button>
+        <button type="button" class="sal-modebtn" id="sal_modeForm16" onclick="salSetMode('form16')">🧾 Form 16 / आयकर</button>
       </div>
       <div class="status" id="sal_status" style="margin-top:12px"></div>
     </div>
@@ -1022,6 +1029,160 @@
           <button type="button" class="btn btn-blue" onclick="salOpenAnnualCert(false)">🖨️ वार्षिक विवरणपत्र Preview / Print</button>
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- Form 16 / आयकर गणना विभाग -->
+  <div id="sal_form16Section" style="display:none">
+    <div class="card" id="sal_f16_archiveCard" style="margin-bottom:16px">
+      <div class="card-header" style="justify-content:space-between;flex-wrap:wrap;gap:8px">
+        <div>
+          <h2>📂 मंजूर Form 16 PDF (Google Drive Archive — 2018-19 ते 2025-26+)</h2>
+          <p id="sal_f16_archiveSub">PAN कार्ड क्रमांकानुसार Google Drive मधील अधिकृत Form No. 16 PDF फाईल्स</p>
+        </div>
+        <button type="button" class="btn btn-blue btn-sm" id="sal_f16_archiveRefreshBtn" onclick="salLoadForm16Archive(true)">🔄 यादी ताजी करा</button>
+      </div>
+      <div class="card-body">
+        <div id="sal_f16_archiveStatus" class="status" style="margin-top:0;margin-bottom:10px"></div>
+        <div id="sal_f16_archiveBody"></div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-header"><div><h2>🧾 Form 16 (Part B) — आयकर वजावट व कर गणना</h2><p>आर्थिक वर्ष (मार्च ते फेब्रुवारी) पगारानुसार New vs Old Tax Regime तुलना</p></div></div>
+      <div class="card-body">
+        <div class="frow" style="gap:10px;align-items:flex-end;margin-bottom:12px">
+          <div class="fg" style="flex:1.2;min-width:200px">
+            <label for="sal_f16_fySelect">आर्थिक वर्ष (Financial Year)</label>
+            <select id="sal_f16_fySelect" onchange="salSelectFy(this.value)" style="width:100%"></select>
+          </div>
+          <div class="fg w180">
+            <label for="sal_f16_issueDate">दाखला दिनांक</label>
+            <input type="date" id="sal_f16_issueDate" onchange="salUpdateIssueDate(this.value)">
+          </div>
+          <div class="fg" style="flex:0 0 auto">
+            <button type="button" class="btn btn-green" onclick="salLoadAnnual()">📈 पगार आकडे लोड करा</button>
+          </div>
+        </div>
+
+        <div class="f16-regime-bar">
+          <span style="font-size:12.5px;font-weight:700;color:var(--gold2)">निवडलेली कर प्रणाली (Form 16 साठी):</span>
+          <button type="button" class="sal-modebtn active" id="sal_f16_regNew" onclick="salSetForm16Regime('new')">✨ New Regime (87A ₹7L सवलत + ₹75k Std)</button>
+          <button type="button" class="sal-modebtn" id="sal_f16_regOld" onclick="salSetForm16Regime('old')">📜 Old Regime (80C / 80D / HRA / 24b)</button>
+        </div>
+
+        <div class="f16-ded-grid">
+          <div class="fg"><label for="sal_f16_80c">Sec 80C (GPF/DCPS+LIC — कमाल ₹1,50,000)</label><input type="number" min="0" id="sal_f16_80c" oninput="salOnForm16Input()"></div>
+          <div class="fg"><label for="sal_f16_80ccd1b">Sec 80CCD(1B) (NPS स्व-अंशदान — कमाल ₹50,000)</label><input type="number" min="0" id="sal_f16_80ccd1b" oninput="salOnForm16Input()"></div>
+          <div class="fg"><label for="sal_f16_80d">Sec 80D (आरोग्य विमा — कमाल ₹1,00,000)</label><input type="number" min="0" id="sal_f16_80d" placeholder="0" oninput="salOnForm16Input()"></div>
+          <div class="fg"><label for="sal_f16_24b">Sec 24(b) (गृहकर्ज व्याज — कमाल ₹2,00,000)</label><input type="number" min="0" id="sal_f16_24b" placeholder="0" oninput="salOnForm16Input()"></div>
+          <div class="fg"><label for="sal_f16_hra">HRA सवलत (Sec 10(13A))</label><input type="number" min="0" id="sal_f16_hra" placeholder="0" oninput="salOnForm16Input()"></div>
+          <div class="fg"><label for="sal_f16_other">इतर Ch.VI-A वजावट (80G / 80E इ.)</label><input type="number" min="0" id="sal_f16_other" placeholder="0" oninput="salOnForm16Input()"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" id="sal_f16_card" style="display:none;margin-bottom:16px">
+      <div class="card-header"><div><h2 id="sal_f16_title">🧾 Form 16 कर तुलना व सारांश</h2></div></div>
+      <div class="card-body">
+        <div id="sal_f16_body"></div>
+        <div class="abtns">
+          <button type="button" class="btn btn-gold" onclick="salOpenForm16Cert(true)">📥 Form 16 PDF (A4)</button>
+          <button type="button" class="btn btn-blue" onclick="salOpenForm16Cert(false)">🖨️ Form 16 Preview / Print</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== STAFF LEAVE REGISTER PAGE ==================== -->
+<div id="pg-staffleave" class="page">
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-header" style="justify-content:space-between;flex-wrap:wrap">
+      <div>
+        <h2>🏖️ कर्मचारी रजा नोंदवही (Staff Leave Register)</h2>
+        <p id="sl_subtitle">CL / EL / ML रजा अर्ज, शिल्लक व प्रशासकीय मंजुरी</p>
+      </div>
+      <button type="button" class="btn btn-blue btn-sm" id="sl_refreshBtn" onclick="slInit(true)">🔄 रीफ्रेश करा</button>
+    </div>
+    <div class="card-body">
+      <div id="sl_status" class="status"></div>
+      <div id="sl_kpiGrid" class="sal-kpi-grid" style="margin-top:8px"></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-header"><div><h2>📝 नवीन रजा अर्ज नोंदवा</h2></div></div>
+    <div class="card-body">
+      <div class="frow" style="gap:10px;flex-wrap:wrap;margin-bottom:10px">
+        <div class="fg" id="sl_applyEmpWrap" style="display:none;flex:1.4;min-width:220px">
+          <label for="sl_applyEmp">कर्मचारी निवडा (Admin मोड)</label>
+          <select id="sl_applyEmp" style="width:100%"></select>
+        </div>
+        <div class="fg" style="flex:1;min-width:220px">
+          <label>रजेचा प्रकार</label>
+          <div class="sl-type-bar" id="sl_typeBar">
+            <button type="button" class="sal-chip active" data-lt="CL" onclick="slSetType('CL')">CL (नैमित्तिक)</button>
+            <button type="button" class="sal-chip" data-lt="EL" onclick="slSetType('EL')">EL (अर्जित)</button>
+            <button type="button" class="sal-chip" data-lt="ML" onclick="slSetType('ML')">ML (वैद्यकीय)</button>
+            <button type="button" class="sal-chip" data-lt="HPL" onclick="slSetType('HPL')">HPL</button>
+            <button type="button" class="sal-chip" data-lt="DUTY" onclick="slSetType('DUTY')">On Duty</button>
+            <button type="button" class="sal-chip" data-lt="LWP" onclick="slSetType('LWP')">LWP</button>
+          </div>
+          <input type="hidden" id="sl_type" value="CL">
+        </div>
+      </div>
+
+      <div class="frow" style="gap:10px;flex-wrap:wrap;align-items:flex-end">
+        <div class="fg w150">
+          <label for="sl_from">पासून दिनांक</label>
+          <input type="date" id="sl_from" onchange="slCalcDays()">
+        </div>
+        <div class="fg w150">
+          <label for="sl_to">पर्यंत दिनांक</label>
+          <input type="date" id="sl_to" onchange="slCalcDays()">
+        </div>
+        <div class="fg w120">
+          <label for="sl_days">एकूण दिवस</label>
+          <input type="number" step="0.5" min="0.5" max="365" id="sl_days" value="1">
+        </div>
+        <div class="fg" style="flex:0 0 auto">
+          <button type="button" class="btn btn-gray btn-sm" onclick="slSetHalfDay()">½ अर्धा दिवस (0.5)</button>
+        </div>
+        <div class="fg" style="flex:1.6;min-width:220px">
+          <label for="sl_reason">रजेचे कारण</label>
+          <input id="sl_reason" placeholder="उदा. कौटुंबिक कामानिमित्त / वैद्यकीय कारण">
+        </div>
+        <div class="fg" style="flex:0 0 auto">
+          <button type="button" class="btn btn-gold" id="sl_applyBtn" onclick="slApply()">📤 रजा अर्ज पाठवा</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header" style="justify-content:space-between;flex-wrap:wrap">
+      <div><h2>📋 रजा नोंदवही यादी <span id="sl_countLbl">(0)</span></h2></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button type="button" class="btn btn-gold btn-sm" onclick="slExportPdf()">📥 PDF (A4)</button>
+        <button type="button" class="btn btn-green btn-sm" onclick="slExportCsv()">📊 CSV</button>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="frow" style="gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
+        <div class="fg" id="sl_filterEmpWrap" style="display:none;min-width:220px;flex:1">
+          <select id="sl_filterEmp" onchange="slSetFilterEmp(this.value)" style="width:100%">
+            <option value="ALL">— सर्व कर्मचारी —</option>
+          </select>
+        </div>
+        <div class="sl-type-bar" id="sl_statusFilterBar">
+          <button type="button" class="sal-chip active" data-st="all" onclick="slSetFilterStatus('all')">सर्व</button>
+          <button type="button" class="sal-chip" data-st="pending" onclick="slSetFilterStatus('pending')">⏳ प्रलंबित</button>
+          <button type="button" class="sal-chip" data-st="approved" onclick="slSetFilterStatus('approved')">✅ मंजूर</button>
+          <button type="button" class="sal-chip" data-st="rejected" onclick="slSetFilterStatus('rejected')">❌ नामंजूर</button>
+        </div>
+      </div>
+      <div id="sl_listBody">⏳ लोड होत आहे...</div>
     </div>
   </div>
 </div>
@@ -1208,6 +1369,17 @@
         </div>
       </div>
       <div id="um_status" style="font-size:12.5px;margin-top:8px;color:#555"></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-header"><div><h2>🔄 शालार्थ कर्मचारी ↔ User खाते Sync व पडताळणी</h2><p>शालार्थ पगार शीटमधील सर्व कर्मचाऱ्यांची Login खाती तपासणे व राहिलेल्यांना 'staff' खाते तयार करणे</p></div></div>
+    <div class="card-body">
+      <div class="frow" style="gap:10px;flex-wrap:wrap">
+        <button type="button" class="btn btn-blue" id="um_auditBtn" onclick="umAuditStaffUsers()">🔍 पडताळणी करा (Audit)</button>
+        <button type="button" class="btn btn-gold" id="um_provisionBtn" onclick="umProvisionStaffUsers()">➕ राहिलेल्यांना Staff खाते तयार करा (Pass@1234)</button>
+      </div>
+      <div id="um_auditOut" style="font-size:12.5px;margin-top:10px;line-height:1.6"></div>
     </div>
   </div>
 
@@ -1501,7 +1673,8 @@
     <li><b>सूचना</b> टॅब: शाळेच्या सर्व सूचना.</li>
     <li><b>मेंटेनन्स</b> टॅब: रजिस्टर नंबर शोधून फक्त <b>तुकडी</b> बदलता येते.</li>
     <li><b>🪪 Profile</b>: विद्यार्थ्याची संपूर्ण माहिती. <b>🎓 शिष्यवृत्ती</b> व <b>📑 रिपोर्ट</b> पानेही मेनूत आहेत.</li>
-    <li><b>💼 पगार दाखला</b>: फक्त स्वतःचे मासिक Salary Certificate आणि मार्च ते फेब्रुवारी वार्षिक पगार विवरणपत्र 'शालार्थ' बॅनरसह PDF डाउनलोड/प्रिंट करा.</li>
+    <li><b>💼 पगार दाखला व Form 16:</b> फक्त स्वतःचे मासिक Salary Certificate, मार्च–फेब्रुवारी वार्षिक विवरणपत्र आणि Form 16 (Old vs New Tax तुलना) PDF डाउनलोड/प्रिंट करा.</li>
+    <li><b>🏖️ रजा नोंदवही:</b> तुमची CL/EL/ML रजा शिल्लक पहा व नवीन रजा अर्ज पाठवा.</li>
   </ul>
 </section>
 
@@ -1596,7 +1769,8 @@
   <h3>💼 कर्मचाऱ्यांसाठी — माझा पगार दाखला</h3>
   <p>तुमची पाने: <b>💼 पगार दाखला</b>, <b>👥 Users (Password बदला)</b> आणि <b>❓ मदत</b>.</p>
   <ul>
-    <li><b>💼 माझा पगार दाखला व वार्षिक विवरणपत्र:</b> तुमच्या लॉगिन मोबाईल नंबरनुसार फक्त तुमचे स्वतःचे मासिक <b>Salary Certificate</b> आणि <b>मार्च ते फेब्रुवारी वार्षिक पगार विवरणपत्र (Annual Statement PDF)</b> 'शालार्थ' बॅनरसह पहा, PDF डाउनलोड किंवा प्रिंट करा.</li>
+    <li><b>💼 माझा पगार दाखला, वार्षिक विवरणपत्र व Form 16:</b> तुमच्या लॉगिन मोबाईल नंबरनुसार स्वतःचे मासिक <b>Salary Certificate</b>, <b>मार्च–फेब्रुवारी वार्षिक विवरणपत्र</b> आणि <b>Form 16 / आयकर गणना</b> पहा व PDF प्रिंट करा.</li>
+    <li><b>🏖️ रजा नोंदवही:</b> स्वतःचा रजा अर्ज (CL/EL/ML/Duty) नोंदवा व मंजुरीची स्थिती पहा.</li>
     <li><b>🔐 माझा Password बदला:</b> प्रथम लॉगिन केल्यानंतर (सुरुवातीचा Password: <code>Pass@1234</code>) मेनूमधील <b>👥 Users</b> मध्ये जाऊन तुमचा स्वतःचा किमान ८ अक्षरी वैयक्तिक Password सेट करा.</li>
   </ul>
 </section>
@@ -1807,7 +1981,9 @@
     <div class="card-header"><div><h2>🔐 सुरक्षा स्थिती</h2><p>Server-side Login व Token — Role बनावट पाठवून होणारा गैरवापर रोखण्यासाठी</p></div></div>
     <div class="card-body">
       <div id="sa_secInfo" style="font-size:13px">⏳ Load होत आहे...</div>
-      <div style="font-size:12px;opacity:.75;margin-top:10px">सक्रिय करण्याचे टप्पे: (१) Apps Script Editor मध्ये setSuperCredentials('user_s','नवा-पासवर्ड') Run करा → (२) नवीन Deploy → (३) येथे Login करून "Token ने सुरक्षित" दिसते का तपासा → (४) enableAuthEnforcement() Run करा → (५) script.js मध्ये ALLOW_LEGACY_LOGIN = false करा.</div>
+      <div id="sa_secActions" class="frow" style="gap:8px;flex-wrap:wrap;margin-top:10px"></div>
+      <div id="sa_secActionStatus" style="font-size:12.5px;margin-top:8px"></div>
+      <div style="font-size:12px;opacity:.75;margin-top:10px">सक्रिय करण्याचे टप्पे: (१) Apps Script Editor मध्ये setSuperCredentials('user_s','नवा-पासवर्ड') Run करा → (२) नवीन Deploy → (३) येथे Login करून "Token ने सुरक्षित" तपासा → (४) वरील बटणाने Passwords Hash व Token सक्ती चालू करा.</div>
     </div>
   </div>
 

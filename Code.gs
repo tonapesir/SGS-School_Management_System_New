@@ -286,6 +286,27 @@ function doGetCore_(e) {
   if (p.action === "getSecurityStatus") {
     return doGetSecurityStatus(p, cb);
   }
+  if (p.action === "auditStaffUsers") {
+    return doAuditStaffUsers(p, cb);
+  }
+  if (p.action === "getStaffLeaves") {
+    return doGetStaffLeaves(p, cb);
+  }
+  if (p.action === "getSalaryMeta") {
+    return doGetSalaryMeta(p, cb);
+  }
+  if (p.action === "getSalaryRecord") {
+    return doGetSalaryRecord(p, cb);
+  }
+  if (p.action === "getAnnualSalary") {
+    return doGetAnnualSalary(p, cb);
+  }
+  if (p.action === "getForm16ArchiveList") {
+    return doGetForm16ArchiveList(p, cb);
+  }
+  if (p.action === "getForm16ArchivePdf") {
+    return doGetForm16ArchivePdf(p, cb);
+  }
   if (p.action === "migrateLogs") {   // V19.48 — जुनी Log/Log_Archive → Log_YYYY_MM (फक्त Super, एकदाच)
     return doMigrateLogs(p, cb);
   }
@@ -297,7 +318,10 @@ function doGetCore_(e) {
       p.action === "archivePassedOut" || p.action === "restorePassedOut" ||
       p.action === "renumberRolls" || p.action === "archiveLogNow" ||
       p.action === "saveEarlyLeave" || p.action === "markEarlyLeaveOut" || p.action === "shrinkSheets" || p.action === "rebuildFeesSummary" ||
-      p.action === "startNewYear" || p.action === "archiveYear" || p.action === "backupArchiveFile") {
+      p.action === "startNewYear" || p.action === "archiveYear" || p.action === "backupArchiveFile" ||
+      p.action === "applyStaffLeave" || p.action === "reviewStaffLeave" || p.action === "deleteStaffLeave" ||
+      p.action === "provisionStaffUsers" || p.action === "enableAuthEnforcement" || p.action === "disableAuthEnforcement" ||
+      p.action === "hashAllPasswords" || p.action === "revokeAllSessions") {
     return handleAction(p, cb);
   }
   var a = p.action || "";
@@ -449,6 +473,22 @@ function handleAction(d, cb) {
       result = doRunBackup(d);
     } else if (action === "setBackupSchedule") {
       result = doSetBackupSchedule(d);
+    } else if (action === "applyStaffLeave") {
+      result = doApplyStaffLeave(d);
+    } else if (action === "reviewStaffLeave") {
+      result = doReviewStaffLeave(d);
+    } else if (action === "deleteStaffLeave") {
+      result = doDeleteStaffLeave(d);
+    } else if (action === "provisionStaffUsers") {
+      result = doProvisionStaffUsersApi(d);
+    } else if (action === "enableAuthEnforcement") {
+      result = doEnableAuthEnforcementApi(d);
+    } else if (action === "disableAuthEnforcement") {
+      result = doDisableAuthEnforcementApi(d);
+    } else if (action === "hashAllPasswords") {
+      result = doHashAllPasswordsApi(d);
+    } else if (action === "revokeAllSessions") {
+      result = doRevokeAllSessionsApi(d);
     } else {
       return wrap(cb, {status:"error", message:"Unknown action: "+action});
     }
@@ -461,7 +501,8 @@ function handleAction(d, cb) {
       invalidateRosterCache_();
     }
     logAudit(d.auditUser || d.requesterUser, d.auditRole || d.requesterRole, action, result.serial || d.regNo || d.stxt1 || result.ref || "");
-    var okResp = {status:"ok", rowIndex:result.rowIndex, action:action, mode:result.mode, serial:result.serial||"", count:result.count||0,
+    var okResp = {status:"ok", rowIndex:result.rowIndex||0, action:action, mode:result.mode||"ok", serial:result.serial||"", count:result.count||0,
+      message: (result && result.message) ? result.message : "",
       oldIyatta:result.oldIyatta||"", oldTukdi:result.oldTukdi||"",
       oldTotalFee:result.oldTotalFee||0, newTotalFee:result.newTotalFee||0,
       extra: result.extra || null};
@@ -3779,13 +3820,15 @@ function doGetAttendancePending(p, cb) {
 // व HMAC ने स्वाक्षरी केलेला Token देतो; पुढील प्रत्येक विनंतीत Token तपासून Role server स्वतः ठरवतो.
 // स्थलांतर: (१) setSuperCredentials('user_s','पासवर्ड') (२) नवीन Deploy (३) Login चाचणी (४) enableAuthEnforcement()
 var TOKEN_TTL_MS = 12 * 60 * 60 * 1000;
-var VALID_ROLES = ["super","master","deo","cert","teacher","peon"];
-// Users sheet मध्ये "Peon" / " Teacher " असे मोठ्या अक्षरात किंवा space सह लिहिले तरी लहान अक्षरात बदलून तपासतो.
+var VALID_ROLES = ["super","master","deo","cert","teacher","peon","staff"];
+// Users sheet मध्ये "Peon" / " Teacher " / " Staff " असे मोठ्या अक्षरात किंवा space सह लिहिले तरी लहान अक्षरात बदलून तपासतो.
 function normRole_(r) { return (r || "").toString().trim().toLowerCase(); }
 var AUTH_PUBLIC_ACTIONS = {ping:1, login:1, verify:1};
 var TEACHER_CLASS_ACTIONS = {getClassStudents:1, getTeacherDashboard:1, saveAttendance:1, getAttendance:1, getAttendanceAnalytics:1, getEarlyLeave:1, saveEarlyLeave:1, getScholarship:1, saveScholarship:1, getFees:1, getTransport:1};   // V19.54: getFees/getTransport जोडले — शिक्षक वर्ग-यादी मोडमध्ये दुसऱ्या वर्गाची/संपूर्ण शाळेची फी मागवू शकत नाही
-// Peon (शिपाई) फक्त हेच करू शकतो: विद्यार्थी शोध/प्रोफाइल (getAll), घरी जाणाऱ्यांची यादी, मार्क-आउट, स्वतःचा Password बदल
-var PEON_ACTIONS = {getAll:1, getEarlyLeavePeon:1, markEarlyLeaveOut:1, changePassword:1, getPhotoData:1, getClassTeachers:1, logClientErrors:1};   // V19.61: logClientErrors — सर्व भूमिका (Token सह)
+// Peon (शिपाई) फक्त हेच करू शकतो: विद्यार्थी शोध/प्रोफाइल (getAll), घरी जाणाऱ्यांची यादी, मार्क-आउट, स्वतःचा Password बदल, स्वतःचा पगार दाखला, स्वतःची रजा नोंदवही
+var PEON_ACTIONS = {getAll:1, getEarlyLeavePeon:1, markEarlyLeaveOut:1, changePassword:1, getPhotoData:1, getClassTeachers:1, getSalaryMeta:1, getSalaryRecord:1, getAnnualSalary:1, getForm16ArchiveList:1, getForm16ArchivePdf:1, getStaffLeaves:1, applyStaffLeave:1, logClientErrors:1};   // V19.61: logClientErrors — सर्व भूमिका (Token सह)
+// Staff (गैर-वर्गशिक्षक कर्मचारी) फक्त स्वतःचा पगार दाखला / वार्षिक विवरणपत्र / जुने Form 16, स्वतःची रजा नोंदवही आणि स्वतःचा Password बदलू शकतो
+var STAFF_ACTIONS = {getSalaryMeta:1, getSalaryRecord:1, getAnnualSalary:1, getForm16ArchiveList:1, getForm16ArchivePdf:1, getStaffLeaves:1, applyStaffLeave:1, changePassword:1, logClientErrors:1};
 var _authSecretMem = null;
 
 function authSecret_() {
@@ -3845,6 +3888,9 @@ function applyAuth_(p) {
     if (payload.r === "peon" && !PEON_ACTIONS[act]) {
       return {status:"error", code:"forbidden", message:"या User ला हे करण्याचा अधिकार नाही."};
     }
+    if (payload.r === "staff" && !STAFF_ACTIONS[act]) {
+      return {status:"error", code:"forbidden", message:"फक्त स्वतःचा पगार दाखला आणि Password बदलण्याचा अधिकार आहे."};
+    }
     if (payload.r === "teacher" && TEACHER_CLASS_ACTIONS[act] && payload.c) {
       var cp = String(payload.c).split("|");
       p.iyatta = (cp[0] || "").trim();
@@ -3876,7 +3922,7 @@ function doLogin(p, cb) {
         if ((rows[i][0] || "").toString().trim() === username && passwordMatches_(rows[i][1], password)) {
           var rl = normRole_(rows[i][2]);
           if (VALID_ROLES.indexOf(rl) === -1) {
-            return wrap(cb, {status:"error", code:"badrole", message:"या User चा Role (" + (rows[i][2] || "रिकामा") + ") अमान्य आहे. Users sheet मध्ये Role: super / master / deo / cert / teacher / peon यापैकी एक हवा."});
+            return wrap(cb, {status:"error", code:"badrole", message:"या User चा Role (" + (rows[i][2] || "रिकामा") + ") अमान्य आहे. Users sheet मध्ये Role: super / master / deo / cert / teacher / peon / staff यापैकी एक हवा."});
           }
           user = {role: rl, label: rows[i][3] || username, assignedClass: (rows[i][4] || "").toString()};
           break;
@@ -6301,4 +6347,1556 @@ function doSyncStudentsAcYear(p, cb) {
     return wrap(cb, {status: "ok", count: changes.length, current: cur, backupSheet: bkName, backupExternal: !!bk.external, backupRows: n});
   } catch (err) { return wrap(cb, {status: "error", message: err.toString()}); }
   finally { if (locked) lock.releaseLock(); }
+}
+// ============================================================================
+// SALARY CERTIFICATE & ANNUAL STATEMENT (SHALARTH - MARCH TO FEBRUARY)
+// + SELF-SERVICE LOCK FOR ALL 84 STAFF + PROVISIONING HELPERS
+// ============================================================================
+var SALARY_SHEET_ID = "1WSpImKCOROVPbTPpd-O7f9IKvcAmstwOfMGIel6IgS0";
+var SALARY_ADMIN_ROLES = ["super", "master", "cert"];
+var SALARY_SELF_ROLES = ["teacher", "deo", "peon", "staff"];
+
+function isSalaryAdminRole_(role) {
+  return SALARY_ADMIN_ROLES.indexOf(normRole_(role)) !== -1;
+}
+
+function isSalarySelfServiceRole_(role) {
+  return SALARY_SELF_ROLES.indexOf(normRole_(role)) !== -1;
+}
+
+function salNum_(v) {
+  if (v === null || v === undefined || v === "") return 0;
+  if (typeof v === "number") return isNaN(v) ? 0 : v;
+  var n = parseFloat(v.toString().replace(/,/g, "").trim());
+  return isNaN(n) ? 0 : n;
+}
+
+function salStr_(v) {
+  if (v === null || v === undefined) return "";
+  return v.toString().trim();
+}
+
+function last10Digits_(v) {
+  if (v === null || v === undefined) return "";
+  var s = (typeof v === "number")
+    ? String(Math.round(v))
+    : v.toString().replace(/\.0+$/, "");
+  var d = s.replace(/[^0-9]/g, "");
+  return d.length >= 10 ? d.slice(-10) : "";
+}
+
+function findSalarySheet_(salSs, candidateNames) {
+  for (var i = 0; i < candidateNames.length; i++) {
+    var exact = salSs.getSheetByName(candidateNames[i]);
+    if (exact) return exact;
+  }
+  var normTargets = candidateNames.map(function(n) {
+    return n.toLowerCase().replace(/[\s_]+/g, "");
+  });
+  var sheets = salSs.getSheets();
+  for (var s = 0; s < sheets.length; s++) {
+    var nm = sheets[s].getName().toLowerCase().replace(/[\s_]+/g, "");
+    if (normTargets.indexOf(nm) !== -1) return sheets[s];
+  }
+  return null;
+}
+
+function findSalaryHeaderRow_(values) {
+  var maxScan = Math.min(values.length, 6);
+  for (var r = 0; r < maxScan; r++) {
+    var row = values[r];
+    var hasSid = false;
+    var hasName = false;
+    for (var c = 0; c < row.length; c++) {
+      var h = salStr_(row[c]).toUpperCase();
+      if (h === "SHALARTH ID") hasSid = true;
+      if (h === "EMPLOYEE NAME") hasName = true;
+    }
+    if (hasSid && hasName) return r;
+  }
+  return -1;
+}
+
+function buildHeaderIndexMap_(headerRow) {
+  var map = {};
+  for (var c = 0; c < headerRow.length; c++) {
+    var key = salStr_(headerRow[c]).toUpperCase();
+    if (key && map[key] === undefined) {
+      map[key] = c;
+    }
+  }
+  return map;
+}
+
+function parseMonthTabInfo_(tabName) {
+  var mMap = {
+    jan: 1, january: 1, feb: 2, february: 2, mar: 3, march: 3,
+    apr: 4, april: 4, may: 5, jun: 6, june: 6, jul: 7, july: 7,
+    aug: 8, august: 8, sep: 9, sept: 9, september: 9,
+    oct: 10, october: 10, nov: 11, november: 11, dec: 12, december: 12
+  };
+  var mNames = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  var m = /^([A-Za-z]+)[_\-\s]+(\d{2,4})$/.exec(salStr_(tabName));
+  if (!m) return null;
+  var mo = mMap[m[1].toLowerCase()];
+  var yr = parseInt(m[2], 10);
+  if (!mo || isNaN(yr)) return null;
+  if (yr < 100) yr += 2000;
+  var yy = ("0" + (yr % 100)).slice(-2);
+
+  // आर्थिक वर्ष: मार्च ते फेब्रुवारी (March to February)
+  var fyStart = mo >= 3 ? yr : (yr - 1);
+  var fyEnd = ("0" + ((fyStart + 1) % 100)).slice(-2);
+
+  return {
+    tabName: tabName,
+    year: yr,
+    month: mo,
+    sortKey: yr * 100 + mo,
+    label: mNames[mo] + "-" + yy,
+    fy: fyStart + "-" + fyEnd
+  };
+}
+
+function readSalaryMonths_(salSs) {
+  var months = [];
+  var seen = {};
+  var monthSh = findSalarySheet_(salSs, ["Month"]);
+  if (monthSh && monthSh.getLastRow() >= 1) {
+    var vals = monthSh.getRange(1, 1, Math.min(monthSh.getLastRow(), 150), 4).getValues();
+    for (var i = 0; i < vals.length; i++) {
+      var tab = salStr_(vals[i][1]);
+      if (!tab || seen[tab]) continue;
+      if (!salSs.getSheetByName(tab)) continue;
+      var info = parseMonthTabInfo_(tab);
+      seen[tab] = true;
+      months.push({
+        tabName: tab,
+        label: info ? info.label : (salStr_(vals[i][2]) || tab),
+        date: vals[i][0] instanceof Date
+          ? Utilities.formatDate(vals[i][0], Session.getScriptTimeZone(), "dd/MM/yyyy")
+          : salStr_(vals[i][0])
+      });
+    }
+  }
+  // Month शीटमध्ये नसलेले पण अस्तित्वात असलेले नवीन महिन्यांचे टॅब देखील जोडा
+  var sheets = salSs.getSheets();
+  for (var s = 0; s < sheets.length; s++) {
+    var name = sheets[s].getName();
+    var parsed = parseMonthTabInfo_(name);
+    if (parsed && !seen[name]) {
+      seen[name] = true;
+      months.push({ tabName: name, label: parsed.label, date: "" });
+    }
+  }
+  months.sort(function(a, b) {
+    var ka = (parseMonthTabInfo_(a.tabName) || { sortKey: 0 }).sortKey;
+    var kb = (parseMonthTabInfo_(b.tabName) || { sortKey: 0 }).sortKey;
+    return kb - ka;
+  });
+  return months;
+}
+
+function readEmpStaticMap_(salSs) {
+  var out = {};
+  var sh = findSalarySheet_(salSs, ["Emp_Static", "Emp Static"]);
+  if (!sh || sh.getLastRow() < 2) return out;
+  var vals = sh.getDataRange().getValues();
+  var hRow = findSalaryHeaderRow_(vals);
+  if (hRow === -1) hRow = 0;
+  var hMap = buildHeaderIndexMap_(vals[hRow]);
+  var sidIdx = hMap["SHALARTH ID"] !== undefined ? hMap["SHALARTH ID"] : 1;
+  var nameIdx = hMap["EMPLOYEE NAME"] !== undefined ? hMap["EMPLOYEE NAME"] : 2;
+  var mobIdx = hMap["MOB NO"] !== undefined ? hMap["MOB NO"]
+    : (hMap["MOBILE NO"] !== undefined ? hMap["MOBILE NO"]
+    : (hMap["MOBILE"] !== undefined ? hMap["MOBILE"] : 3));
+  for (var r = hRow + 1; r < vals.length; r++) {
+    var row = vals[r];
+    var sid = salStr_(row[sidIdx]).toUpperCase();
+    if (!sid) continue;
+    var postRaw = hMap["POST NAME"] !== undefined ? salStr_(row[hMap["POST NAME"]]) : "";
+    var cleanPost = postRaw.replace(/\d{6,}$/, "").trim();
+    var pfSeries = hMap["PF SERIES"] !== undefined ? salStr_(row[hMap["PF SERIES"]]) : "";
+    var pfAcc = hMap["GPF/DCPS ACCOUNT NO."] !== undefined ? salStr_(row[hMap["GPF/DCPS ACCOUNT NO."]]) : "";
+    var pfDisplay = (pfSeries && pfSeries !== "DCPS" && pfSeries !== "-" && pfAcc && pfAcc.indexOf(pfSeries) === -1)
+      ? (pfSeries + "-" + pfAcc)
+      : pfAcc;
+    out[sid] = {
+      name: salStr_(row[nameIdx]),
+      mobile: salStr_(row[mobIdx]),
+      adharNo: hMap["EID/UID NO"] !== undefined ? salStr_(row[hMap["EID/UID NO"]]) : "",
+      designation: cleanPost,
+      payMatrix: hMap["PAY MATRIX"] !== undefined ? salStr_(row[hMap["PAY MATRIX"]]) : "",
+      pfAcNo: pfDisplay,
+      bankName: hMap["BANK NAME"] !== undefined ? salStr_(row[hMap["BANK NAME"]]) : "",
+      bankAccountNo: hMap["ACCOUNT NUMBER"] !== undefined ? salStr_(row[hMap["ACCOUNT NUMBER"]]) : "",
+      pranNo: (hMap["PRAN NO"] !== undefined && salStr_(row[hMap["PRAN NO"]]) !== "-") ? salStr_(row[hMap["PRAN NO"]]) : "",
+      panNo: hMap["PAN NO"] !== undefined ? salStr_(row[hMap["PAN NO"]]) : (hMap["PAN"] !== undefined ? salStr_(row[hMap["PAN"]]) : "")
+    };
+  }
+  return out;
+}
+
+function readLatestMonthMap_(salSs, months) {
+  var latestMap = {};
+  for (var m = 0; m < months.length; m++) {
+    var sh = salSs.getSheetByName(months[m].tabName);
+    if (!sh || sh.getLastRow() < 2) continue;
+    var lVals = sh.getDataRange().getValues();
+    var hRow = findSalaryHeaderRow_(lVals);
+    if (hRow === -1) continue;
+    var hMap = buildHeaderIndexMap_(lVals[hRow]);
+    var sIdx = hMap["SHALARTH ID"] !== undefined ? hMap["SHALARTH ID"] : 0;
+    var foundCount = 0;
+    for (var r = hRow + 1; r < lVals.length; r++) {
+      var lr = lVals[r];
+      var lSid = salStr_(lr[sIdx]).toUpperCase();
+      if (!lSid) continue;
+      foundCount++;
+      var gpf = hMap["GPF NO"] !== undefined ? salStr_(lr[hMap["GPF NO"]]) : "";
+      var dcps = hMap["DCPS NO"] !== undefined ? salStr_(lr[hMap["DCPS NO"]]) : "";
+      latestMap[lSid] = {
+        name: hMap["EMPLOYEE NAME"] !== undefined ? salStr_(lr[hMap["EMPLOYEE NAME"]]) : "",
+        designation: hMap["DESIGNATION"] !== undefined ? salStr_(lr[hMap["DESIGNATION"]]) : "",
+        mobile: hMap["MOB NO"] !== undefined ? salStr_(lr[hMap["MOB NO"]]) : "",
+        panNo: hMap["PAN NO"] !== undefined ? salStr_(lr[hMap["PAN NO"]]) : "",
+        adharNo: hMap["ADHAR NO"] !== undefined ? salStr_(lr[hMap["ADHAR NO"]]) : "",
+        pfAcNo: (gpf && gpf.toUpperCase() !== "NA-" && gpf.toUpperCase() !== "NA") ? gpf : dcps,
+        pranNo: hMap["PRAN NO"] !== undefined ? salStr_(lr[hMap["PRAN NO"]]) : "",
+        payMatrix: hMap["PAY MATRIX"] !== undefined ? salStr_(lr[hMap["PAY MATRIX"]]) : "",
+        bankName: hMap["BANK NAME"] !== undefined ? salStr_(lr[hMap["BANK NAME"]]) : "",
+        bankAccountNo: hMap["BANK ACCOUNT NUMBER"] !== undefined ? salStr_(lr[hMap["BANK ACCOUNT NUMBER"]]) : ""
+      };
+    }
+    if (foundCount > 0) break;
+  }
+  return latestMap;
+}
+
+function buildSalaryEmployeesInternal_(salSs, months, staticMap) {
+  var latestMap = readLatestMonthMap_(salSs, months);
+  var employees = [];
+  var seenSid = {};
+
+  var sidSh = findSalarySheet_(salSs, ["Shalarth ID", "Shalarth_ID", "ShalarthID"]);
+  if (sidSh && sidSh.getLastRow() >= 2) {
+    var sVals = sidSh.getDataRange().getValues();
+    var shRow = findSalaryHeaderRow_(sVals);
+    if (shRow === -1) shRow = 0;
+    var sMap = buildHeaderIndexMap_(sVals[shRow]);
+    var snIdx = sMap["SN"] !== undefined ? sMap["SN"] : 0;
+    var nameIdx = sMap["EMPLOYEE NAME"] !== undefined ? sMap["EMPLOYEE NAME"] : 1;
+    var sidIdx = sMap["SHALARTH ID"] !== undefined ? sMap["SHALARTH ID"] : 2;
+    for (var i = shRow + 1; i < sVals.length; i++) {
+      var empName = salStr_(sVals[i][nameIdx]);
+      var empSid = salStr_(sVals[i][sidIdx]);
+      if (!empName && !empSid) continue;
+      var key = empSid.toUpperCase();
+      if (key) seenSid[key] = true;
+      var st = staticMap[key] || {};
+      var lt = latestMap[key] || {};
+      employees.push({
+        sn: parseInt(sVals[i][snIdx], 10) || i,
+        shalarthId: empSid,
+        name: empName || lt.name || st.name || "",
+        designation: lt.designation || st.designation || "",
+        mobile: lt.mobile || st.mobile || "",
+        _altMobile: st.mobile || "",
+        panNo: lt.panNo || st.panNo || "",
+        adharNo: lt.adharNo || st.adharNo || "",
+        pfAcNo: lt.pfAcNo || st.pfAcNo || "",
+        pranNo: lt.pranNo || st.pranNo || "",
+        payMatrix: lt.payMatrix || st.payMatrix || "",
+        bankName: lt.bankName || st.bankName || "",
+        bankAccountNo: lt.bankAccountNo || st.bankAccountNo || ""
+      });
+    }
+  }
+
+  // Fallback: जर Shalarth ID शीट रिकामी असेल किंवा नाव जुळले नसेल तर Emp_Static / ताज्या महिन्यावरून यादी तयार करा
+  if (employees.length === 0) {
+    var allKeys = {};
+    Object.keys(staticMap).forEach(function(k) { allKeys[k] = true; });
+    Object.keys(latestMap).forEach(function(k) { allKeys[k] = true; });
+    var idx = 1;
+    Object.keys(allKeys).forEach(function(k) {
+      var st = staticMap[k] || {};
+      var lt = latestMap[k] || {};
+      employees.push({
+        sn: idx++,
+        shalarthId: k,
+        name: lt.name || st.name || k,
+        designation: lt.designation || st.designation || "",
+        mobile: lt.mobile || st.mobile || "",
+        _altMobile: st.mobile || "",
+        panNo: lt.panNo || "",
+        adharNo: lt.adharNo || st.adharNo || "",
+        pfAcNo: lt.pfAcNo || st.pfAcNo || "",
+        pranNo: lt.pranNo || st.pranNo || "",
+        payMatrix: lt.payMatrix || st.payMatrix || "",
+        bankName: lt.bankName || st.bankName || "",
+        bankAccountNo: lt.bankAccountNo || st.bankAccountNo || ""
+      });
+    });
+    employees.sort(function(a, b) {
+      return a.name.toLowerCase() < b.name.toLowerCase() ? -1 : (a.name.toLowerCase() > b.name.toLowerCase() ? 1 : 0);
+    });
+  }
+
+  return employees;
+}
+
+function toPublicSalaryEmp_(e) {
+  return {
+    sn: e.sn,
+    shalarthId: e.shalarthId,
+    name: e.name,
+    designation: e.designation,
+    mobile: e.mobile,
+    panNo: e.panNo,
+    adharNo: e.adharNo,
+    pfAcNo: e.pfAcNo,
+    pranNo: e.pranNo,
+    payMatrix: e.payMatrix,
+    bankName: e.bankName,
+    bankAccountNo: e.bankAccountNo
+  };
+}
+
+function resolveRequesterMobile10_(p) {
+  var reqUser = salStr_(p.requesterUser);
+  if (!reqUser) return "";
+  var reqMob = last10Digits_(reqUser);
+  try {
+    var uSh = getUsersSheet();
+    ensureCols_(uSh, 6);
+    if (uSh.getLastRow() > 1) {
+      var rows = uSh.getRange(2, 1, uSh.getLastRow() - 1, 6).getValues();
+      for (var i = 0; i < rows.length; i++) {
+        var uName = salStr_(rows[i][0]);
+        if (uName === reqUser || (reqMob && last10Digits_(uName) === reqMob)) {
+          var col6Mob = last10Digits_(rows[i][5]);
+          if (col6Mob) return col6Mob;
+          break;
+        }
+      }
+    }
+  } catch (e) {}
+  return reqMob;
+}
+
+function empMatchesMobile10_(emp, mob10) {
+  if (!mob10 || mob10.length < 10) return false;
+  return last10Digits_(emp.mobile) === mob10 || last10Digits_(emp._altMobile) === mob10;
+}
+
+function resolveSalaryAccess_(p, cb) {
+  var rRole = normRole_(p.requesterRole);
+  if (isSalaryAdminRole_(rRole)) {
+    return { access: { selfService: false, role: rRole, mobile10: "" } };
+  }
+  if (isSalarySelfServiceRole_(rRole)) {
+    return { access: { selfService: true, role: rRole, mobile10: resolveRequesterMobile10_(p) } };
+  }
+  return {
+    denied: wrap(cb, {
+      status: "error",
+      code: "forbidden",
+      message: "पगार दाखला पाहण्याचा अधिकार नाही."
+    })
+  };
+}
+
+function readMonthSlipForEmployee_(sh, tabName, shalarthId, staticMap) {
+  if (!sh || sh.getLastRow() < 2) return null;
+  var vals = sh.getDataRange().getValues();
+  var hRow = findSalaryHeaderRow_(vals);
+  if (hRow === -1) return null;
+  var hMap = buildHeaderIndexMap_(vals[hRow]);
+  var sidIdx = hMap["SHALARTH ID"] !== undefined ? hMap["SHALARTH ID"] : 0;
+  var target = salStr_(shalarthId).toUpperCase();
+
+  var row = null;
+  for (var r = hRow + 1; r < vals.length; r++) {
+    if (salStr_(vals[r][sidIdx]).toUpperCase() === target) {
+      row = vals[r];
+      break;
+    }
+  }
+  if (!row) return null;
+
+  function gNum(key) {
+    var idx = hMap[key];
+    return idx === undefined ? 0 : salNum_(row[idx]);
+  }
+  function gStr(key) {
+    var idx = hMap[key];
+    return idx === undefined ? "" : salStr_(row[idx]);
+  }
+
+  var info = parseMonthTabInfo_(tabName);
+  var basicPay = gNum("BASIC PAY");
+  var da = gNum("D.A");
+  var daArrears = gNum("DA ARREARS");
+  var seventhPayDiff = gNum("BASIC ARREARS");
+  var hra = gNum("HRA");
+  var ta = gNum("T.A");
+  var npsEmprAllow = gNum("NPS EMPR ALLOW");
+  var taArrears = gNum("T.A ARREARS");
+  var hraArrears = gNum("HRA ARREARS");
+  var otherEarnings = gNum("CLA") + gNum("TRIBAL ALLOWANCE") + gNum("WASHING ALLOWANCE");
+  var totalPaySheet = gNum("TOTAL PAY");
+  var grossCalc = basicPay + da + daArrears + seventhPayDiff + hra + ta + npsEmprAllow + taArrears + hraArrears + otherEarnings;
+  if (totalPaySheet > grossCalc + 0.5) {
+    otherEarnings += (totalPaySheet - grossCalc);
+    grossCalc = totalPaySheet;
+  }
+  var grossTotal = totalPaySheet > 0 ? totalPaySheet : grossCalc;
+
+  var provFund = gNum("GPF") + gNum("GPF ADV") + gNum("DCPS REGULAR") + gNum("DCPS DELAYED") +
+    gNum("DCPS PAY ARREARS RECOVERY") + gNum("DCPS DA ARREARS RECOVERY");
+  var npsEmprDed = gNum("NPS EMPR CONTRI") + gNum("NPS EMPR CONTRI ARR");
+  var npsEmpContri = gNum("NPS EMP CONTRI") + gNum("NPS EMP CONTRI ARR");
+  var incomeTax = gNum("INCOME TAX");
+  var profTax = gNum("PT");
+  var society1 = gNum("CO-OP BANK");
+  var society2 = gNum("NGR(SOCIETY LOAN)");
+  var lic = gNum("NGR(LIC)");
+  var revStamp = gNum("REVENUE STAMP");
+  var otherDeductions = gNum("F A") + gNum("GIS(ZP)") + gNum("GIS SCOUT") +
+    gNum("GROUP ACCIDENTAL POLICY") + gNum("NAA") + gNum("NGR(MISC)") +
+    gNum("NGR(OTHER RECOVERY)") + gNum("NGR(RD)") + gNum("NGR(OTHER DEDUCTION)");
+  var totalDeductions = provFund + npsEmprDed + npsEmpContri + incomeTax + profTax +
+    society1 + society2 + lic + revStamp + otherDeductions;
+
+  var netSheet = gNum("EMPLOYEE NET SALARY");
+  var netSalary = netSheet > 0 ? netSheet : (grossTotal - totalDeductions);
+
+  var gpfNo = gStr("GPF NO");
+  var dcpsNo = gStr("DCPS NO");
+  var pfAcNo = (gpfNo && gpfNo.toUpperCase() !== "NA-" && gpfNo.toUpperCase() !== "NA") ? gpfNo : dcpsNo;
+  var st = (staticMap && staticMap[target]) ? staticMap[target] : {};
+
+  return {
+    shalarthId: gStr("SHALARTH ID"),
+    employeeName: gStr("EMPLOYEE NAME") || st.name || "",
+    designation: gStr("DESIGNATION") || st.designation || "",
+    schoolName: gStr("NAME OF SCHOOL") || "S.G.S. HIGH SCH., PACHORA",
+    udiseCode: gStr("SCHOOL UDISE CODE") || "27031201718",
+    ddoCode: gStr("SCHOOL SHALARTH DDO CODE"),
+    monthTab: tabName,
+    monthLabel: info ? info.label : tabName,
+    payMatrix: gStr("PAY MATRIX") || st.payMatrix || "",
+    panNo: gStr("PAN NO"),
+    adharNo: gStr("ADHAR NO") || st.adharNo || "",
+    pfAcNo: pfAcNo || st.pfAcNo || "",
+    pranNo: gStr("PRAN NO") || st.pranNo || "",
+    mobile: gStr("MOB NO") || st.mobile || "",
+    bankName: gStr("BANK NAME") || st.bankName || "",
+    branchName: gStr("BRANCH NAME"),
+    bankAccountNo: gStr("BANK ACCOUNT NUMBER") || st.bankAccountNo || "",
+    bankIfsc: gStr("BANK IFSC CODE"),
+    basicPay: basicPay,
+    da: da,
+    daArrears: daArrears,
+    seventhPayDiff: seventhPayDiff,
+    hra: hra,
+    ta: ta,
+    npsEmprAllow: npsEmprAllow,
+    taArrears: taArrears,
+    hraArrears: hraArrears,
+    otherEarnings: otherEarnings,
+    grossTotal: grossTotal,
+    provFund: provFund,
+    npsEmprDed: npsEmprDed,
+    npsEmpContri: npsEmpContri,
+    incomeTax: incomeTax,
+    profTax: profTax,
+    society1: society1,
+    society2: society2,
+    lic: lic,
+    revStamp: revStamp,
+    otherDeductions: otherDeductions,
+    totalDeductions: totalDeductions,
+    netSalary: netSalary
+  };
+}
+
+function doGetSalaryMeta(p, cb) {
+  var gate = resolveSalaryAccess_(p, cb);
+  if (gate.denied) return gate.denied;
+  var access = gate.access;
+  try {
+    var salSs = SpreadsheetApp.openById(SALARY_SHEET_ID);
+    var months = readSalaryMonths_(salSs);
+    var staticMap = readEmpStaticMap_(salSs);
+    var rawEmployees = buildSalaryEmployeesInternal_(salSs, months, staticMap);
+
+    var outEmployees;
+    if (access.selfService) {
+      outEmployees = access.mobile10
+        ? rawEmployees.filter(function(e) { return empMatchesMobile10_(e, access.mobile10); }).map(toPublicSalaryEmp_)
+        : [];
+    } else {
+      outEmployees = rawEmployees.map(toPublicSalaryEmp_);
+    }
+
+    return wrap(cb, {
+      status: "ok",
+      selfService: access.selfService,
+      months: months,
+      employees: outEmployees
+    });
+  } catch (err) {
+    return wrap(cb, { status: "error", message: "शालार्थ शीट त्रुटी: " + err.message });
+  }
+}
+
+function authorizeSelfServiceShalarthId_(salSs, staticMap, access, requestedSid, cb) {
+  if (!access.mobile10) {
+    return {
+      denied: wrap(cb, {
+        status: "error",
+        code: "forbidden",
+        message: "तुमच्या Login खात्यात १० अंकी मोबाईल क्रमांक नोंदवलेला नाही. कृपया Super Master शी संपर्क साधा."
+      })
+    };
+  }
+  var months = readSalaryMonths_(salSs);
+  var rawEmployees = buildSalaryEmployeesInternal_(salSs, months, staticMap);
+  var matched = rawEmployees.filter(function(e) { return empMatchesMobile10_(e, access.mobile10); });
+  if (matched.length === 0) {
+    return {
+      denied: wrap(cb, {
+        status: "error",
+        code: "forbidden",
+        message: "तुमचा मोबाईल क्रमांक (" + access.mobile10 + ") शालार्थ पगार शीटमधील नोंदीशी जुळला नाही."
+      })
+    };
+  }
+  var reqUpper = salStr_(requestedSid).toUpperCase();
+  if (reqUpper) {
+    for (var i = 0; i < matched.length; i++) {
+      if (salStr_(matched[i].shalarthId).toUpperCase() === reqUpper) {
+        return { shalarthId: matched[i].shalarthId, months: months };
+      }
+    }
+    return {
+      denied: wrap(cb, {
+        status: "error",
+        code: "forbidden",
+        message: "फक्त स्वतःचाच पगार दाखला पाहण्याचा अधिकार आहे."
+      })
+    };
+  }
+  return { shalarthId: matched[0].shalarthId, months: months };
+}
+
+function doGetSalaryRecord(p, cb) {
+  var gate = resolveSalaryAccess_(p, cb);
+  if (gate.denied) return gate.denied;
+  var access = gate.access;
+  try {
+    var sid = salStr_(p.shalarthId);
+    var monthTab = salStr_(p.monthTab);
+    if (!monthTab || (!access.selfService && !sid)) {
+      return wrap(cb, { status: "error", message: "Shalarth ID आणि महिना आवश्यक आहे." });
+    }
+    var salSs = SpreadsheetApp.openById(SALARY_SHEET_ID);
+    var staticMap = readEmpStaticMap_(salSs);
+    if (access.selfService) {
+      var authSid = authorizeSelfServiceShalarthId_(salSs, staticMap, access, sid, cb);
+      if (authSid.denied) return authSid.denied;
+      sid = authSid.shalarthId;
+    }
+    var sh = salSs.getSheetByName(monthTab);
+    if (!sh) {
+      return wrap(cb, { status: "error", message: "शीट सापडली नाही: " + monthTab });
+    }
+    var slip = readMonthSlipForEmployee_(sh, monthTab, sid, staticMap);
+    if (!slip) {
+      return wrap(cb, { status: "error", message: monthTab + " मध्ये Shalarth ID '" + sid + "' ची नोंद सापडली नाही." });
+    }
+    return wrap(cb, { status: "ok", slip: slip });
+  } catch (err) {
+    return wrap(cb, { status: "error", message: "पगार नोंद त्रुटी: " + err.message });
+  }
+}
+
+function doGetAnnualSalary(p, cb) {
+  var gate = resolveSalaryAccess_(p, cb);
+  if (gate.denied) return gate.denied;
+  var access = gate.access;
+  try {
+    var sid = salStr_(p.shalarthId);
+    var fy = salStr_(p.fy);
+    if (!fy || (!access.selfService && !sid)) {
+      return wrap(cb, { status: "error", message: "Shalarth ID आणि आर्थिक वर्ष (FY) आवश्यक आहे." });
+    }
+    var salSs = SpreadsheetApp.openById(SALARY_SHEET_ID);
+    var staticMap = readEmpStaticMap_(salSs);
+    var allMonths;
+    if (access.selfService) {
+      var authSid = authorizeSelfServiceShalarthId_(salSs, staticMap, access, sid, cb);
+      if (authSid.denied) return authSid.denied;
+      sid = authSid.shalarthId;
+      allMonths = authSid.months;
+    } else {
+      allMonths = readSalaryMonths_(salSs);
+    }
+
+    var fyMonths = [];
+    for (var i = 0; i < allMonths.length; i++) {
+      var info = parseMonthTabInfo_(allMonths[i].tabName);
+      if (info && info.fy === fy) {
+        fyMonths.push({ tabName: allMonths[i].tabName, sortKey: info.sortKey });
+      }
+    }
+    fyMonths.sort(function(a, b) { return a.sortKey - b.sortKey; });
+
+    var slips = [];
+    for (var j = 0; j < fyMonths.length; j++) {
+      var sh = salSs.getSheetByName(fyMonths[j].tabName);
+      var slip = readMonthSlipForEmployee_(sh, fyMonths[j].tabName, sid, staticMap);
+      if (slip) slips.push(slip);
+    }
+
+    var st = staticMap[sid.toUpperCase()] || {};
+    var lastSlip = slips.length > 0 ? slips[slips.length - 1] : null;
+    var emp = {
+      shalarthId: sid,
+      name: (lastSlip && lastSlip.employeeName) || st.name || "",
+      designation: (lastSlip && lastSlip.designation) || st.designation || "",
+      mobile: (lastSlip && lastSlip.mobile) || st.mobile || "",
+      panNo: (lastSlip && lastSlip.panNo) || "",
+      adharNo: (lastSlip && lastSlip.adharNo) || st.adharNo || "",
+      pfAcNo: (lastSlip && lastSlip.pfAcNo) || st.pfAcNo || "",
+      pranNo: (lastSlip && lastSlip.pranNo) || st.pranNo || "",
+      payMatrix: (lastSlip && lastSlip.payMatrix) || st.payMatrix || "",
+      bankName: (lastSlip && lastSlip.bankName) || st.bankName || "",
+      bankAccountNo: (lastSlip && lastSlip.bankAccountNo) || st.bankAccountNo || ""
+    };
+
+    return wrap(cb, { status: "ok", fy: fy, employee: emp, months: slips });
+  } catch (err) {
+    return wrap(cb, { status: "error", message: "वार्षिक पगार विवरणपत्र त्रुटी: " + err.message });
+  }
+}
+
+// ============================================================================
+// ADMIN HELPERS (Apps Script Editor मधून Run करा)
+// 1) auditStaffMobileMatches()   -> 84 कर्मचारी vs Users sheet पडताळणी
+// 2) provisionMissingStaffUsers() -> शिल्लक कर्मचाऱ्यांची 'staff' खाती (Pass@1234) तयार करा
+// ============================================================================
+function auditStaffMobileMatches() {
+  var salSs = SpreadsheetApp.openById(SALARY_SHEET_ID);
+  var months = readSalaryMonths_(salSs);
+  var staticMap = readEmpStaticMap_(salSs);
+  var emps = buildSalaryEmployeesInternal_(salSs, months, staticMap);
+
+  var uSh = getUsersSheet();
+  ensureCols_(uSh, 6);
+  var uRows = uSh.getLastRow() > 1 ? uSh.getRange(2, 1, uSh.getLastRow() - 1, 6).getValues() : [];
+
+  var userByMob = {};
+  var userMobsList = [];
+  for (var i = 0; i < uRows.length; i++) {
+    var uname = salStr_(uRows[i][0]);
+    if (!uname) continue;
+    var role = normRole_(uRows[i][2]);
+    var label = salStr_(uRows[i][3]);
+    var mUser = last10Digits_(uname);
+    var mCol6 = last10Digits_(uRows[i][5]);
+    var entry = { row: i + 2, username: uname, role: role, label: label, mUser: mUser, mCol6: mCol6 };
+    if (mUser) userByMob[mUser] = entry;
+    if (mCol6) userByMob[mCol6] = entry;
+    if (role === "teacher" || role === "peon" || role === "staff") {
+      userMobsList.push(entry);
+    }
+  }
+
+  var matched = [];
+  var missingUser = [];
+  var noMobile = [];
+  var empMobSet = {};
+  var roleCounts = {};
+
+  for (var e = 0; e < emps.length; e++) {
+    var emp = emps[e];
+    var m1 = last10Digits_(emp.mobile);
+    var m2 = last10Digits_(emp._altMobile);
+    if (m1) empMobSet[m1] = true;
+    if (m2) empMobSet[m2] = true;
+
+    if (!m1 && !m2) {
+      noMobile.push(emp.name + " (" + emp.shalarthId + ")");
+      continue;
+    }
+    var hit = (m1 && userByMob[m1]) || (m2 && userByMob[m2]);
+    if (hit) {
+      matched.push(emp.name + " -> " + hit.username + " [" + hit.role + "]");
+      roleCounts[hit.role] = (roleCounts[hit.role] || 0) + 1;
+    } else {
+      missingUser.push(emp.name + " (" + emp.shalarthId + ") | Mob: " + (m1 || m2));
+    }
+  }
+
+  var unmatchedUsers = [];
+  for (var u = 0; u < userMobsList.length; u++) {
+    var ue = userMobsList[u];
+    var mEff = ue.mCol6 || ue.mUser;
+    if (!mEff || !empMobSet[mEff]) {
+      unmatchedUsers.push("Row " + ue.row + ": " + ue.username + " [" + ue.role + "] (" + ue.label + ")");
+    }
+  }
+
+  Logger.log("=== SHALARTH vs USERS AUDIT ===");
+  Logger.log("एकूण Shalarth कर्मचारी: " + emps.length);
+  Logger.log("आधीच Users मध्ये जुळलेले: " + matched.length + " -> " + JSON.stringify(roleCounts));
+  Logger.log("Users मध्ये नसलेले (नवीन 'staff' बनवण्यासाठी तयार): " + missingUser.length);
+  Logger.log("Shalarth मध्ये मोबाईल क्रमांक नसलेले: " + noMobile.length);
+  if (missingUser.length) Logger.log("--- Missing Users List ---\n" + missingUser.join("\n"));
+  if (noMobile.length) Logger.log("--- No Mobile in Shalarth ---\n" + noMobile.join("\n"));
+  if (unmatchedUsers.length) Logger.log("--- Users (teacher/peon/staff) न जुळलेले मोबाईल ---\n" + unmatchedUsers.join("\n"));
+
+  return {
+    totalShalarth: emps.length,
+    matchedCount: matched.length,
+    roleCounts: roleCounts,
+    missingUserCount: missingUser.length,
+    noMobileCount: noMobile.length,
+    unmatchedUsersCount: unmatchedUsers.length
+  };
+}
+
+function provisionMissingStaffUsers() {
+  var lock = LockService.getScriptLock();
+  lockWaitTimed_(lock, 30000);
+  try {
+    var salSs = SpreadsheetApp.openById(SALARY_SHEET_ID);
+    var months = readSalaryMonths_(salSs);
+    var staticMap = readEmpStaticMap_(salSs);
+    var emps = buildSalaryEmployeesInternal_(salSs, months, staticMap);
+
+    var uSh = getUsersSheet();
+    ensureCols_(uSh, 6);
+    var uRows = uSh.getLastRow() > 1 ? uSh.getRange(2, 1, uSh.getLastRow() - 1, 6).getValues() : [];
+
+    var existingMob10 = {};
+    for (var i = 0; i < uRows.length; i++) {
+      var m1 = last10Digits_(uRows[i][0]);
+      var m2 = last10Digits_(uRows[i][5]);
+      if (m1) existingMob10[m1] = true;
+      if (m2) existingMob10[m2] = true;
+    }
+
+    var hashedMode = pwHashed_();
+    var toAppend = [];
+    var alreadyExists = 0;
+    var noMobileList = [];
+
+    for (var e = 0; e < emps.length; e++) {
+      var emp = emps[e];
+      var mMain = last10Digits_(emp.mobile);
+      var mAlt = last10Digits_(emp._altMobile);
+      if ((mMain && existingMob10[mMain]) || (mAlt && existingMob10[mAlt])) {
+        alreadyExists++;
+        continue;
+      }
+      var m10 = mMain || mAlt;
+      if (!m10) {
+        noMobileList.push(emp.name + " (" + emp.shalarthId + ")");
+        continue;
+      }
+      existingMob10[m10] = true;
+      var pwVal = hashedMode ? hashPassword_("Pass@1234") : "Pass@1234";
+      toAppend.push([String(m10), pwVal, "staff", emp.name || String(m10), "", String(m10)]);
+    }
+
+    if (toAppend.length > 0) {
+      var startRow = uSh.getLastRow() + 1;
+      ensureRows_(uSh, startRow + toAppend.length - 1);
+      uSh.getRange(startRow, 1, toAppend.length, 6).setValues(toAppend);
+    }
+
+    Logger.log("=== PROVISION STAFF USERS SUMMARY ===");
+    Logger.log("एकूण Shalarth कर्मचारी: " + emps.length);
+    Logger.log("आधीच Users मध्ये असलेले (बदल केला नाही): " + alreadyExists);
+    Logger.log("नवीन 'staff' खाती तयार (Password: Pass@1234): " + toAppend.length);
+    Logger.log("मोबाईल नसल्यामुळे वगळलेले: " + noMobileList.length);
+    if (noMobileList.length) Logger.log("मोबाईल नसलेले:\n" + noMobileList.join("\n"));
+
+    return {
+      totalShalarth: emps.length,
+      alreadyInUsers: alreadyExists,
+      createdStaff: toAppend.length,
+      skippedNoMobile: noMobileList.length
+    };
+  } finally {
+    try { lock.releaseLock(); } catch (e) {}
+  }
+}
+
+// ही function Apps Script Editor मध्ये एकदा Run करून Google Sheet ला परवानगी (Allow) द्या
+function testSalarySheetAccess() {
+  var ss = SpreadsheetApp.openById(SALARY_SHEET_ID);
+  var months = readSalaryMonths_(ss);
+  var staticMap = readEmpStaticMap_(ss);
+  var emps = buildSalaryEmployeesInternal_(ss, months, staticMap);
+  Logger.log("Connected Salary Sheet: " + ss.getName() + " | Months: " + months.length + " | Employees: " + emps.length);
+}
+
+// ============================================================================
+// OPTION 1C & 6A — SUPER ADMIN SECURITY & STAFF SYNC API ENDPOINTS
+// ============================================================================
+function requireSuperAuthed_(p) {
+  if (normRole_(p.requesterRole) !== "super") {
+    return {status:"error", code:"forbidden", message:"हा अधिकार फक्त Super Master ला आहे."};
+  }
+  if (!p._authed) {
+    return {status:"error", code:"auth", message:"Token आधारित Login आवश्यक आहे — कृपया पुन्हा Login करा."};
+  }
+  return null;
+}
+
+function doEnableAuthEnforcementApi(d) {
+  var err = requireSuperAuthed_(d);
+  if (err) return err;
+  try {
+    if (String(d.force || "") === "1") {
+      enableAuthEnforcementForce();
+      return {status:"ok", mode:"updated", ref:"AUTH_ENFORCE=1(force)", message:"✅ Token सक्ती (Force) चालू केली!"};
+    }
+    enableAuthEnforcement();
+    return {status:"ok", mode:"updated", ref:"AUTH_ENFORCE=1", message:"✅ Token सक्ती चालू केली!"};
+  } catch (ex) {
+    return {status:"error", message: ex.message || ex.toString()};
+  }
+}
+
+function doDisableAuthEnforcementApi(d) {
+  var err = requireSuperAuthed_(d);
+  if (err) return err;
+  try {
+    disableAuthEnforcement();
+    return {status:"ok", mode:"updated", ref:"AUTH_ENFORCE=0", message:"⚠️ Token सक्ती तात्पुरती बंद केली."};
+  } catch (ex) {
+    return {status:"error", message: ex.message || ex.toString()};
+  }
+}
+
+function doHashAllPasswordsApi(d) {
+  var err = requireSuperAuthed_(d);
+  if (err) return err;
+  try {
+    var res = hashAllPasswords();
+    return {
+      status:"ok",
+      mode:"updated",
+      count: res.hashed || 0,
+      ref: res.backup || "",
+      extra: res,
+      message: "✅ " + (res.hashed || 0) + " Password hash झाले (Backup: " + (res.backup || "—") + ")."
+    };
+  } catch (ex) {
+    return {status:"error", message: ex.message || ex.toString()};
+  }
+}
+
+function doRevokeAllSessionsApi(d) {
+  var err = requireSuperAuthed_(d);
+  if (err) return err;
+  try {
+    revokeAllSessions();
+    return {status:"ok", mode:"updated", ref:"revokeAllSessions", message:"🔒 सर्व सक्रिय Session रद्द केले! आता सर्वांना पुन्हा Login करावे लागेल."};
+  } catch (ex) {
+    return {status:"error", message: ex.message || ex.toString()};
+  }
+}
+
+function doAuditStaffUsers(p, cb) {
+  try {
+    if (normRole_(p.requesterRole) !== "super") {
+      return wrap(cb, {status:"error", code:"forbidden", message:"अधिकार फक्त Super Master ला आहे."});
+    }
+    var salSs = SpreadsheetApp.openById(SALARY_SHEET_ID);
+    var months = readSalaryMonths_(salSs);
+    var staticMap = readEmpStaticMap_(salSs);
+    var emps = buildSalaryEmployeesInternal_(salSs, months, staticMap);
+
+    var uSh = getUsersSheet();
+    ensureCols_(uSh, 6);
+    var uRows = uSh.getLastRow() > 1 ? uSh.getRange(2, 1, uSh.getLastRow() - 1, 6).getValues() : [];
+
+    var userByMob = {};
+    var userMobsList = [];
+    for (var i = 0; i < uRows.length; i++) {
+      var uname = salStr_(uRows[i][0]);
+      if (!uname) continue;
+      var role = normRole_(uRows[i][2]);
+      var label = salStr_(uRows[i][3]);
+      var mUser = last10Digits_(uname);
+      var mCol6 = last10Digits_(uRows[i][5]);
+      var entry = { row: i + 2, username: uname, role: role, label: label, mUser: mUser, mCol6: mCol6 };
+      if (mUser) userByMob[mUser] = entry;
+      if (mCol6) userByMob[mCol6] = entry;
+      if (role === "teacher" || role === "peon" || role === "staff") {
+        userMobsList.push(entry);
+      }
+    }
+
+    var matched = [];
+    var missingUser = [];
+    var noMobile = [];
+    var empMobSet = {};
+    var roleCounts = {};
+
+    for (var e = 0; e < emps.length; e++) {
+      var emp = emps[e];
+      var m1 = last10Digits_(emp.mobile);
+      var m2 = last10Digits_(emp._altMobile);
+      if (m1) empMobSet[m1] = true;
+      if (m2) empMobSet[m2] = true;
+      if (!m1 && !m2) {
+        noMobile.push((emp.name || "—") + " (" + emp.shalarthId + ")");
+        continue;
+      }
+      var hit = (m1 && userByMob[m1]) || (m2 && userByMob[m2]);
+      if (hit) {
+        matched.push((emp.name || "") + " -> " + hit.username + " [" + hit.role + "]");
+        roleCounts[hit.role] = (roleCounts[hit.role] || 0) + 1;
+      } else {
+        missingUser.push((emp.name || "") + " (" + emp.shalarthId + ") | Mob: " + (m1 || m2));
+      }
+    }
+
+    var unmatchedUsers = [];
+    for (var u = 0; u < userMobsList.length; u++) {
+      var ue = userMobsList[u];
+      var mEff = ue.mCol6 || ue.mUser;
+      if (!mEff || !empMobSet[mEff]) {
+        unmatchedUsers.push(ue.username + " [" + ue.role + "] — " + (ue.label || ""));
+      }
+    }
+
+    return wrap(cb, {
+      status: "ok",
+      totalShalarth: emps.length,
+      matchedCount: matched.length,
+      roleCounts: roleCounts,
+      missingUserCount: missingUser.length,
+      noMobileCount: noMobile.length,
+      unmatchedUsersCount: unmatchedUsers.length,
+      missingUsers: missingUser,
+      noMobileList: noMobile,
+      unmatchedUsers: unmatchedUsers
+    });
+  } catch (err) {
+    return wrap(cb, {status:"error", message:"कर्मचारी पडताळणी त्रुटी: " + (err.message || err.toString())});
+  }
+}
+
+function doProvisionStaffUsersApi(d) {
+  if (normRole_(d.requesterRole) !== "super") {
+    return {status:"error", code:"forbidden", message:"अधिकार फक्त Super Master ला आहे."};
+  }
+  if (authEnforced_() && !d._authed) {
+    return {status:"error", code:"auth", message:"Token आवश्यक आहे."};
+  }
+  try {
+    var rep = provisionMissingStaffUsers();
+    return {
+      status: "ok",
+      mode: "created",
+      count: rep.createdStaff || 0,
+      ref: "created:" + (rep.createdStaff || 0),
+      extra: rep,
+      message: "✅ नवीन 'staff' खाती तयार: " + (rep.createdStaff || 0) + " | आधीचे: " + (rep.alreadyInUsers || 0) + " | मोबाईल नसलेले: " + (rep.skippedNoMobile || 0)
+    };
+  } catch (err) {
+    return {status:"error", message: err.message || err.toString()};
+  }
+}
+
+// ============================================================================
+// OPTION 1B — STAFF LEAVE REGISTER (रजा नोंदवही) — StaffLeave Sheet
+// ============================================================================
+var STAFF_LEAVE_HEADERS = [
+  "LeaveId","Timestamp","ShalarthId","EmpName","Designation","Mobile",
+  "LeaveType","FromDate","ToDate","Days","Reason","Status","ApprovedBy","Remarks"
+];
+var VALID_LEAVE_TYPES_ = {CL:1, EL:1, ML:1, HPL:1, DUTY:1, LWP:1};
+
+function getStaffLeaveSheet_(create) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName("StaffLeave");
+  if (!sh && create) {
+    sh = getOrCreateSheet("StaffLeave", STAFF_LEAVE_HEADERS);
+    try { sh.setFrozenRows(1); } catch (eF) {}
+  }
+  return sh;
+}
+
+function leaveDateValid_(s) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(s || "").trim());
+}
+
+function leaveUserLookup_(username) {
+  var u = salStr_(username);
+  if (!u) return { label: "", mobile: "" };
+  try {
+    var uSh = getUsersSheet();
+    ensureCols_(uSh, 6);
+    if (uSh.getLastRow() > 1) {
+      var rows = uSh.getRange(2, 1, uSh.getLastRow() - 1, 6).getValues();
+      for (var i = 0; i < rows.length; i++) {
+        if (salStr_(rows[i][0]) === u) {
+          return { label: salStr_(rows[i][3]) || u, mobile: last10Digits_(rows[i][5]) || last10Digits_(u) };
+        }
+      }
+    }
+  } catch (e) {}
+  return { label: u, mobile: last10Digits_(u) };
+}
+
+function resolveLeaveSelfIdentity_(p) {
+  var mob10 = resolveRequesterMobile10_(p);
+  var reqUser = salStr_(p.requesterUser);
+  var uInfo = leaveUserLookup_(reqUser);
+  if (!mob10) mob10 = uInfo.mobile;
+
+  try {
+    if (mob10 && mob10.length >= 10) {
+      var salSs = SpreadsheetApp.openById(SALARY_SHEET_ID);
+      var months = readSalaryMonths_(salSs);
+      var staticMap = readEmpStaticMap_(salSs);
+      var emps = buildSalaryEmployeesInternal_(salSs, months, staticMap);
+      for (var i = 0; i < emps.length; i++) {
+        if (empMatchesMobile10_(emps[i], mob10)) {
+          return {
+            shalarthId: emps[i].shalarthId,
+            name: emps[i].name || uInfo.label || reqUser,
+            designation: emps[i].designation || "",
+            mobile: last10Digits_(emps[i].mobile) || mob10
+          };
+        }
+      }
+    }
+  } catch (e) {}
+
+  return {
+    shalarthId: "USER:" + (reqUser || mob10 || "staff"),
+    name: uInfo.label || reqUser || mob10 || "Employee",
+    designation: normRole_(p.requesterRole).toUpperCase(),
+    mobile: mob10
+  };
+}
+
+function leaveRowToObj_(r, rowNum) {
+  return {
+    leaveId: salStr_(r[0]),
+    timestamp: salStr_(r[1]),
+    shalarthId: salStr_(r[2]),
+    empName: salStr_(r[3]),
+    designation: salStr_(r[4]),
+    mobile: salStr_(r[5]),
+    leaveType: salStr_(r[6]),
+    fromDate: fmt(r[7]),
+    toDate: fmt(r[8]),
+    days: parseFloat(r[9]) || 0,
+    reason: salStr_(r[10]),
+    status: salStr_(r[11]) || "Pending",
+    approvedBy: salStr_(r[12]),
+    remarks: salStr_(r[13]),
+    rowIndex: rowNum || 0
+  };
+}
+
+function computeLeaveSummary_(records) {
+  var used = { CL: 0, EL: 0, ML: 0, HPL: 0, DUTY: 0, LWP: 0 };
+  var pendingDays = 0;
+  var pendingCount = 0;
+  var approvedCount = 0;
+  var rejectedCount = 0;
+  (records || []).forEach(function(rec) {
+    var st = (rec.status || "").toLowerCase();
+    var tp = (rec.leaveType || "CL").toUpperCase();
+    var d = parseFloat(rec.days) || 0;
+    if (st === "approved") {
+      approvedCount++;
+      used[tp] = (used[tp] || 0) + d;
+    } else if (st === "rejected") {
+      rejectedCount++;
+    } else {
+      pendingCount++;
+      pendingDays += d;
+    }
+  });
+  return {
+    clUsed: used.CL || 0,
+    clQuota: 12,
+    elUsed: used.EL || 0,
+    mlUsed: used.ML || 0,
+    hplUsed: used.HPL || 0,
+    dutyUsed: used.DUTY || 0,
+    lwpUsed: used.LWP || 0,
+    pendingCount: pendingCount,
+    pendingDays: pendingDays,
+    approvedCount: approvedCount,
+    rejectedCount: rejectedCount
+  };
+}
+
+function doGetStaffLeaves(p, cb) {
+  try {
+    var role = normRole_(p.requesterRole);
+    if (VALID_ROLES.indexOf(role) === -1) {
+      return wrap(cb, {status:"error", code:"forbidden", message:"अवैध भूमिका."});
+    }
+    var isAdmin = (role === "super" || role === "master");
+    var selfIdentity = resolveLeaveSelfIdentity_(p);
+    var sh = getStaffLeaveSheet_(false);
+    var all = [];
+    if (sh && sh.getLastRow() > 1) {
+      var rows = sh.getRange(2, 1, sh.getLastRow() - 1, STAFF_LEAVE_HEADERS.length).getValues();
+      for (var i = 0; i < rows.length; i++) {
+        if (!salStr_(rows[i][0])) continue;
+        all.push(leaveRowToObj_(rows[i], i + 2));
+      }
+    }
+
+    var filterSid = salStr_(p.shalarthId).toUpperCase();
+    var filterStatus = salStr_(p.status).toLowerCase();
+    var reqMob10 = last10Digits_(selfIdentity.mobile);
+    var selfSidU = salStr_(selfIdentity.shalarthId).toUpperCase();
+
+    var filtered = all.filter(function(rec) {
+      if (!isAdmin) {
+        var rSidU = salStr_(rec.shalarthId).toUpperCase();
+        var rMob10 = last10Digits_(rec.mobile);
+        var matchSid = selfSidU && rSidU === selfSidU;
+        var matchMob = reqMob10 && rMob10 && rMob10 === reqMob10;
+        if (!matchSid && !matchMob) return false;
+      } else if (filterSid && filterSid !== "ALL") {
+        if (salStr_(rec.shalarthId).toUpperCase() !== filterSid) return false;
+      }
+      if (filterStatus && filterStatus !== "all") {
+        if (salStr_(rec.status).toLowerCase() !== filterStatus) return false;
+      }
+      return true;
+    });
+
+    filtered.sort(function(a, b) {
+      if (a.fromDate !== b.fromDate) return a.fromDate > b.fromDate ? -1 : 1;
+      return a.leaveId > b.leaveId ? -1 : 1;
+    });
+
+    // Summary is computed for the active employee (self for non-admin; selected employee or all for admin)
+    var sumBase = (!isAdmin || (filterSid && filterSid !== "ALL"))
+      ? filtered
+      : all.filter(function(rec) {
+          var rSidU = salStr_(rec.shalarthId).toUpperCase();
+          var rMob10 = last10Digits_(rec.mobile);
+          return (selfSidU && rSidU === selfSidU) || (reqMob10 && rMob10 && rMob10 === reqMob10);
+        });
+
+    return wrap(cb, {
+      status: "ok",
+      isAdmin: isAdmin,
+      selfEmployee: selfIdentity,
+      records: filtered,
+      summary: computeLeaveSummary_(sumBase),
+      schoolPendingCount: isAdmin ? all.filter(function(x) { return (x.status || "Pending").toLowerCase() === "pending"; }).length : undefined
+    });
+  } catch (err) {
+    return wrap(cb, {status:"error", message:"रजा नोंदवही त्रुटी: " + (err.message || err.toString())});
+  }
+}
+
+function doApplyStaffLeave(d) {
+  var role = normRole_(d.requesterRole);
+  if (VALID_ROLES.indexOf(role) === -1) {
+    return {status:"error", code:"forbidden", message:"अधिकार नाही."};
+  }
+  var isAdmin = (role === "super" || role === "master");
+  var leaveType = salStr_(d.leaveType || "CL").toUpperCase();
+  if (!VALID_LEAVE_TYPES_[leaveType]) {
+    return {status:"error", message:"रजेचा प्रकार अमान्य आहे (CL / EL / ML / HPL / DUTY / LWP)."};
+  }
+  var fromDate = salStr_(d.fromDate);
+  var toDate = salStr_(d.toDate);
+  if (!leaveDateValid_(fromDate) || !leaveDateValid_(toDate)) {
+    return {status:"error", message:"तारीख YYYY-MM-DD स्वरूपात हवी."};
+  }
+  if (toDate < fromDate) {
+    return {status:"error", message:"'पर्यंत तारीख' ही 'पासून तारीख' पेक्षा लहान असू शकत नाही."};
+  }
+  var days = parseFloat(d.days);
+  if (isNaN(days) || days <= 0 || days > 365) {
+    return {status:"error", message:"रजेचे दिवस ०.५ ते ३६५ दरम्यान असावेत."};
+  }
+  var reason = salStr_(d.reason);
+  if (!reason) {
+    return {status:"error", message:"रजेचे कारण लिहिणे आवश्यक आहे."};
+  }
+
+  var targetSid = salStr_(d.shalarthId);
+  var targetName = salStr_(d.empName);
+  var targetDesig = salStr_(d.designation);
+  var targetMob = last10Digits_(d.mobile);
+
+  if (!isAdmin || !targetSid) {
+    var selfId = resolveLeaveSelfIdentity_(d);
+    targetSid = selfId.shalarthId;
+    targetName = selfId.name;
+    targetDesig = selfId.designation;
+    targetMob = selfId.mobile;
+  } else if (!targetName) {
+    try {
+      var salSs = SpreadsheetApp.openById(SALARY_SHEET_ID);
+      var staticMap = readEmpStaticMap_(salSs);
+      var st = staticMap[targetSid.toUpperCase()];
+      if (st) {
+        targetName = st.name || targetSid;
+        targetDesig = targetDesig || st.designation || "";
+        targetMob = targetMob || last10Digits_(st.mobile);
+      }
+    } catch (e) {}
+  }
+
+  var lock = LockService.getScriptLock();
+  var locked = false;
+  try {
+    lockWaitTimed_(lock, 20000); locked = true;
+    var sh = getStaffLeaveSheet_(true);
+    var leaveId = "LV" + Utilities.formatDate(new Date(), "Asia/Kolkata", "yyyyMMddHHmmss") + Math.floor(100 + Math.random() * 900);
+    var ts = Utilities.formatDate(new Date(), "Asia/Kolkata", "dd/MM/yyyy HH:mm");
+    var row = [
+      leaveId, ts, targetSid, targetName || targetSid, targetDesig, targetMob,
+      leaveType, fromDate, toDate, days, reason, "Pending", "", ""
+    ];
+    ensureRows_(sh, sh.getLastRow() + 1);
+    sh.appendRow(row);
+    return {
+      status: "ok",
+      mode: "created",
+      serial: leaveId,
+      rowIndex: sh.getLastRow(),
+      ref: targetSid + " (" + leaveType + " " + days + "d)",
+      extra: { record: leaveRowToObj_(row, sh.getLastRow()) },
+      message: "✅ रजा अर्ज नोंदवला (" + leaveId + ")"
+    };
+  } catch (err) {
+    return {status:"error", message: err.message || err.toString()};
+  } finally {
+    if (locked) try { lock.releaseLock(); } catch (e) {}
+  }
+}
+
+function doReviewStaffLeave(d) {
+  var role = normRole_(d.requesterRole);
+  if (role !== "super" && role !== "master") {
+    return {status:"error", code:"forbidden", message:"रजा मंजूर/नामंजूर करण्याचा अधिकार फक्त Master व Super Master ला आहे."};
+  }
+  var leaveId = salStr_(d.leaveId);
+  var decision = salStr_(d.status);
+  if (!leaveId || (decision !== "Approved" && decision !== "Rejected" && decision !== "Pending")) {
+    return {status:"error", message:"LeaveId व वैध स्थिती (Approved / Rejected) आवश्यक आहे."};
+  }
+  var remarks = salStr_(d.remarks);
+  var lock = LockService.getScriptLock();
+  var locked = false;
+  try {
+    lockWaitTimed_(lock, 20000); locked = true;
+    var sh = getStaffLeaveSheet_(false);
+    if (!sh || sh.getLastRow() < 2) return {status:"error", message:"StaffLeave शीट रिकामी आहे."};
+    var rowNum = findRowByKey(sh, 1, leaveId);
+    if (!rowNum) return {status:"error", message:"रजा नोंद सापडली नाही (" + leaveId + ")."};
+    var row = sh.getRange(rowNum, 1, 1, STAFF_LEAVE_HEADERS.length).getValues()[0];
+    row[11] = decision;
+    row[12] = (decision === "Pending") ? "" : (salStr_(d.requesterUser) || role);
+    row[13] = remarks;
+    sh.getRange(rowNum, 1, 1, STAFF_LEAVE_HEADERS.length).setValues([row]);
+    var lbl = decision === "Approved" ? "मंजूर" : (decision === "Rejected" ? "नामंजूर" : "प्रलंबित");
+    return {
+      status: "ok",
+      mode: "updated",
+      serial: leaveId,
+      rowIndex: rowNum,
+      ref: leaveId + ":" + decision,
+      extra: { record: leaveRowToObj_(row, rowNum) },
+      message: "✅ रजा स्थिती अद्ययावत: " + lbl
+    };
+  } catch (err) {
+    return {status:"error", message: err.message || err.toString()};
+  } finally {
+    if (locked) try { lock.releaseLock(); } catch (e) {}
+  }
+}
+
+function doDeleteStaffLeave(d) {
+  var role = normRole_(d.requesterRole);
+  if (role !== "super" && role !== "master") {
+    return {status:"error", code:"forbidden", message:"रजा नोंद हटवण्याचा अधिकार फक्त Master व Super Master ला आहे."};
+  }
+  var leaveId = salStr_(d.leaveId);
+  if (!leaveId) return {status:"error", message:"LeaveId आवश्यक आहे."};
+  var lock = LockService.getScriptLock();
+  var locked = false;
+  try {
+    lockWaitTimed_(lock, 20000); locked = true;
+    var sh = getStaffLeaveSheet_(false);
+    if (!sh || sh.getLastRow() < 2) return {status:"error", message:"StaffLeave शीट रिकामी आहे."};
+    var rowNum = findRowByKey(sh, 1, leaveId);
+    if (!rowNum) return {status:"error", message:"रजा नोंद सापडली नाही."};
+    var row = sh.getRange(rowNum, 1, 1, STAFF_LEAVE_HEADERS.length).getValues()[0];
+    backupDeleted_("StaffLeave", STAFF_LEAVE_HEADERS, [row], d.requesterUser || role, "प्रशासकाने रजा नोंद हटवली");
+    sh.deleteRow(rowNum);
+    return {
+      status: "ok",
+      mode: "deleted",
+      serial: leaveId,
+      ref: leaveId,
+      message: "🗑️ रजा नोंद हटवली व Backup घेतली."
+    };
+  } catch (err) {
+    return {status:"error", message: err.message || err.toString()};
+  } finally {
+    if (locked) try { lock.releaseLock(); } catch (e) {}
+  }
+}
+
+// ============================================================================
+// FORM 16 GOOGLE DRIVE ARCHIVE (2018-19 .. 2025-26+) — PAN BASED LOOKUP
+// ============================================================================
+var FORM16_DRIVE_FOLDER_ID_DEFAULT = "1rjxS6HLoninBHW-JG5Jf3aqpj3Nd5Iny";
+
+function getForm16DriveFolderId_() {
+  try {
+    var prop = PropertiesService.getScriptProperties().getProperty("FORM16_DRIVE_FOLDER_ID");
+    if (prop && salStr_(prop)) return salStr_(prop);
+  } catch (e) {}
+  return FORM16_DRIVE_FOLDER_ID_DEFAULT;
+}
+
+function normalizePan_(v) {
+  return String(v || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+function resolveEmployeeForForm16Archive_(salSs, access, requestedSid, cb) {
+  var months = readSalaryMonths_(salSs);
+  var staticMap = readEmpStaticMap_(salSs);
+  var employees = buildSalaryEmployeesInternal_(salSs, months, staticMap);
+
+  var sid = salStr_(requestedSid);
+  if (access.selfService) {
+    var authRes = authorizeSelfServiceShalarthId_(salSs, staticMap, access, sid, cb);
+    if (authRes.denied) return { denied: authRes.denied };
+    sid = authRes.shalarthId;
+  }
+  if (!sid) {
+    return { denied: wrap(cb, { status: "error", message: "कर्मचारी Shalarth ID आवश्यक आहे." }) };
+  }
+
+  var sidUpper = sid.toUpperCase();
+  var emp = null;
+  for (var i = 0; i < employees.length; i++) {
+    if (salStr_(employees[i].shalarthId).toUpperCase() === sidUpper) {
+      emp = employees[i];
+      break;
+    }
+  }
+  var pan = emp ? normalizePan_(emp.panNo) : "";
+  if (!pan && staticMap[sidUpper] && staticMap[sidUpper].panNo) {
+    pan = normalizePan_(staticMap[sidUpper].panNo);
+  }
+  if (!pan) {
+    for (var m = 0; m < months.length && m < 6; m++) {
+      var mSh = salSs.getSheetByName(months[m].tabName);
+      var slip = readMonthSlipForEmployee_(mSh, months[m].tabName, sid, staticMap);
+      if (slip && normalizePan_(slip.panNo)) {
+        pan = normalizePan_(slip.panNo);
+        break;
+      }
+    }
+  }
+  return {
+    shalarthId: sid,
+    name: (emp && emp.name) || (staticMap[sidUpper] && staticMap[sidUpper].name) || sid,
+    panNo: pan
+  };
+}
+
+function searchDriveFolderByPan_(folder, panUpper, fyLabel, out, seenFileIds, depth) {
+  if (!folder || depth > 2) return;
+  try {
+    var q = "title contains '" + panUpper + "' and trashed = false";
+    var it = folder.searchFiles(q);
+    while (it.hasNext()) {
+      var f = it.next();
+      var fid = f.getId();
+      if (seenFileIds[fid]) continue;
+      var mime = String(f.getMimeType() || "");
+      var fname = String(f.getName() || "");
+      if (fname.toUpperCase().indexOf(panUpper) === -1) continue;
+      if (mime.indexOf("pdf") === -1 && !/\.pdf$/i.test(fname)) continue;
+      seenFileIds[fid] = true;
+      var part = /PART[_\s\-]*A/i.test(fname) ? "Part A"
+        : (/PART[_\s\-]*B/i.test(fname) ? "Part B" : "Form 16");
+      var ayMatch = fname.match(/(20\d{2}[\-_]\d{2,4})/);
+      var modDate = "";
+      try { modDate = Utilities.formatDate(f.getLastUpdated(), "Asia/Kolkata", "dd/MM/yyyy"); } catch (eD) {}
+      out.push({
+        fileId: fid,
+        fileName: fname,
+        fyFolder: fyLabel || "Archive",
+        part: part,
+        assessmentYear: ayMatch ? ayMatch[1] : "",
+        sizeBytes: f.getSize() || 0,
+        updatedAt: modDate
+      });
+    }
+  } catch (eSearch) {
+    var itAll = folder.getFiles();
+    while (itAll.hasNext()) {
+      var f2 = itAll.next();
+      var fid2 = f2.getId();
+      if (seenFileIds[fid2]) continue;
+      var fn2 = String(f2.getName() || "");
+      if (fn2.toUpperCase().indexOf(panUpper) === -1) continue;
+      if (String(f2.getMimeType() || "").indexOf("pdf") === -1 && !/\.pdf$/i.test(fn2)) continue;
+      seenFileIds[fid2] = true;
+      var part2 = /PART[_\s\-]*A/i.test(fn2) ? "Part A"
+        : (/PART[_\s\-]*B/i.test(fn2) ? "Part B" : "Form 16");
+      var ayM2 = fn2.match(/(20\d{2}[\-_]\d{2,4})/);
+      var mod2 = "";
+      try { mod2 = Utilities.formatDate(f2.getLastUpdated(), "Asia/Kolkata", "dd/MM/yyyy"); } catch (eD2) {}
+      out.push({
+        fileId: fid2,
+        fileName: fn2,
+        fyFolder: fyLabel || "Archive",
+        part: part2,
+        assessmentYear: ayM2 ? ayM2[1] : "",
+        sizeBytes: f2.getSize() || 0,
+        updatedAt: mod2
+      });
+    }
+  }
+}
+
+function isFileInsideForm16Folder_(file, targetFolderId) {
+  try {
+    var parents = file.getParents();
+    while (parents.hasNext()) {
+      var p1 = parents.next();
+      if (p1.getId() === targetFolderId) return true;
+      var gp = p1.getParents();
+      while (gp.hasNext()) {
+        var p2 = gp.next();
+        if (p2.getId() === targetFolderId) return true;
+        var ggp = p2.getParents();
+        while (ggp.hasNext()) {
+          if (ggp.next().getId() === targetFolderId) return true;
+        }
+      }
+    }
+  } catch (e) {}
+  return false;
+}
+
+function doGetForm16ArchiveList(p, cb) {
+  var gate = resolveSalaryAccess_(p, cb);
+  if (gate.denied) return gate.denied;
+  var access = gate.access;
+  try {
+    var salSs = SpreadsheetApp.openById(SALARY_SHEET_ID);
+    var target = resolveEmployeeForForm16Archive_(salSs, access, p.shalarthId, cb);
+    if (target.denied) return target.denied;
+
+    if (!target.panNo || !/^[A-Z]{5}\d{4}[A-Z]$/.test(target.panNo)) {
+      return wrap(cb, {
+        status: "error",
+        message: "शालार्थ नोंदीमध्ये '" + target.name + "' यांचा वैध PAN क्रमांक सापडला नाही (पगार शीटमध्ये PAN NO तपासा)."
+      });
+    }
+
+    var rootId = getForm16DriveFolderId_();
+    var rootFolder = DriveApp.getFolderById(rootId);
+    var files = [];
+    var seenIds = {};
+
+    var subFolders = rootFolder.getFolders();
+    while (subFolders.hasNext()) {
+      var sub = subFolders.next();
+      var fyName = salStr_(sub.getName());
+      searchDriveFolderByPan_(sub, target.panNo, fyName, files, seenIds, 1);
+      try {
+        var nested = sub.getFolders();
+        while (nested.hasNext()) {
+          searchDriveFolderByPan_(nested.next(), target.panNo, fyName, files, seenIds, 2);
+        }
+      } catch (eN) {}
+    }
+    searchDriveFolderByPan_(rootFolder, target.panNo, "Archive", files, seenIds, 0);
+
+    files.sort(function(a, b) {
+      if (a.fyFolder !== b.fyFolder) return a.fyFolder > b.fyFolder ? -1 : 1;
+      return a.fileName < b.fileName ? -1 : (a.fileName > b.fileName ? 1 : 0);
+    });
+
+    return wrap(cb, {
+      status: "ok",
+      shalarthId: target.shalarthId,
+      employeeName: target.name,
+      panNo: target.panNo,
+      folderId: rootId,
+      files: files
+    });
+  } catch (err) {
+    return wrap(cb, { status: "error", message: "Google Drive Form 16 यादी त्रुटी: " + (err.message || err.toString()) });
+  }
+}
+
+function doGetForm16ArchivePdf(p, cb) {
+  var gate = resolveSalaryAccess_(p, cb);
+  if (gate.denied) return gate.denied;
+  var access = gate.access;
+  try {
+    var fileId = salStr_(p.fileId);
+    if (!fileId) return wrap(cb, { status: "error", message: "File ID आवश्यक आहे." });
+
+    var salSs = SpreadsheetApp.openById(SALARY_SHEET_ID);
+    var target = resolveEmployeeForForm16Archive_(salSs, access, p.shalarthId, cb);
+    if (target.denied) return target.denied;
+    if (!target.panNo) {
+      return wrap(cb, { status: "error", message: "वैध PAN क्रमांक सापडला नाही." });
+    }
+
+    var file = DriveApp.getFileById(fileId);
+    var fname = String(file.getName() || "");
+    if (fname.toUpperCase().indexOf(target.panNo) === -1) {
+      return wrap(cb, { status: "error", code: "forbidden", message: "ही Form 16 PDF तुमच्या PAN क्रमांकाशी जुळत नाही." });
+    }
+    var rootId = getForm16DriveFolderId_();
+    if (!isFileInsideForm16Folder_(file, rootId)) {
+      return wrap(cb, { status: "error", code: "forbidden", message: "फक्त अधिकृत Form No. 16 फोल्डरमधील PDF डाउनलोड करता येतात." });
+    }
+
+    var blob = file.getBlob();
+    var bytes = blob.getBytes();
+    if (bytes.length > 6 * 1024 * 1024) {
+      return wrap(cb, { status: "error", message: "PDF आकार खूप मोठा आहे (6 MB मर्यादा)." });
+    }
+    var b64 = Utilities.base64Encode(bytes);
+    return wrap(cb, {
+      status: "ok",
+      fileId: fileId,
+      fileName: fname,
+      mimeType: "application/pdf",
+      sizeBytes: bytes.length,
+      base64: b64
+    });
+  } catch (err) {
+    return wrap(cb, { status: "error", message: "Form 16 PDF डाउनलोड त्रुटी: " + (err.message || err.toString()) });
+  }
 }

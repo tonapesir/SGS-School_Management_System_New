@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="mr">
 <head>
 <meta charset="UTF-8">
@@ -35,7 +35,7 @@
       <div id="preConnectStatus" style="font-size:11.5px;text-align:center;margin:0 0 14px;min-height:14px"></div>
       <div class="login-field">
         <label>Username</label>
-        <input id="loginUsername" autocomplete="username" placeholder="user_1 / user_2 / user_3" required>
+        <input id="loginUsername" autocomplete="username" placeholder="Username / मोबाईल क्र." required>
       </div>
       <div class="login-field">
         <label>Password</label>
@@ -65,6 +65,7 @@
   <button class="navbtn" data-page="lc" data-master-only="true" onclick="showPage('lc',this)">📋 LC Issue</button>
   <button class="navbtn" data-page="bonafide" onclick="showPage('bonafide',this)">📄 बोनाफाईड</button>
   <button class="navbtn" data-page="attendance" onclick="showPage('attendance',this)">✅ उपस्थिती प्रमाणपत्र</button>
+  <button class="navbtn" data-page="salarycert" onclick="showPage('salarycert',this)">💼 पगार दाखला</button>
   <button class="navbtn" data-page="search" onclick="showPage('search',this)">🔍 विद्यार्थी शोधा</button>
   <button class="navbtn" data-page="history" onclick="showPage('history',this)">📁 History / Export</button>
   <button class="navbtn" data-page="profile" onclick="showPage('profile',this)">🪪 Profile</button>
@@ -297,6 +298,11 @@
 	  <h3>उपस्थिती प्रमाणपत्र</h3>
       <p>Attendance Certificate</p>
 	</div>
+    <div class="dcard" data-page="salarycert" onclick="showPage('salarycert',this)">
+      <div class="icon">💼</div>
+      <h3>पगार दाखला</h3>
+      <p>शालार्थ मासिक Certificate व वार्षिक विवरणपत्र</p>
+    </div>
     <div class="dcard" data-page="search" onclick="showPage('search',this)">
       <div class="icon">🔍</div>
       <h3>विद्यार्थी शोधा</h3>
@@ -900,6 +906,126 @@
 </div>
 <div id="sessionTimeoutToast"></div>
 
+<!-- ==================== SALARY CERTIFICATE & ANNUAL STATEMENT (V19.65) ==================== -->
+<div id="pg-salarycert" class="page">
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-header" style="justify-content:space-between;flex-wrap:wrap">
+      <div>
+        <h2>💼 शालार्थ पगार दाखला व वार्षिक विवरणपत्र</h2>
+        <p id="sal_metaSubtitle">S.G.S. High School, Pachora</p>
+      </div>
+      <button class="btn btn-blue btn-sm" id="sal_refreshBtn" onclick="salInit(true)">🔄 रीफ्रेश करा</button>
+    </div>
+    <div class="card-body">
+      <div class="sal-modebar">
+        <button type="button" class="sal-modebtn active" id="sal_modeMonthly" onclick="salSetMode('monthly')">📄 मासिक सर्टिफिकेट</button>
+        <button type="button" class="sal-modebtn" id="sal_modeAnnual" onclick="salSetMode('annual')">📊 वार्षिक विवरणपत्र (FY — मार्च ते फेब्रुवारी)</button>
+      </div>
+      <div class="status" id="sal_status" style="margin-top:12px"></div>
+    </div>
+  </div>
+
+  <div class="card" id="sal_gasHint" style="display:none;margin-bottom:16px">
+    <div class="card-header"><div><h2>⚙️ Google Apps Script सेटअप आवश्यक</h2></div></div>
+    <div class="card-body" style="font-size:13px;line-height:1.65">
+      तुमच्या Google Apps Script (<b>Code.gs</b>) मध्ये <code>getSalaryMeta</code>, <code>getSalaryRecord</code> आणि <code>getAnnualSalary</code> अ‍ॅक्शन्स अद्याप deploy केलेले नाहीत. अद्ययावत Code.gs जोडून नवीन Version Deploy करा आणि वरील 🔄 रीफ्रेश बटण दाबा.
+    </div>
+  </div>
+
+  <!-- स्वतःसाठी राखीव कार्ड (Teacher / DEO / Peon / Staff) -->
+  <div class="card" id="sal_selfCard" style="display:none;margin-bottom:16px">
+    <div class="card-header"><div><h2>👤 माझा शालार्थ पगार तपशील (फक्त स्वतःसाठी)</h2></div></div>
+    <div class="card-body" id="sal_selfBody"></div>
+  </div>
+
+  <!-- Admin / Cert कर्मचारी निवड कार्ड (Super Master / Master / Cert) -->
+  <div class="card" id="sal_adminPickerCard" style="display:none;margin-bottom:16px">
+    <div class="card-header"><div><h2>👤 कर्मचारी निवडा (नाव / Shalarth ID)</h2></div></div>
+    <div class="card-body">
+      <div class="frow" style="gap:10px;align-items:flex-end">
+        <div class="fg" style="flex:1.4;min-width:240px">
+          <label for="sal_empSelect">कर्मचारी नाव निवडा <span id="sal_empCountLbl">(0)</span></label>
+          <select id="sal_empSelect" onchange="salSelectEmp(this.value)" style="width:100%">
+            <option value="">⏳ कर्मचारी यादी लोड होत आहे...</option>
+          </select>
+        </div>
+        <div class="fg" style="flex:1;min-width:200px">
+          <label for="sal_search">नाव / Shalarth ID / पद / मोबाईल शोधा</label>
+          <input id="sal_search" oninput="salOnSearchInput(this.value)" placeholder="उदा. TONAPE किंवा 04DED...">
+        </div>
+      </div>
+      <div id="sal_quickChips" class="sal-chip-row"></div>
+      <div id="sal_empMetaCard" class="sal-meta-card" style="display:none"></div>
+    </div>
+  </div>
+
+  <!-- मासिक सर्टिफिकेट विभाग -->
+  <div id="sal_monthlySection">
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-header"><div><h2>📅 महिना व दाखला दिनांक</h2></div></div>
+      <div class="card-body">
+        <div class="frow" style="gap:10px;align-items:flex-end">
+          <div class="fg" style="flex:1.2;min-width:200px">
+            <label for="sal_monthSelect">पगार महिना (Sheet Tab)</label>
+            <select id="sal_monthSelect" onchange="salSelectMonth(this.value)" style="width:100%"></select>
+          </div>
+          <div class="fg w180">
+            <label for="sal_issueDate">दाखला दिनांक</label>
+            <input type="date" id="sal_issueDate" onchange="salUpdateIssueDate(this.value)">
+          </div>
+          <div class="fg" style="flex:0 0 auto">
+            <button type="button" class="btn btn-blue" id="sal_loadSlipBtn" onclick="salLoadSlip()">💼 पगार पहा</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" id="sal_slipCard" style="display:none;margin-bottom:16px">
+      <div class="card-header"><div><h2 id="sal_slipTitle">💼 पगार तपशील</h2></div></div>
+      <div class="card-body">
+        <div id="sal_slipBody"></div>
+        <div class="abtns">
+          <button type="button" class="btn btn-gold" onclick="salOpenMonthlyCert(true)">📥 Certificate PDF (A4)</button>
+          <button type="button" class="btn btn-blue" onclick="salOpenMonthlyCert(false)">🖨️ शालार्थ नमुन्यात Preview / Print</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- वार्षिक विवरणपत्र (मार्च ते फेब्रुवारी) विभाग -->
+  <div id="sal_annualSection" style="display:none">
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-header"><div><h2>📊 आर्थिक वर्ष (F.Y. मार्च ते फेब्रुवारी) निवडा</h2></div></div>
+      <div class="card-body">
+        <div class="frow" style="gap:10px;align-items:flex-end">
+          <div class="fg" style="flex:1.2;min-width:200px">
+            <label for="sal_fySelect">आर्थिक वर्ष (Financial Year)</label>
+            <select id="sal_fySelect" onchange="salSelectFy(this.value)" style="width:100%"></select>
+          </div>
+          <div class="fg w180">
+            <label for="sal_annualIssueDate">दाखला दिनांक</label>
+            <input type="date" id="sal_annualIssueDate" onchange="salUpdateIssueDate(this.value)">
+          </div>
+          <div class="fg" style="flex:0 0 auto">
+            <button type="button" class="btn btn-green" id="sal_loadAnnualBtn" onclick="salLoadAnnual()">📈 विवरणपत्र पहा</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" id="sal_annualCard" style="display:none;margin-bottom:16px">
+      <div class="card-header"><div><h2 id="sal_annualTitle">📈 वार्षिक पगार सारांश</h2></div></div>
+      <div class="card-body">
+        <div id="sal_annualBody"></div>
+        <div class="abtns">
+          <button type="button" class="btn btn-gold" onclick="salOpenAnnualCert(true)">📥 Annual Statement PDF (A4 Landscape)</button>
+          <button type="button" class="btn btn-blue" onclick="salOpenAnnualCert(false)">🖨️ वार्षिक विवरणपत्र Preview / Print</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- ==================== SCRIPTS ==================== -->
 <!-- ==================== HISTORY / EXPORT PAGE (V19.8) ==================== -->
 <!-- ==================== STUDENT PROFILE PAGE (V19.13) ==================== -->
@@ -1055,6 +1181,7 @@
             <option value="cert" selected>Certificate User</option>
             <option value="teacher">Class Teacher</option>
             <option value="peon">Peon (शिपाई)</option>
+            <option value="staff">Staff (फक्त पगार दाखला)</option>
           </select>
         </div>
         <div class="fg w150"><label>Label / Display Name</label><input id="um_label" placeholder="उदा. Clerk 2"></div>
@@ -1100,6 +1227,7 @@
   <div class="card">
     <div class="card-header"><div>🔑 माझा Password बदला (Change My Password)</div></div>
     <div class="card-body">
+      <p style="font-size:12px;color:rgba(240,232,216,.8);margin-bottom:10px">सुरक्षेसाठी किमान ८ अक्षरी वैयक्तिक Password सेट करा (उदा. Name@2026). प्राथमिक <b>Pass@1234</b> बदलणे आवश्यक आहे.</p>
       <div class="frow" style="gap:10px;flex-wrap:wrap;align-items:flex-end">
         <div class="fg w150"><label>जुना Password</label><input id="pwd_old" type="password"></div>
         <div class="fg w150"><label>नवीन Password</label><input id="pwd_new" type="password"></div>
@@ -1373,15 +1501,17 @@
     <li><b>सूचना</b> टॅब: शाळेच्या सर्व सूचना.</li>
     <li><b>मेंटेनन्स</b> टॅब: रजिस्टर नंबर शोधून फक्त <b>तुकडी</b> बदलता येते.</li>
     <li><b>🪪 Profile</b>: विद्यार्थ्याची संपूर्ण माहिती. <b>🎓 शिष्यवृत्ती</b> व <b>📑 रिपोर्ट</b> पानेही मेनूत आहेत.</li>
+    <li><b>💼 पगार दाखला</b>: फक्त स्वतःचे मासिक Salary Certificate आणि मार्च ते फेब्रुवारी वार्षिक पगार विवरणपत्र 'शालार्थ' बॅनरसह PDF डाउनलोड/प्रिंट करा.</li>
   </ul>
 </section>
 
 <section class="hp-sec" data-roles="deo" data-title="DEO साठी — विद्यार्थी नोंदी">
   <h3>🧑‍💻 DEO साठी — विद्यार्थी नोंदी</h3>
-  <p>तुमची पाने: <b>विद्यार्थी माहिती</b>, <b>🔍 विद्यार्थी शोधा</b>, <b>📁 History / Export</b>, <b>🪪 Profile</b>, <b>👥 Users</b>, <b>📒 वर्ग शिक्षक यादी</b>.</p>
+  <p>तुमची पाने: <b>विद्यार्थी माहिती</b>, <b>💼 पगार दाखला (फक्त स्वतःचा)</b>, <b>🔍 विद्यार्थी शोधा</b>, <b>📁 History / Export</b>, <b>🪪 Profile</b>, <b>👥 Users</b>, <b>📒 वर्ग शिक्षक यादी</b>.</p>
   <ul>
     <li><b>विद्यार्थी माहिती:</b> नवीन विद्यार्थी नोंदवा किंवा जुनी नोंद दुरुस्त करा. नोंद Save झाल्यावर शोधून तपासा.</li>
     <li><b>तपासून भरा:</b> Reg No दुबार नको; जन्मतारीख बरोबर; WhatsApp क्रमांक १० अंकी. चुकीची माहिती नंतर शोधणे कठीण असते.</li>
+    <li><b>💼 पगार दाखला:</b> लॉगिन मोबाईल नंबरनुसार फक्त स्वतःचे मासिक व वार्षिक पगार विवरणपत्र PDF पहा व प्रिंट करा.</li>
     <li><b>📁 History / Export:</b> यादी/अहवाल डाउनलोड करण्यासाठी.</li>
     <li>प्रत्येक बदल <b>"बदलांचा इतिहास"</b> मध्ये (कोणी, केव्हा, जुने/नवे) नोंदवला जातो — म्हणून काळजीपूर्वक दुरुस्ती करा.</li>
   </ul>
@@ -1389,11 +1519,12 @@
 
 <section class="hp-sec" data-roles="cert" data-title="प्रमाणपत्र-वापरकर्त्यांसाठी">
   <h3>📄 प्रमाणपत्र-वापरकर्त्यांसाठी (Cert)</h3>
-  <p>तुमची पाने: <b>📄 बोनाफाईड</b>, <b>✅ उपस्थिती प्रमाणपत्र</b>, <b>🔍 विद्यार्थी शोधा</b>, <b>📁 History / Export</b>, <b>👥 Users</b>, <b>🪪 Profile</b>.</p>
+  <p>तुमची पाने: <b>📄 बोनाफाईड</b>, <b>✅ उपस्थिती प्रमाणपत्र</b>, <b>💼 पगार दाखला</b>, <b>🔍 विद्यार्थी शोधा</b>, <b>📁 History / Export</b>, <b>👥 Users</b>, <b>🪪 Profile</b>.</p>
   <ol>
     <li>प्रमाणपत्राचे पान उघडा, विद्यार्थी शोधा/निवडा.</li>
     <li>माहिती तपासा आणि पूर्वावलोकन (Preview) पाहा.</li>
     <li>PDF/प्रिंट करा. छापील मजकूर शाळेने ठरवलेला आहे — तो बदलू नका.</li>
+    <li><b>💼 पगार दाखला:</b> शालार्थ ID नुसार कर्मचाऱ्याचे मासिक Salary Certificate आणि मार्च ते फेब्रुवारी वार्षिक पगार विवरणपत्र 'शालार्थ' बॅनरसह PDF/Print काढा.</li>
   </ol>
   <div class="hp-tip">ℹ️ <b>LC (शाळा सोडल्याचा दाखला)</b> हे पान तुमच्याकडे नाही; ते Master/Super कडे आहे.</div>
 </section>
@@ -1412,7 +1543,7 @@
   <div class="hp-tip">ℹ️ रविवार, सुट्टी किंवा भविष्यातील तारखेसाठी स्वतंत्र संदेश दिसतो.</div>
   <h4>इतर पाने</h4>
   <ul>
-    <li><b>LC Issue</b>, <b>बोनाफाईड</b>, <b>उपस्थिती प्रमाणपत्र</b>.</li>
+    <li><b>LC Issue</b>, <b>बोनाफाईड</b>, <b>उपस्थिती प्रमाणपत्र</b>, <b>💼 पगार दाखला व वार्षिक विवरणपत्र</b>.</li>
     <li><b>📊 सांख्यिकी अहवाल</b>, <b>📑 रिपोर्ट</b>, <b>🏫 वर्ग माहिती</b>, <b>📈 हजेरी विश्लेषण</b>.</li>
     <li><b>🚪 घरी जाणारे</b>, <b>🎓 शिष्यवृत्ती</b>, <b>📒 वर्ग शिक्षक यादी</b>.</li>
     <li><b>📦 Archive</b>: जुन्या वर्षांची फी, प्रवास, हजेरी वाचण्यासाठी.</li>
@@ -1444,7 +1575,7 @@
   <ul>
     <li><b>Backup:</b> ▶️ आत्ताच Backup घ्या; <b>🔍 Backup तपासणी</b> (प्रत उघडून तपासते — काहीही बदलत नाही). "शेवटची तपासणी X दिवसांपूर्वी ✅" पाहा; ४० दिवसांपेक्षा जुनी असल्यास इशारा येतो.</li>
     <li><b>🎓 वर्ग-बढती</b> आणि <b>🧹 वर्षअखेर साफसफाई</b>: प्रत्येक बदलापूर्वी Students चा Backup आपोआप घेतला व तपासला जातो (अयशस्वी झाल्यास बढती होत नाही) आणि नाव/ठिकाण दाखवले जाते; ↩️ Undo / ↩️ परत आणा उपलब्ध. बढतीनंतर बढती मिळालेल्यांचा column B पुढचे वर्ष होतो.</li>
-    <li><b>Users:</b> नवीन User, Role, वर्ग-नेमणूक, Password. प्रत्येक बदल User_Audit मध्ये (Password कधीही नाही).</li>
+    <li><b>Users:</b> नवीन User, Role (staff सह), वर्ग-नेमणूक, Password. प्रत्येक बदल User_Audit मध्ये (Password कधीही नाही).</li>
     <li><b>📅 शैक्षणिक वर्ष जुळवा:</b> डॅशबोर्डवरील बॅज दाबा → Students च्या column B चे वेगळे वर्ष चालू वर्षाशी जुळवा (SYNC टाइप). आधी Students चा Backup घेतला व तपासला जातो; फक्त column B बदलतो.</li>
   </ul>
   <div class="hp-tip">🔐 सुरक्षित सवय: दुसऱ्याच्या फोनवर वापरले असल्यास Logout करा. <b>Super साठी ऑफलाइन Login नाही</b> — नेट आवश्यक.</div>
@@ -1452,11 +1583,21 @@
 
 <section class="hp-sec" data-roles="peon" data-title="शिपायासाठी">
   <h3>🔔 शिपायासाठी</h3>
-  <p>तुमची पाने: <b>🔍 विद्यार्थी शोधा</b>, <b>🚪 घरी जाणारे</b>, <b>📒 वर्ग शिक्षक यादी</b>, <b>🪪 Profile</b>.</p>
+  <p>तुमची पाने: <b>🚪 घरी जाणारे</b>, <b>💼 पगार दाखला (फक्त स्वतःचा)</b>, <b>🔍 विद्यार्थी शोधा</b>, <b>📒 वर्ग शिक्षक यादी</b>, <b>🪪 Profile</b>, <b>👥 Users</b>.</p>
   <ul>
     <li><b>🚪 घरी जाणारे:</b> परवानगी मिळालेल्या विद्यार्थ्यांची यादी दिसते. विद्यार्थी बाहेर गेला की त्याच्यापुढे <b>"गेला"</b> चिन्हांकित करा.</li>
+    <li><b>💼 पगार दाखला:</b> स्वतःचे मासिक Salary Certificate आणि मार्च ते फेब्रुवारी वार्षिक विवरणपत्र PDF पहा व प्रिंट करा.</li>
     <li><b>🔍 शोध:</b> विद्यार्थ्याचे नाव/Reg No टाकून वर्ग-तुकडी पाहा.</li>
     <li><b>📒 वर्ग शिक्षक यादी:</b> कोणत्या वर्गाचे शिक्षक कोण ते पाहा.</li>
+  </ul>
+</section>
+
+<section class="hp-sec" data-roles="staff" data-title="कर्मचाऱ्यांसाठी — माझा पगार दाखला">
+  <h3>💼 कर्मचाऱ्यांसाठी — माझा पगार दाखला</h3>
+  <p>तुमची पाने: <b>💼 पगार दाखला</b>, <b>👥 Users (Password बदला)</b> आणि <b>❓ मदत</b>.</p>
+  <ul>
+    <li><b>💼 माझा पगार दाखला व वार्षिक विवरणपत्र:</b> तुमच्या लॉगिन मोबाईल नंबरनुसार फक्त तुमचे स्वतःचे मासिक <b>Salary Certificate</b> आणि <b>मार्च ते फेब्रुवारी वार्षिक पगार विवरणपत्र (Annual Statement PDF)</b> 'शालार्थ' बॅनरसह पहा, PDF डाउनलोड किंवा प्रिंट करा.</li>
+    <li><b>🔐 माझा Password बदला:</b> प्रथम लॉगिन केल्यानंतर (सुरुवातीचा Password: <code>Pass@1234</code>) मेनूमधील <b>👥 Users</b> मध्ये जाऊन तुमचा स्वतःचा किमान ८ अक्षरी वैयक्तिक Password सेट करा.</li>
   </ul>
 </section>
 

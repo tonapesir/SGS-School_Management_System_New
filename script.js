@@ -45,7 +45,7 @@ var AUTH_USERS = {
   teacher_1: { password: 'Pass@1234', role: 'teacher', label: 'वर्ग शिक्षक', assignedClass: '7th|अ' }
 };
 var currentUser = null;
-var VALID_ROLES = ['super','master','deo','cert','teacher','peon'];
+var VALID_ROLES = ['super','master','deo','cert','teacher','peon','staff'];
 function normRole(r) { return String(r == null ? '' : r).trim().toLowerCase(); }
 // V19.36: Server-side Login (Token). Server वर setSuperCredentials + enableAuthEnforcement झाल्यावर हे false करा —
 // तेव्हा browser मधील hardcoded/Sheet मधून आलेले Password पूर्णपणे बंद होतात.
@@ -174,12 +174,13 @@ function handleAuthExpired() {
   setTimeout(function() { _authExpiredHandled = false; }, 2000);
 }
 var USER_ALLOWED_PAGES = {
-  master: ['dashboard','student','lc','bonafide','attendance','search','history','users','profile','stats','maintenance','classinfo','report','attanalytics','earlyleave','scholarship','teacherlist','archive','help'],
-  deo:    ['student','search','history','users','profile','teacherlist','help'],
-  cert:   ['bonafide','attendance','search','history','users','profile','help'],
-  super:  ['dashboard','student','lc','bonafide','attendance','search','history','users','profile','stats','maintenance','classinfo','report','superadmin','attanalytics','earlyleave','scholarship','teacherlist','archive','dataqc','help'],
-  teacher:['teacher','profile','report','earlyleave','scholarship','help'],
-  peon:   ['search','profile','earlyleave','teacherlist','help']   // शिपाई: विद्यार्थी शोध, प्रोफाइल, घरी जाणाऱ्यांची मार्क-आउट यादी
+  master: ['dashboard','student','lc','bonafide','attendance','salarycert','search','history','users','profile','stats','maintenance','classinfo','report','attanalytics','earlyleave','scholarship','teacherlist','archive','help'],
+  deo:    ['student','salarycert','search','history','users','profile','teacherlist','help'],
+  cert:   ['bonafide','attendance','salarycert','search','history','users','profile','help'],
+  super:  ['dashboard','student','lc','bonafide','attendance','salarycert','search','history','users','profile','stats','maintenance','classinfo','report','superadmin','attanalytics','earlyleave','scholarship','teacherlist','archive','dataqc','help'],
+  teacher:['teacher','salarycert','profile','report','earlyleave','scholarship','users','help'],
+  peon:   ['search','profile','earlyleave','salarycert','teacherlist','users','help'],   // शिपाई: विद्यार्थी शोध, प्रोफाइल, घरी जाणाऱ्यांची मार्क-आउट यादी, स्वतःचा पगार दाखला
+  staff:  ['salarycert','users','help']   // इतर कर्मचारी: फक्त स्वतःचा पगार दाखला व पासवर्ड बदल
 };
 var CERT_EDITABLE_FIELDS = {
   bf: ['bf_regNo','bf_stxt2','bf_stxt57','bf_stxt3','bf_stxt3_sel','bf_stxt6'],
@@ -191,6 +192,7 @@ function defaultPageForRole(role) {
   if (role === 'cert') return 'bonafide';
   if (role === 'teacher') return 'teacher';
   if (role === 'peon') return 'earlyleave';
+  if (role === 'staff') return 'salarycert';
   return 'dashboard';
 }
 
@@ -267,7 +269,7 @@ function initAuth() {
     showPage(defaultPageForRole(currentUser.role));
   } else {
     document.body.classList.add('auth-locked');
-    document.body.classList.remove('role-master','role-deo','role-cert','role-super','role-teacher','role-peon');
+    document.body.classList.remove('role-master','role-deo','role-cert','role-super','role-teacher','role-peon','role-staff');
     setTimeout(function(){
       var u = document.getElementById('loginUsername');
       if (u) u.focus();
@@ -358,7 +360,7 @@ function completeLogin(username, user, pEl, st, token, exp) {
   // Role लहान अक्षरात तपासा; अमान्य Role असल्यास Login नाकारा (पूर्वी अनोळखी Role ला सर्व Tab दिसत होते)
   user = { role: normRole(user.role), label: user.label, assignedClass: user.assignedClass || '' };
   if (VALID_ROLES.indexOf(user.role) === -1) {
-    if (st) { st.textContent = 'या User चा Role अमान्य आहे. Users sheet मध्ये Role: super / master / deo / cert / teacher / peon (लहान अक्षरात) असा हवा.'; st.className = 'login-status err'; st.style.display = 'block'; }
+    if (st) { st.textContent = 'या User चा Role अमान्य आहे. Users sheet मध्ये Role: super / master / deo / cert / teacher / peon / staff (लहान अक्षरात) असा हवा.'; st.className = 'login-status err'; st.style.display = 'block'; }
     return false;
   }
   if (token) {
@@ -388,7 +390,7 @@ function logoutUser(opts) {
   currentUser = null;
   closeCert();
   document.body.classList.add('auth-locked');
-  document.body.classList.remove('role-master','role-deo','role-cert','role-super','role-teacher','role-peon');
+  document.body.classList.remove('role-master','role-deo','role-cert','role-super','role-teacher','role-peon','role-staff');
   var chip = document.getElementById('authUserChip');
   if (chip) chip.textContent = 'User';
   setTimeout(function(){
@@ -435,6 +437,7 @@ function applyRoleUI() {
   document.body.classList.toggle('role-super', currentUser.role === 'super');
   document.body.classList.toggle('role-teacher', currentUser.role === 'teacher');
   document.body.classList.toggle('role-peon', currentUser.role === 'peon');
+  document.body.classList.toggle('role-staff', currentUser.role === 'staff');
   // Peon ला विद्यार्थी शोध/प्रोफाइल लगेच वापरता यावे म्हणून विद्यार्थी यादी आपोआप Load करा
   if (currentUser.role === 'peon') { try { if (!studentCache.loaded && !loadCacheFromStorage()) bulkLoadAll(); } catch (e) {} }
   var chip = document.getElementById('authUserChip');
@@ -461,6 +464,7 @@ function applyFormPermissions() {
     if (el.id.indexOf('ar_') === 0 || el.id.indexOf('dq_') === 0) { el.disabled=false; el.classList.remove('locked-input'); return; }
     if (el.id.indexOf('tl_') === 0) { el.disabled=false; el.classList.remove('locked-input'); return; }
     if (el.id.indexOf('rp_') === 0) { el.disabled=false; el.classList.remove('locked-input'); return; }
+    if (el.id.indexOf('sal_') === 0) { el.disabled=false; el.classList.remove('locked-input'); return; }
     if (el.id.indexOf('um_') === 0) {
       var canManageUsers = currentUser.role === 'super';
       el.disabled = !canManageUsers;
@@ -2168,9 +2172,11 @@ function openCert(title, html, pageSize, kind) {
   if ((kind === 'BF' || kind === 'AT') && localStorage.getItem('sgs_cert_twoup') === '1') {
     setTimeout(function() { if (modal.classList.contains('open') && modal.dataset.twoup !== '1') certToggleTwoUp(true); }, 220);
   }
-  // Update modal box width for A4
+  // Update modal box width for A4 / A5 / A4 Landscape
   var mbox = modal.querySelector('.modal-box');
-  if(mbox) mbox.style.width = '210mm';
+  if (mbox) {
+    mbox.style.width = (pageSize === 'a4-land') ? '297mm' : ((pageSize === 'a5') ? '148mm' : '210mm');
+  }
   modal.classList.add('open');
   document.body.style.overflow = 'hidden';
 }
@@ -2229,9 +2235,10 @@ function exportCertAsPDF(customFilename) {
   btn.textContent = '⏳ ...';
   status.style.display = 'inline';
 
-  // Always A4 now
-  var pdfW = 210;
-  var pdfH = 297;
+  var modalEl = document.getElementById('certModal');
+  var isLand = !!(modalEl && modalEl.dataset.pageSize === 'a4-land');
+  var pdfW = isLand ? 297 : 210;
+  var pdfH = isLand ? 210 : 297;
 
   // V19.37: "A4 वर २ प्रती" मोड — प्रत्येक Sheet (पान) स्वतंत्र capture करून एका PDF मध्ये
   var sheets = document.querySelectorAll('#certContent .cert-sheet2');
@@ -2274,7 +2281,7 @@ function exportCertAsPDF(customFilename) {
         offsetX = (pdfW - imgW) / 2;
       }
       var doc = new window.jspdf.jsPDF({
-        orientation: 'portrait',
+        orientation: isLand ? 'landscape' : 'portrait',
         unit: 'mm',
         format: 'a4',
         compress: true
@@ -4060,6 +4067,9 @@ showPage = function(name, btn) {
   if (name === 'users') {
     if (currentUser && currentUser.role === 'super') loadUsersTable();
   }
+  if (name === 'salarycert') {
+    try { salInit(false); } catch (eSal) {}
+  }
   if (name === 'teacher') {
     tchInit();
     var ap = document.querySelector('#pg-teacher .tch-panel.active');
@@ -4087,9 +4097,10 @@ function loadUsersTable() {
       window._pwHidden = !!r.passwordsHidden;   // V19.52: Password सर्व्हर परत पाठवत नाही (hash / Token सक्ती)
       tbody.innerHTML = r.data.map(function(u) {
         var clsLabel = (u.assignedClass||'').replace('|','-');
-        return '<tr><td>' + u.username + '</td><td>' + u.role + '</td><td>' + (u.label||'') + '</td><td>' + clsLabel + '</td><td>' + (u.mobile||'') + '</td>'
-          + '<td><button class="btn btn-blue" style="padding:4px 10px;font-size:11px" onclick="editUser(\'' + u.username + '\')">✏️ Edit</button> '
-          + '<button class="btn btn-red" style="padding:4px 10px;font-size:11px" onclick="deleteUser(\'' + u.username + '\')">🗑️ Delete</button></td></tr>';
+        var uArg = pmEsc(JSON.stringify(String(u.username || '')));
+        return '<tr><td>' + pmEsc(u.username) + '</td><td>' + pmEsc(u.role) + '</td><td>' + pmEsc(u.label||'') + '</td><td>' + pmEsc(clsLabel) + '</td><td>' + pmEsc(u.mobile||'') + '</td>'
+          + '<td><button class="btn btn-blue" style="padding:4px 10px;font-size:11px" onclick="editUser(' + uArg + ')">✏️ Edit</button> '
+          + '<button class="btn btn-red" style="padding:4px 10px;font-size:11px" onclick="deleteUser(' + uArg + ')">🗑️ Delete</button></td></tr>';
       }).join('');
     } else {
       tbody.innerHTML = '<tr><td colspan="6">❌ Load Failed</td></tr>';
@@ -8023,8 +8034,8 @@ function dsPdf() {
 // ===== V19.64 (ब-१२) — ❓ मदत: भूमिकेनुसार वापरकर्ता-मार्गदर्शिका =====
 // मजकूर index.html मधील <template id="help_tpl"> मध्ये (स्थिर HTML; स्रोत tools/help_content.html). इतर भूमिकांचे विभाग DOM मध्ये कधीच येत नाहीत.
 // =====================================================================
-var HELP_ROLE_VIEW = {teacher: ['teacher'], deo: ['deo'], cert: ['cert'], peon: ['peon'], master: ['master'], super: ['master', 'super']};
-var HELP_ROLE_NAME = {teacher: 'वर्ग शिक्षक', deo: 'DEO', cert: 'प्रमाणपत्र-वापरकर्ता (Cert)', peon: 'शिपाई', master: 'मुख्याध्यापक / Master', super: 'Super Admin'};
+var HELP_ROLE_VIEW = {teacher: ['teacher'], deo: ['deo'], cert: ['cert'], peon: ['peon'], staff: ['staff'], master: ['master'], super: ['master', 'super']};
+var HELP_ROLE_NAME = {teacher: 'वर्ग शिक्षक', deo: 'DEO', cert: 'प्रमाणपत्र-वापरकर्ता (Cert)', peon: 'शिपाई', staff: 'कर्मचारी (Staff)', master: 'मुख्याध्यापक / Master', super: 'Super Admin'};
 function helpRender() {
   var tpl = document.getElementById('help_tpl'), body = document.getElementById('help_body');
   if (!tpl || !body || !currentUser) return;
@@ -8368,7 +8379,7 @@ try { offBannerUpdate(); } catch (eOff) {}
 // • Super साठी ऑफलाइन Login जतन होत नाही. ५ चुकीच्या प्रयत्नांनंतर ५ मिनिटे Lock. स्वतः Logout = सर्व पुसले.
 // • मर्यादा: Password सर्व्हरवर बदलला/User काढला तरी ३ दिवसांपर्यंत जुना Password ऑफलाइन चालतो (पुढच्या ऑनलाइन Login ला दुरुस्त).
 // =====================================================================
-var OFFCRED_KEY = 'sgs_offcred_v1', OFF_DAYS = 3, OFF_ITER = 150000, OFF_ROLES = ['teacher', 'master', 'deo', 'cert', 'peon'];
+var OFFCRED_KEY = 'sgs_offcred_v1', OFF_DAYS = 3, OFF_ITER = 150000, OFF_ROLES = ['teacher', 'master', 'deo', 'cert', 'peon', 'staff'];
 function offCanCrypto() { try { return !!(window.crypto && crypto.subtle && window.TextEncoder); } catch (e) { return false; } }
 function offB64(buf) { var s = '', a = new Uint8Array(buf); for (var i = 0; i < a.length; i++) s += String.fromCharCode(a[i]); return btoa(s); }
 function offUnb64(s) { var bin = atob(s), a = new Uint8Array(bin.length); for (var i = 0; i < bin.length; i++) a[i] = bin.charCodeAt(i); return a; }
@@ -8522,3 +8533,861 @@ window.addEventListener('offline', function() { offSessUpdate(); });
 
   try { history.replaceState({ sgs: 'root' }, ''); } catch (e) {}
 })();
+
+// =====================================================================
+// ===== V19.65 — 💼 शालार्थ पगार दाखला व वार्षिक विवरणपत्र (March–Feb) =====
+// =====================================================================
+var salState = {
+  loaded: false,
+  loading: false,
+  selfService: false,
+  mode: 'monthly',
+  employees: [],
+  months: [],
+  fys: [],
+  selectedSid: '',
+  selectedMonthTab: '',
+  selectedFy: '',
+  issueDateIso: '',
+  searchQuery: '',
+  slip: null,
+  annual: null
+};
+
+var SAL_MONTH_MAP = {
+  jan:1, january:1, feb:2, february:2, mar:3, march:3, apr:4, april:4, may:5,
+  jun:6, june:6, jul:7, july:7, aug:8, august:8, sep:9, sept:9, september:9,
+  oct:10, october:10, nov:11, november:11, dec:12, december:12
+};
+var SAL_MONTH_SHORT = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function salTodayIso() {
+  var d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
+function salFmtDisplayDate(iso) {
+  var s = String(iso || '').trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    var p = s.split('-');
+    return p[2] + '/' + p[1] + '/' + p[0];
+  }
+  return s || salFmtDisplayDate(salTodayIso());
+}
+
+function salClean10(v) {
+  var d = String(v || '').replace(/\D/g, '');
+  return d.length >= 10 ? d.slice(-10) : d;
+}
+
+function salIsSelfServiceRole() {
+  var r = currentUser ? normRole(currentUser.role) : '';
+  return r === 'teacher' || r === 'deo' || r === 'peon' || r === 'staff';
+}
+
+function salParseMonthTab(tabName) {
+  var clean = String(tabName || '').trim();
+  var m = clean.match(/^([A-Za-z]+)[_\-\s]+(\d{2,4})$/);
+  if (!m) return null;
+  var mo = SAL_MONTH_MAP[m[1].toLowerCase()];
+  var yRaw = parseInt(m[2], 10);
+  if (!mo || isNaN(yRaw)) return null;
+  var yr = yRaw < 100 ? (2000 + yRaw) : yRaw;
+  return { year: yr, month: mo, sortKey: yr * 100 + mo };
+}
+
+function salMonthLabel(tabName) {
+  var ym = salParseMonthTab(tabName);
+  if (!ym) return String(tabName || '');
+  return SAL_MONTH_SHORT[ym.month] + '-' + String(ym.year % 100).padStart(2, '0');
+}
+
+function salFyForTab(tabName) {
+  var ym = salParseMonthTab(tabName);
+  if (!ym) return '';
+  var startY = ym.month >= 3 ? ym.year : (ym.year - 1);
+  return startY + '-' + String((startY + 1) % 100).padStart(2, '0');
+}
+
+function salExtractFys(months) {
+  var seen = {}, list = [];
+  (months || []).forEach(function(m) {
+    var fy = salFyForTab(m.tabName);
+    if (fy && !seen[fy]) { seen[fy] = true; list.push(fy); }
+  });
+  return list.sort().reverse();
+}
+
+function salNum(v) {
+  if (typeof v === 'number') return isFinite(v) ? v : 0;
+  var n = parseFloat(String(v == null ? '' : v).replace(/,/g, '').trim());
+  return isFinite(n) ? n : 0;
+}
+
+function salComma(v) {
+  var n = Math.round(salNum(v));
+  var neg = n < 0;
+  var digits = String(Math.abs(n));
+  if (digits.length <= 3) return (neg ? '-' : '') + digits;
+  var last3 = digits.slice(-3);
+  var rest = digits.slice(0, -3).replace(/\B(?=(\d{2})+(?!\d))/g, ',');
+  return (neg ? '-' : '') + rest + ',' + last3;
+}
+
+function salRs(v) {
+  return '₹ ' + salComma(v);
+}
+
+function salWordsBelow1000(n) {
+  var ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine',
+    'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
+  var tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+  var out = [];
+  var h = Math.floor(n / 100), r = n % 100;
+  if (h > 0) out.push(ones[h] + ' Hundred');
+  if (r > 0 && r < 20) out.push(ones[r]);
+  else if (r >= 20) {
+    out.push(tens[Math.floor(r / 10)] + (r % 10 ? ' ' + ones[r % 10] : ''));
+  }
+  return out.join(' ');
+}
+
+function salAmountToWords(amount) {
+  var n = Math.round(salNum(amount));
+  if (n === 0) return 'Zero';
+  var neg = n < 0;
+  n = Math.abs(n);
+  var parts = [];
+  var cr = Math.floor(n / 10000000); n %= 10000000;
+  if (cr > 0) parts.push(salWordsBelow1000(cr) + ' Crore');
+  var lk = Math.floor(n / 100000); n %= 100000;
+  if (lk > 0) parts.push(salWordsBelow1000(lk) + ' Lakh');
+  var th = Math.floor(n / 1000); n %= 1000;
+  if (th > 0) parts.push(salWordsBelow1000(th) + ' Thousand');
+  if (n > 0) parts.push(salWordsBelow1000(n));
+  return (neg ? 'Minus ' : '') + parts.join(' ').trim();
+}
+
+function salSetStatus(msg, type) {
+  var el = document.getElementById('sal_status');
+  if (!el) return;
+  if (!msg) { el.style.display = 'none'; el.textContent = ''; el.className = 'status'; return; }
+  el.textContent = msg;
+  el.className = 'status ' + (type === 'err' ? 'err' : (type === 'ok' ? 'ok' : 'load'));
+  el.style.display = 'block';
+}
+
+function salSetMode(mode) {
+  salState.mode = (mode === 'annual') ? 'annual' : 'monthly';
+  var bM = document.getElementById('sal_modeMonthly');
+  var bA = document.getElementById('sal_modeAnnual');
+  var sM = document.getElementById('sal_monthlySection');
+  var sA = document.getElementById('sal_annualSection');
+  if (bM) bM.classList.toggle('active', salState.mode === 'monthly');
+  if (bA) bA.classList.toggle('active', salState.mode === 'annual');
+  if (sM) sM.style.display = salState.mode === 'monthly' ? '' : 'none';
+  if (sA) sA.style.display = salState.mode === 'annual' ? '' : 'none';
+  if (salState.mode === 'annual' && !salState.annual && salState.selectedSid && salState.selectedFy && salState.loaded) {
+    salLoadAnnual();
+  }
+}
+
+function salUpdateIssueDate(iso) {
+  var val = String(iso || '').trim() || salTodayIso();
+  salState.issueDateIso = val;
+  var d1 = document.getElementById('sal_issueDate');
+  var d2 = document.getElementById('sal_annualIssueDate');
+  if (d1 && d1.value !== val) d1.value = val;
+  if (d2 && d2.value !== val) d2.value = val;
+}
+
+function salNormalizeSlip(raw) {
+  var o = raw || {};
+  var basicPay = salNum(o.basicPay), da = salNum(o.da), daArrears = salNum(o.daArrears);
+  var seventhPayDiff = salNum(o.seventhPayDiff), hra = salNum(o.hra), ta = salNum(o.ta);
+  var npsEmprAllow = salNum(o.npsEmprAllow), taArrears = salNum(o.taArrears);
+  var hraArrears = salNum(o.hraArrears), otherEarnings = salNum(o.otherEarnings);
+  var grossRaw = salNum(o.grossTotal);
+  var computedGross = grossRaw > 0 ? grossRaw : (basicPay + da + daArrears + seventhPayDiff + hra + ta + npsEmprAllow + taArrears + hraArrears + otherEarnings);
+
+  var provFund = salNum(o.provFund), npsEmprDed = salNum(o.npsEmprDed), npsEmpContri = salNum(o.npsEmpContri);
+  var incomeTax = salNum(o.incomeTax), profTax = salNum(o.profTax), society1 = salNum(o.society1);
+  var society2 = salNum(o.society2), lic = salNum(o.lic), revStamp = salNum(o.revStamp);
+  var otherDeductions = salNum(o.otherDeductions);
+  var dedRaw = salNum(o.totalDeductions);
+  var computedTotalDeductions = dedRaw > 0 ? dedRaw : (provFund + npsEmprDed + npsEmpContri + incomeTax + profTax + society1 + society2 + lic + revStamp + otherDeductions);
+
+  var netRaw = salNum(o.netSalary);
+  var computedNet = (netRaw > 0 || computedGross === 0) ? netRaw : (computedGross - computedTotalDeductions);
+
+  return {
+    shalarthId: String(o.shalarthId || '').trim(),
+    employeeName: String(o.employeeName || o.name || '').trim(),
+    designation: String(o.designation || '').trim(),
+    schoolName: String(o.schoolName || '').trim() || 'S.G.S. HIGH SCH., PACHORA',
+    udiseCode: String(o.udiseCode || '').trim() || '27031201718',
+    ddoCode: String(o.ddoCode || '').trim(),
+    monthTab: String(o.monthTab || o.tabName || '').trim(),
+    monthLabel: String(o.monthLabel || o.label || '').trim() || salMonthLabel(o.monthTab || o.tabName),
+    payMatrix: String(o.payMatrix || '').trim(),
+    panNo: String(o.panNo || '').trim(),
+    adharNo: String(o.adharNo || '').trim(),
+    pfAcNo: String(o.pfAcNo || '').trim(),
+    pranNo: String(o.pranNo || '').trim(),
+    mobile: String(o.mobile || '').trim(),
+    bankName: String(o.bankName || '').trim(),
+    branchName: String(o.branchName || '').trim(),
+    bankAccountNo: String(o.bankAccountNo || '').trim(),
+    bankIfsc: String(o.bankIfsc || '').trim(),
+    basicPay: basicPay, da: da, daArrears: daArrears, seventhPayDiff: seventhPayDiff,
+    hra: hra, ta: ta, npsEmprAllow: npsEmprAllow, taArrears: taArrears,
+    hraArrears: hraArrears, otherEarnings: otherEarnings,
+    computedGross: computedGross,
+    provFund: provFund, npsEmprDed: npsEmprDed, npsEmpContri: npsEmpContri,
+    incomeTax: incomeTax, profTax: profTax, society1: society1, society2: society2,
+    lic: lic, revStamp: revStamp, otherDeductions: otherDeductions,
+    computedTotalDeductions: computedTotalDeductions,
+    computedNet: computedNet
+  };
+}
+
+function salGetSelectedEmp() {
+  for (var i = 0; i < salState.employees.length; i++) {
+    if (salState.employees[i].shalarthId === salState.selectedSid) return salState.employees[i];
+  }
+  return null;
+}
+
+function salFilteredEmployees() {
+  var q = String(salState.searchQuery || '').trim().toLowerCase();
+  if (!q) return salState.employees.slice();
+  return salState.employees.filter(function(e) {
+    return (e.name || '').toLowerCase().indexOf(q) !== -1 ||
+      (e.shalarthId || '').toLowerCase().indexOf(q) !== -1 ||
+      (e.designation || '').toLowerCase().indexOf(q) !== -1 ||
+      (e.mobile || '').indexOf(q) !== -1;
+  });
+}
+
+function salRenderEmpMeta() {
+  var box = document.getElementById('sal_empMetaCard');
+  if (!box) return;
+  var emp = salGetSelectedEmp();
+  if (!emp) { box.style.display = 'none'; box.innerHTML = ''; return; }
+  box.style.display = '';
+  var m10 = salClean10(emp.mobile);
+  var contactHtml = m10
+    ? '<div class="profile-contact-row" style="margin-top:8px">' +
+      '<a class="pc-btn pc-call" href="tel:+91' + pmEsc(m10) + '">📞 कॉल (' + pmEsc(m10) + ')</a>' +
+      '<a class="pc-btn pc-wa" href="https://wa.me/91' + pmEsc(m10) + '" target="_blank" rel="noopener">💬 WhatsApp</a></div>'
+    : '';
+  box.innerHTML =
+    '<div class="sal-emp-top">' +
+      '<div>' +
+        '<div class="sal-emp-name">' + pmEsc(emp.name || '—') + '</div>' +
+        '<div class="sal-emp-sub">' + pmEsc(emp.designation || '—') + ' &nbsp;|&nbsp; Shalarth ID: <b>' + pmEsc(emp.shalarthId) + '</b></div>' +
+      '</div>' +
+    '</div>' +
+    '<div class="sal-emp-tags">' +
+      'Pay Matrix: <b>' + pmEsc(emp.payMatrix || '—') + '</b> &nbsp;|&nbsp; ' +
+      'PAN: <b>' + pmEsc(emp.panNo || '—') + '</b> &nbsp;|&nbsp; ' +
+      'PF/DCPS: <b>' + pmEsc(emp.pfAcNo || '—') + '</b> &nbsp;|&nbsp; ' +
+      'PRAN: <b>' + pmEsc(emp.pranNo || '—') + '</b>' +
+      (emp.bankAccountNo ? ' &nbsp;|&nbsp; Bank: <b>' + pmEsc((emp.bankName ? emp.bankName + ' • ' : '') + 'A/c ' + emp.bankAccountNo) + '</b>' : '') +
+    '</div>' +
+    contactHtml;
+}
+
+function salRenderSelfBox() {
+  var selfCard = document.getElementById('sal_selfCard');
+  var selfBody = document.getElementById('sal_selfBody');
+  var adminCard = document.getElementById('sal_adminPickerCard');
+  if (salState.selfService) {
+    if (adminCard) adminCard.style.display = 'none';
+    if (selfCard) selfCard.style.display = '';
+    if (selfBody) {
+      var emp = salGetSelectedEmp();
+      if (emp) {
+        selfBody.innerHTML =
+          '<span class="sal-self-badge">🔒 फक्त तुमची स्वतःची माहिती</span>' +
+          '<div class="sal-emp-name">' + pmEsc(emp.name || '—') + '</div>' +
+          '<div class="sal-emp-sub">' + pmEsc(emp.designation || '—') + ' &nbsp;|&nbsp; Shalarth ID: <b>' + pmEsc(emp.shalarthId) + '</b></div>' +
+          '<div class="sal-emp-tags">Pay Matrix: <b>' + pmEsc(emp.payMatrix || '—') + '</b> &nbsp;|&nbsp; PAN: <b>' + pmEsc(emp.panNo || '—') + '</b> &nbsp;|&nbsp; PF/DCPS: <b>' + pmEsc(emp.pfAcNo || '—') + '</b>' +
+          (emp.mobile ? ' &nbsp;|&nbsp; मोबाईल: <b>' + pmEsc(emp.mobile) + '</b>' : '') + '</div>';
+      } else {
+        var myUser = currentUser ? currentUser.username : '';
+        selfBody.innerHTML =
+          '<div class="pm-note" style="margin-top:0">⚠️ तुमच्या Login खात्याशी (<b>' + pmEsc(myUser) + '</b>) जुळणारा कर्मचारी शालार्थ पगार शीटमध्ये सापडला नाही. कृपया तुमच्या शालार्थ नोंदीतील १० अंकी मोबाईल क्रमांक तपासून मुख्याध्यापकांशी / Super Master शी संपर्क साधा.</div>';
+      }
+    }
+  } else {
+    if (selfCard) selfCard.style.display = 'none';
+    if (adminCard) adminCard.style.display = '';
+  }
+}
+
+function salRenderEmployees() {
+  salRenderSelfBox();
+  if (salState.selfService) return;
+  var filtered = salFilteredEmployees();
+  var cntLbl = document.getElementById('sal_empCountLbl');
+  if (cntLbl) cntLbl.textContent = '(' + filtered.length + '/' + salState.employees.length + ')';
+
+  var sel = document.getElementById('sal_empSelect');
+  if (sel) {
+    if (!filtered.length) {
+      sel.innerHTML = '<option value="">— जुळणारा कर्मचारी सापडला नाही —</option>';
+    } else {
+      sel.innerHTML = filtered.map(function(e) {
+        var lbl = (e.name || e.shalarthId) + (e.designation ? ' — ' + e.designation : '') + ' (' + e.shalarthId + ')';
+        var selected = e.shalarthId === salState.selectedSid ? ' selected' : '';
+        return '<option value="' + pmEsc(e.shalarthId) + '"' + selected + '>' + pmEsc(lbl) + '</option>';
+      }).join('');
+      if (salState.selectedSid) sel.value = salState.selectedSid;
+    }
+  }
+
+  var chips = document.getElementById('sal_quickChips');
+  if (chips) {
+    var topList = filtered.slice(0, 12);
+    chips.innerHTML = topList.map(function(e) {
+      var act = e.shalarthId === salState.selectedSid ? ' active' : '';
+      return '<button type="button" class="sal-chip' + act + '" onclick="salSelectEmp(' + pmEsc(JSON.stringify(e.shalarthId)) + ')">' + pmEsc(e.name || e.shalarthId) + '</button>';
+    }).join('');
+  }
+  salRenderEmpMeta();
+}
+
+function salRenderMonthAndFySelects() {
+  var msel = document.getElementById('sal_monthSelect');
+  if (msel) {
+    if (!salState.months.length) {
+      msel.innerHTML = '<option value="">— महिन्याची शीट नाही —</option>';
+    } else {
+      msel.innerHTML = salState.months.map(function(m) {
+        var lbl = (m.label || salMonthLabel(m.tabName)) + (m.tabName && m.label !== m.tabName ? ' (' + m.tabName + ')' : '');
+        return '<option value="' + pmEsc(m.tabName) + '">' + pmEsc(lbl) + '</option>';
+      }).join('');
+      if (salState.selectedMonthTab) msel.value = salState.selectedMonthTab;
+    }
+  }
+  var fsel = document.getElementById('sal_fySelect');
+  if (fsel) {
+    if (!salState.fys.length) {
+      fsel.innerHTML = '<option value="">— F.Y. उपलब्ध नाही —</option>';
+    } else {
+      fsel.innerHTML = salState.fys.map(function(fy) {
+        return '<option value="' + pmEsc(fy) + '">F.Y. ' + pmEsc(fy) + ' (March to February)</option>';
+      }).join('');
+      if (salState.selectedFy) fsel.value = salState.selectedFy;
+    }
+  }
+}
+
+function salOnSearchInput(q) {
+  salState.searchQuery = q || '';
+  salRenderEmployees();
+}
+
+function salSelectEmp(sid) {
+  if (!sid) return;
+  salState.selectedSid = sid;
+  salState.slip = null;
+  salState.annual = null;
+  var sc = document.getElementById('sal_slipCard');
+  var ac = document.getElementById('sal_annualCard');
+  if (sc) sc.style.display = 'none';
+  if (ac) ac.style.display = 'none';
+  salRenderEmployees();
+  if (salState.mode === 'annual' && salState.selectedFy) salLoadAnnual();
+  else if (salState.mode === 'monthly' && salState.selectedMonthTab) salLoadSlip();
+}
+
+function salSelectMonth(tab) {
+  salState.selectedMonthTab = tab || '';
+  if (salState.selectedSid && salState.selectedMonthTab) salLoadSlip();
+}
+
+function salSelectFy(fy) {
+  salState.selectedFy = fy || '';
+  if (salState.selectedSid && salState.selectedFy) salLoadAnnual();
+}
+
+function salInit(force) {
+  if (!salState.issueDateIso) salUpdateIssueDate(salTodayIso());
+  if (!force && salState.loaded && !salState.loading) return;
+  if (salState.loading) return;
+  if (!currentUser) return;
+  if (currentUser.offline) {
+    salSetStatus('📴 ऑफलाइन सत्रात पगार दाखला सर्व्हरवरून लोड करता येत नाही. कृपया नेट सुरू करून पुन्हा लॉगिन करा.', 'err');
+    return;
+  }
+  salState.loading = true;
+  salState.selfService = salIsSelfServiceRole();
+  var gasHint = document.getElementById('sal_gasHint');
+  if (gasHint) gasHint.style.display = 'none';
+  salSetStatus('⏳ शालार्थ पगार माहिती सर्व्हरवरून लोड होत आहे...', 'load');
+
+  jsonpRequest({
+    action: 'getSalaryMeta',
+    requesterUser: currentUser.username,
+    requesterRole: currentUser.role
+  }, function(r) {
+    salState.loading = false;
+    if (!r || r.status !== 'ok') {
+      var msg = (r && r.message) ? String(r.message) : 'शालार्थ माहिती लोड झाली नाही.';
+      salSetStatus('❌ ' + msg, 'err');
+      if (gasHint && /unknown|invalid action|not found/i.test(msg)) gasHint.style.display = '';
+      return;
+    }
+
+    salState.loaded = true;
+    salState.selfService = !!r.selfService || salIsSelfServiceRole();
+    var emps = Array.isArray(r.employees) ? r.employees.slice() : [];
+    // Client-side defense-in-depth self-service filtering
+    if (salState.selfService) {
+      var my10 = salClean10(currentUser.username);
+      if (emps.length > 1 && my10) {
+        var mine = emps.filter(function(e) { return salClean10(e.mobile) === my10; });
+        if (mine.length) emps = mine;
+      }
+    }
+    emps.sort(function(a, b) { return String(a.name || '').localeCompare(String(b.name || '')); });
+    salState.employees = emps;
+    salState.months = Array.isArray(r.months) ? r.months.slice() : [];
+    salState.fys = salExtractFys(salState.months);
+
+    if (!salState.selectedSid || !emps.some(function(e) { return e.shalarthId === salState.selectedSid; })) {
+      salState.selectedSid = emps.length ? emps[0].shalarthId : '';
+    }
+    if (!salState.selectedMonthTab || !salState.months.some(function(m) { return m.tabName === salState.selectedMonthTab; })) {
+      salState.selectedMonthTab = salState.months.length ? salState.months[salState.months.length - 1].tabName : '';
+    }
+    if (!salState.selectedFy || salState.fys.indexOf(salState.selectedFy) === -1) {
+      salState.selectedFy = salState.fys.length ? salState.fys[0] : '';
+    }
+
+    var sub = document.getElementById('sal_metaSubtitle');
+    if (sub) {
+      sub.textContent = salState.selfService
+        ? ('S.G.S. High School, Pachora • स्वतःचा पगार दाखला (' + (emps.length ? emps[0].shalarthId : 'जुळणी प्रलंबित') + ')')
+        : ('S.G.S. High School, Pachora • ' + emps.length + ' कर्मचारी, ' + salState.months.length + ' महिने');
+    }
+
+    salRenderEmployees();
+    salRenderMonthAndFySelects();
+
+    if (!emps.length && salState.selfService) {
+      salSetStatus('⚠️ तुमच्या मोबाईल क्रमांकाशी जुळणारा शालार्थ कर्मचारी आढळला नाही.', 'err');
+      return;
+    }
+    salSetStatus('✅ शालार्थ पगार माहिती तयार आहे.', 'ok');
+    setTimeout(function() { if (salState.loaded) salSetStatus('', ''); }, 2500);
+
+    if (salState.selectedSid) {
+      if (salState.mode === 'annual' && salState.selectedFy) salLoadAnnual();
+      else if (salState.mode === 'monthly' && salState.selectedMonthTab) salLoadSlip();
+    }
+  });
+}
+
+function salLoadSlip() {
+  if (!salState.selectedSid) { salSetStatus('⚠️ कृपया कर्मचारी निवडा.', 'err'); return; }
+  if (!salState.selectedMonthTab) { salSetStatus('⚠️ कृपया पगार महिना निवडा.', 'err'); return; }
+  var btn = document.getElementById('sal_loadSlipBtn');
+  if (btn) btn.disabled = true;
+  salSetStatus('⏳ ' + salMonthLabel(salState.selectedMonthTab) + ' चा पगार तपशील लोड होत आहे...', 'load');
+
+  jsonpRequest({
+    action: 'getSalaryRecord',
+    shalarthId: salState.selectedSid,
+    monthTab: salState.selectedMonthTab,
+    requesterUser: currentUser ? currentUser.username : '',
+    requesterRole: currentUser ? currentUser.role : ''
+  }, function(r) {
+    if (btn) btn.disabled = false;
+    if (!r || r.status !== 'ok' || !r.slip) {
+      salSetStatus('❌ ' + ((r && r.message) || 'पगार नोंद सापडली नाही.'), 'err');
+      var sc = document.getElementById('sal_slipCard');
+      if (sc) sc.style.display = 'none';
+      return;
+    }
+    salState.slip = salNormalizeSlip(r.slip);
+    salRenderSlipPreview();
+    salSetStatus('', '');
+  });
+}
+
+function salRenderSlipPreview() {
+  var slip = salState.slip;
+  var card = document.getElementById('sal_slipCard');
+  var body = document.getElementById('sal_slipBody');
+  var title = document.getElementById('sal_slipTitle');
+  if (!slip || !card || !body) return;
+  card.style.display = '';
+  if (title) title.textContent = '💼 पगार तपशील — ' + (slip.monthLabel || slip.monthTab) + ' (' + slip.employeeName + ')';
+
+  var earnRows = [
+    ['Basic Pay', slip.basicPay],
+    ['D.A', slip.da],
+    ['DA ARREARS', slip.daArrears],
+    ['7 Pay Diff', slip.seventhPayDiff],
+    ['H.R.A', slip.hra],
+    ['T.A', slip.ta],
+    ['NPS EMPR ALLOW', slip.npsEmprAllow],
+    ['T.A ARREARS', slip.taArrears],
+    ['HRA ARREARS', slip.hraArrears],
+    ['Other', slip.otherEarnings]
+  ];
+  var dedRows = [
+    ['Prov.Fund', slip.provFund],
+    ['NPS EMPR ALLOW', slip.npsEmprDed],
+    ['NPS EMP CONTRI', slip.npsEmpContri],
+    ['IN-COME TAX', slip.incomeTax],
+    ['PROF TAX', slip.profTax],
+    ['Socity I', slip.society1],
+    ['Socity II', slip.society2],
+    ['L.I.C.', slip.lic],
+    ['REV STAMP', slip.revStamp],
+    ['Other', slip.otherDeductions]
+  ];
+
+  function buildRowsHtml(rows, totLbl, totVal) {
+    return rows.map(function(pair) {
+      var cls = pair[1] === 0 ? ' class="muted"' : '';
+      return '<tr' + cls + '><td>' + pmEsc(pair[0]) + '</td><td class="num">' + pmEsc(salComma(pair[1])) + '</td></tr>';
+    }).join('') + '<tr class="tot"><td>' + pmEsc(totLbl) + '</td><td class="num">' + pmEsc(salRs(totVal)) + '</td></tr>';
+  }
+
+  var netWords = salAmountToWords(slip.computedNet);
+  var bankStr = [slip.bankName, slip.branchName, slip.bankAccountNo ? ('A/c: ' + slip.bankAccountNo) : ''].filter(Boolean).join(' • ');
+
+  body.innerHTML =
+    '<div class="sal-net-box">' +
+      '<div class="sal-net-top">' +
+        '<span class="sal-net-lbl">निव्वळ देय रक्कम (Net Receiving)</span>' +
+        '<span class="sal-net-val">' + pmEsc(salRs(slip.computedNet)) + '</span>' +
+      '</div>' +
+      '<div class="sal-net-words">In Words: <b>Rupees ' + pmEsc(netWords) + ' Only</b></div>' +
+      (bankStr ? '<div class="sal-net-bank">🏦 ' + pmEsc(bankStr) + '</div>' : '') +
+    '</div>' +
+    '<div class="sal-grid2">' +
+      '<div class="sal-box"><div class="sal-box-title earn">EARNINGS (मिळकत)</div><table class="sal-tbl"><tbody>' +
+        buildRowsHtml(earnRows, 'Gross Total', slip.computedGross) +
+      '</tbody></table></div>' +
+      '<div class="sal-box"><div class="sal-box-title ded">DEDUCTIONS (कपात)</div><table class="sal-tbl"><tbody>' +
+        buildRowsHtml(dedRows, 'Total Deductions', slip.computedTotalDeductions) +
+      '</tbody></table></div>' +
+    '</div>';
+}
+
+function salLoadAnnual() {
+  if (!salState.selectedSid) { salSetStatus('⚠️ कृपया कर्मचारी निवडा.', 'err'); return; }
+  if (!salState.selectedFy) { salSetStatus('⚠️ कृपया आर्थिक वर्ष निवडा.', 'err'); return; }
+  var btn = document.getElementById('sal_loadAnnualBtn');
+  if (btn) btn.disabled = true;
+  salSetStatus('⏳ F.Y. ' + salState.selectedFy + ' (मार्च ते फेब्रुवारी) वार्षिक विवरणपत्र लोड होत आहे...', 'load');
+
+  jsonpRequest({
+    action: 'getAnnualSalary',
+    shalarthId: salState.selectedSid,
+    fy: salState.selectedFy,
+    requesterUser: currentUser ? currentUser.username : '',
+    requesterRole: currentUser ? currentUser.role : ''
+  }, function(r) {
+    if (btn) btn.disabled = false;
+    if (!r || r.status !== 'ok') {
+      salSetStatus('❌ ' + ((r && r.message) || 'वार्षिक विवरणपत्र लोड झाले नाही.'), 'err');
+      var ac = document.getElementById('sal_annualCard');
+      if (ac) ac.style.display = 'none';
+      return;
+    }
+    var slips = (Array.isArray(r.months) ? r.months : []).map(salNormalizeSlip);
+    slips.sort(function(a, b) {
+      var pa = salParseMonthTab(a.monthTab), pb = salParseMonthTab(b.monthTab);
+      return (pa ? pa.sortKey : 0) - (pb ? pb.sortKey : 0);
+    });
+    salState.annual = {
+      fy: r.fy || salState.selectedFy,
+      employee: r.employee || salGetSelectedEmp() || {},
+      slips: slips
+    };
+    salRenderAnnualPreview();
+    salSetStatus('', '');
+  });
+}
+
+function salComputeAnnualTotals(slips) {
+  var t = {
+    basic: 0, da: 0, hra: 0, ta: 0, arrOth: 0, npsEa: 0, gross: 0,
+    pf: 0, npsEmp: 0, pt: 0, it: 0, socLic: 0, ded: 0, net: 0
+  };
+  (slips || []).forEach(function(m) {
+    var arrOth = m.daArrears + m.seventhPayDiff + m.taArrears + m.hraArrears + m.otherEarnings;
+    var socLic = m.society1 + m.society2 + m.lic + m.revStamp + m.otherDeductions + m.npsEmprDed;
+    t.basic += m.basicPay; t.da += m.da; t.hra += m.hra; t.ta += m.ta;
+    t.arrOth += arrOth; t.npsEa += m.npsEmprAllow; t.gross += m.computedGross;
+    t.pf += m.provFund; t.npsEmp += m.npsEmpContri; t.pt += m.profTax;
+    t.it += m.incomeTax; t.socLic += socLic; t.ded += m.computedTotalDeductions;
+    t.net += m.computedNet;
+  });
+  return t;
+}
+
+function salOpenMonthFromAnnual(tabName) {
+  if (!tabName) return;
+  salState.selectedMonthTab = tabName;
+  var msel = document.getElementById('sal_monthSelect');
+  if (msel) msel.value = tabName;
+  salSetMode('monthly');
+  salLoadSlip();
+}
+
+function salRenderAnnualPreview() {
+  var ann = salState.annual;
+  var card = document.getElementById('sal_annualCard');
+  var body = document.getElementById('sal_annualBody');
+  var title = document.getElementById('sal_annualTitle');
+  if (!ann || !card || !body) return;
+  card.style.display = '';
+  var slips = ann.slips || [];
+  if (title) title.textContent = '📈 वार्षिक पगार सारांश — F.Y. ' + ann.fy + ' (' + slips.length + ' महिने)';
+
+  if (!slips.length) {
+    body.innerHTML = '<div class="pm-note">या आर्थिक वर्षात (मार्च ते फेब्रुवारी) संबंधित कर्मचाऱ्याच्या पगाराच्या नोंदी उपलब्ध नाहीत.</div>';
+    return;
+  }
+
+  var t = salComputeAnnualTotals(slips);
+  var rowsHtml = slips.map(function(m) {
+    var arrOth = m.daArrears + m.seventhPayDiff + m.taArrears + m.hraArrears + m.otherEarnings;
+    var socLic = m.society1 + m.society2 + m.lic + m.revStamp + m.otherDeductions + m.npsEmprDed;
+    var tabArg = pmEsc(JSON.stringify(m.monthTab));
+    return '<tr title="या महिन्याचा पगार दाखला पाहण्यासाठी क्लिक करा" onclick="salOpenMonthFromAnnual(' + tabArg + ')">' +
+      '<td>' + pmEsc(m.monthLabel || salMonthLabel(m.monthTab)) + '</td>' +
+      '<td>' + salComma(m.basicPay) + '</td>' +
+      '<td>' + salComma(m.da) + '</td>' +
+      '<td>' + salComma(m.hra) + '</td>' +
+      '<td>' + salComma(m.ta) + '</td>' +
+      '<td>' + salComma(arrOth) + '</td>' +
+      '<td>' + salComma(m.npsEmprAllow) + '</td>' +
+      '<td><b>' + salComma(m.computedGross) + '</b></td>' +
+      '<td>' + salComma(m.provFund) + '</td>' +
+      '<td>' + salComma(m.npsEmpContri) + '</td>' +
+      '<td>' + salComma(m.profTax) + '</td>' +
+      '<td>' + salComma(m.incomeTax) + '</td>' +
+      '<td>' + salComma(socLic) + '</td>' +
+      '<td><b>' + salComma(m.computedTotalDeductions) + '</b></td>' +
+      '<td><b>' + salComma(m.computedNet) + '</b></td>' +
+    '</tr>';
+  }).join('');
+
+  var totRow = '<tr class="sal-tot-row">' +
+    '<td>TOTAL (' + slips.length + ')</td>' +
+    '<td>' + salComma(t.basic) + '</td>' +
+    '<td>' + salComma(t.da) + '</td>' +
+    '<td>' + salComma(t.hra) + '</td>' +
+    '<td>' + salComma(t.ta) + '</td>' +
+    '<td>' + salComma(t.arrOth) + '</td>' +
+    '<td>' + salComma(t.npsEa) + '</td>' +
+    '<td>' + salComma(t.gross) + '</td>' +
+    '<td>' + salComma(t.pf) + '</td>' +
+    '<td>' + salComma(t.npsEmp) + '</td>' +
+    '<td>' + salComma(t.pt) + '</td>' +
+    '<td>' + salComma(t.it) + '</td>' +
+    '<td>' + salComma(t.socLic) + '</td>' +
+    '<td>' + salComma(t.ded) + '</td>' +
+    '<td>' + salComma(t.net) + '</td>' +
+  '</tr>';
+
+  body.innerHTML =
+    '<div class="sal-kpi-grid">' +
+      '<div class="sal-kpi earn"><span>एकूण पगार (Gross)</span><b>' + pmEsc(salRs(t.gross)) + '</b></div>' +
+      '<div class="sal-kpi ded"><span>एकूण कपात (Deductions)</span><b>' + pmEsc(salRs(t.ded)) + '</b></div>' +
+      '<div class="sal-kpi"><span>निव्वळ जमा (Net Pay)</span><b>' + pmEsc(salRs(t.net)) + '</b></div>' +
+      '<div class="sal-kpi"><span>आयकर / व्यवसाय कर (TDS / PT)</span><b>' + pmEsc(salRs(t.it) + ' / ' + salRs(t.pt)) + '</b></div>' +
+    '</div>' +
+    '<div style="font-size:11.5px;color:rgba(240,232,216,.78);margin-bottom:6px">💡 महिन्याच्या ओळीवर क्लिक केल्यास त्या महिन्याचे मासिक सर्टिफिकेट लगेच उघडेल.</div>' +
+    '<div class="sal-ann-wrap"><table class="sal-ann-tbl">' +
+      '<thead><tr><th>Month</th><th>Basic</th><th>D.A.</th><th>H.R.A.</th><th>T.A.</th><th>Arr/Oth</th><th>NPS EA</th><th>Gross</th><th>PF/DCPS</th><th>NPS Emp</th><th>P.T.</th><th>Inc.Tax</th><th>Soc/LIC</th><th>Tot Ded</th><th>Net Pay</th></tr></thead>' +
+      '<tbody>' + rowsHtml + totRow + '</tbody>' +
+    '</table></div>';
+}
+
+function salBuildBannerHtml() {
+  return '<div class="sal-banner">' +
+    '<div class="sal-b-left">' +
+      '<div class="sal-b-seal">सत्यमेव<br>जयते</div>' +
+      '<div class="sal-b-gov">महाराष्ट्र शासन</div>' +
+    '</div>' +
+    '<div class="sal-b-center">' +
+      '<div class="sal-b-dept">शालेय शिक्षण व क्रीडा विभाग</div>' +
+      '<div class="sal-b-title">शालार्थ</div>' +
+      '<div class="sal-b-sub">शालेय शिक्षक शिक्षकेतर कर्मचारी वेतन व्यवस्थापन प्रणाली</div>' +
+    '</div>' +
+    '<div class="sal-b-right">S.G.S.<br>पचोरा</div>' +
+  '</div>';
+}
+
+function salOpenMonthlyCert(autoPdf) {
+  var slip = salState.slip;
+  if (!slip) { alert('⚠️ आधी पगार तपशील लोड करा (💼 पगार पहा).'); return; }
+  var dateStr = salFmtDisplayDate(salState.issueDateIso);
+  var earnRows = [
+    ['Basic Pay', slip.basicPay], ['D.A', slip.da], ['DA ARREARS', slip.daArrears],
+    ['7 Pay Diff', slip.seventhPayDiff], ['H.R.A', slip.hra], ['T.A', slip.ta],
+    ['NPS EMPR ALLOW', slip.npsEmprAllow], ['T.A ARREARS', slip.taArrears],
+    ['HRA ARREARS', slip.hraArrears], ['Other', slip.otherEarnings]
+  ];
+  var dedRows = [
+    ['Prov.Fund', slip.provFund], ['NPS EMPR ALLOW', slip.npsEmprDed], ['NPS EMP CONTRI', slip.npsEmpContri],
+    ['IN-COME TAX', slip.incomeTax], ['PROF TAX', slip.profTax], ['Socity I', slip.society1],
+    ['Socity II', slip.society2], ['L.I.C.', slip.lic], ['REV STAMP', slip.revStamp], ['Other', slip.otherDeductions]
+  ];
+  var metaRows = [
+    ['This to certify that', slip.employeeName || '—', true],
+    ['He is Permanent employee of', slip.schoolName || 'S.G.S. HIGH SCH., PACHORA', false],
+    ['He/ She is working as', slip.designation || '—', false],
+    ['His / Her Shalarth ID is', slip.shalarthId || '—', true],
+    ['PAN No.', slip.panNo || '—', false],
+    ['Adhar No.', slip.adharNo || '—', false],
+    ['PF A/c No.', slip.pfAcNo || '—', false],
+    ['PRAN No.', slip.pranNo || '—', false],
+    ['PAY MATRIX', slip.payMatrix || '—', false],
+    ['His / Her salary for the month of', slip.monthLabel || salMonthLabel(slip.monthTab), true]
+  ];
+
+  var metaHtml = metaRows.map(function(r) {
+    return '<tr><td class="k">' + pmEsc(r[0]) + '</td><td class="sep">:</td><td class="v' + (r[2] ? ' hi' : '') + '">' + pmEsc(r[1]) + '</td></tr>';
+  }).join('');
+
+  var earnBody = earnRows.map(function(r) {
+    return '<tr><td>' + pmEsc(r[0]) + '</td><td class="amt">' + pmEsc(salComma(r[1])) + '</td></tr>';
+  }).join('') + '<tr class="tot"><td>Gross Total</td><td class="amt">' + pmEsc(salComma(slip.computedGross)) + '</td></tr>';
+
+  var dedBody = dedRows.map(function(r) {
+    return '<tr><td>' + pmEsc(r[0]) + '</td><td class="amt">' + pmEsc(salComma(r[1])) + '</td></tr>';
+  }).join('') + '<tr class="tot"><td>Total deductions</td><td class="amt">' + pmEsc(salComma(slip.computedTotalDeductions)) + '</td></tr>';
+
+  var netWords = salAmountToWords(slip.computedNet);
+  var bankLine = [slip.bankName, slip.branchName, slip.bankAccountNo ? ('A/c No.: ' + slip.bankAccountNo) : ''].filter(Boolean).join('  |  ');
+
+  var html = '<div class="cert-page a4"><div class="sal-doc-frame">' +
+    salBuildBannerHtml() +
+    '<div class="sal-cert-heading">Salary Certificate</div>' +
+    '<div class="sal-cert-date">Date : ' + pmEsc(dateStr) + '</div>' +
+    '<table class="sal-meta-tbl"><tbody>' + metaHtml + '</tbody></table>' +
+    '<div class="sal-ed-wrap">' +
+      '<table class="sal-ed-tbl"><thead><tr><th colspan="2">EARNINGS</th></tr></thead><tbody>' + earnBody + '</tbody></table>' +
+      '<table class="sal-ed-tbl"><thead><tr><th colspan="2">DEDUCTIONS</th></tr></thead><tbody>' + dedBody + '</tbody></table>' +
+    '</div>' +
+    '<div class="sal-net-cert-box">' +
+      '<div><b>Net Receiving &nbsp;:&nbsp; ₹ ' + pmEsc(salComma(slip.computedNet)) + '</b></div>' +
+      '<div><b>In Word &nbsp;:&nbsp; Rupees ' + pmEsc(netWords) + ' Only</b></div>' +
+    '</div>' +
+    '<div class="sal-bank-note">Net salary to be credited to the individual Bank Account of employee' +
+      (bankLine ? '<div style="font-size:8.6pt;color:#444;margin-top:1mm">' + pmEsc(bankLine) + '</div>' : '') +
+    '</div>' +
+    '<div class="sal-cert-foot">' +
+      '<div>Place : Pachora<br>UDISE : ' + pmEsc(slip.udiseCode || '27031201718') + '</div>' +
+      '<div class="sal-cert-sig">Head Master<br>' + pmEsc(slip.schoolName || 'S.G.S. High School, Pachora') + '</div>' +
+    '</div>' +
+  '</div></div>';
+
+  openCert('💼 Salary Certificate — ' + (slip.monthLabel || slip.monthTab), html, 'a4', 'SAL');
+  if (autoPdf) {
+    var safeId = (slip.shalarthId || 'emp').replace(/[^A-Za-z0-9_-]/g, '_');
+    var safeMonth = (slip.monthTab || 'month').replace(/[^A-Za-z0-9_-]/g, '_');
+    setTimeout(function() { exportCertAsPDF('Salary_Cert_' + safeId + '_' + safeMonth + '.pdf'); }, 220);
+  }
+}
+
+function salOpenAnnualCert(autoPdf) {
+  var ann = salState.annual;
+  if (!ann || !ann.slips || !ann.slips.length) { alert('⚠️ आधी वार्षिक विवरणपत्र लोड करा (📈 विवरणपत्र पहा).'); return; }
+  var slips = ann.slips;
+  var hdr = slips[slips.length - 1];
+  var emp = ann.employee || salGetSelectedEmp() || {};
+  var empName = emp.name || hdr.employeeName || '—';
+  var sid = emp.shalarthId || hdr.shalarthId || '—';
+  var desig = emp.designation || hdr.designation || '—';
+  var pan = emp.panNo || hdr.panNo || '—';
+  var pfNo = emp.pfAcNo || hdr.pfAcNo || '—';
+  var pran = emp.pranNo || hdr.pranNo || '—';
+  var bank = [emp.bankName || hdr.bankName, (emp.bankAccountNo || hdr.bankAccountNo) ? ('A/c: ' + (emp.bankAccountNo || hdr.bankAccountNo)) : ''].filter(Boolean).join(' | ') || '—';
+  var dateStr = salFmtDisplayDate(salState.issueDateIso);
+  var t = salComputeAnnualTotals(slips);
+  var netWords = salAmountToWords(t.net);
+
+  var rowsHtml = slips.map(function(m) {
+    var arrOth = m.daArrears + m.seventhPayDiff + m.taArrears + m.hraArrears + m.otherEarnings;
+    var socLic = m.society1 + m.society2 + m.lic + m.revStamp + m.otherDeductions + m.npsEmprDed;
+    return '<tr>' +
+      '<td>' + pmEsc(m.monthLabel || salMonthLabel(m.monthTab)) + '</td>' +
+      '<td>' + salComma(m.basicPay) + '</td>' +
+      '<td>' + salComma(m.da) + '</td>' +
+      '<td>' + salComma(m.hra) + '</td>' +
+      '<td>' + salComma(m.ta) + '</td>' +
+      '<td>' + salComma(arrOth) + '</td>' +
+      '<td>' + salComma(m.npsEmprAllow) + '</td>' +
+      '<td><b>' + salComma(m.computedGross) + '</b></td>' +
+      '<td>' + salComma(m.provFund) + '</td>' +
+      '<td>' + salComma(m.npsEmpContri) + '</td>' +
+      '<td>' + salComma(m.profTax) + '</td>' +
+      '<td>' + salComma(m.incomeTax) + '</td>' +
+      '<td>' + salComma(socLic) + '</td>' +
+      '<td><b>' + salComma(m.computedTotalDeductions) + '</b></td>' +
+      '<td><b>' + salComma(m.computedNet) + '</b></td>' +
+    '</tr>';
+  }).join('');
+
+  var totRow = '<tr class="tot">' +
+    '<td>TOTAL (' + slips.length + ')</td>' +
+    '<td>' + salComma(t.basic) + '</td>' +
+    '<td>' + salComma(t.da) + '</td>' +
+    '<td>' + salComma(t.hra) + '</td>' +
+    '<td>' + salComma(t.ta) + '</td>' +
+    '<td>' + salComma(t.arrOth) + '</td>' +
+    '<td>' + salComma(t.npsEa) + '</td>' +
+    '<td>' + salComma(t.gross) + '</td>' +
+    '<td>' + salComma(t.pf) + '</td>' +
+    '<td>' + salComma(t.npsEmp) + '</td>' +
+    '<td>' + salComma(t.pt) + '</td>' +
+    '<td>' + salComma(t.it) + '</td>' +
+    '<td>' + salComma(t.socLic) + '</td>' +
+    '<td>' + salComma(t.ded) + '</td>' +
+    '<td>' + salComma(t.net) + '</td>' +
+  '</tr>';
+
+  var html = '<div class="cert-page a4-land"><div class="sal-doc-frame">' +
+    salBuildBannerHtml() +
+    '<div class="sal-ann-doc-title">ANNUAL SALARY STATEMENT — F.Y. ' + pmEsc(ann.fy) + ' (March to February)</div>' +
+    '<div class="sal-ann-info-bar">' +
+      '<div style="display:flex;justify-content:space-between;gap:8px">' +
+        '<span><b>Employee:</b> ' + pmEsc(empName) + ' &nbsp;|&nbsp; <b>Shalarth ID:</b> ' + pmEsc(sid) + ' &nbsp;|&nbsp; <b>Designation:</b> ' + pmEsc(desig) + '</span>' +
+        '<span><b>Date:</b> ' + pmEsc(dateStr) + '</span>' +
+      '</div>' +
+      '<div>School: S.G.S. High School, Pachora &nbsp;|&nbsp; PAN: ' + pmEsc(pan) + ' &nbsp;|&nbsp; PF/DCPS: ' + pmEsc(pfNo) + ' &nbsp;|&nbsp; PRAN: ' + pmEsc(pran) + ' &nbsp;|&nbsp; Bank: ' + pmEsc(bank) + '</div>' +
+    '</div>' +
+    '<table class="sal-ann-print-tbl">' +
+      '<thead><tr class="sal-th-dark"><th>Month</th><th>Basic</th><th>D.A.</th><th>H.R.A.</th><th>T.A.</th><th>Arr/Oth</th><th>NPS EA</th><th>Gross</th><th>PF/DCPS</th><th>NPS Emp</th><th>P.T.</th><th>Inc.Tax</th><th>Soc/LIC</th><th>Tot Ded</th><th>Net Pay</th></tr></thead>' +
+      '<tbody>' + rowsHtml + totRow + '</tbody>' +
+    '</table>' +
+    '<div class="sal-cert-foot" style="margin-top:4mm">' +
+      '<div class="sal-ann-foot-sum" style="margin-top:0;flex:1">' +
+        '<div><b>Annual Gross:</b> ' + pmEsc(salRs(t.gross)) + ' &nbsp;|&nbsp; <b>Total Deductions:</b> ' + pmEsc(salRs(t.ded)) + ' &nbsp;|&nbsp; <b>Income Tax (TDS):</b> ' + pmEsc(salRs(t.it)) + ' &nbsp;|&nbsp; <b>Prof. Tax:</b> ' + pmEsc(salRs(t.pt)) + ' &nbsp;|&nbsp; <b>GPF/DCPS:</b> ' + pmEsc(salRs(t.pf)) + '</div>' +
+        '<div><b>Annual Net Credited : ' + pmEsc(salRs(t.net)) + '</b> &nbsp;(Rupees ' + pmEsc(netWords) + ' Only)</div>' +
+        '<div style="font-size:7.3pt;color:#444;margin-top:1mm">Note: *Soc/LIC includes Society I/II, LIC, Rev.Stamp, GIS &amp; NPS Employer Contribution.</div>' +
+      '</div>' +
+      '<div class="sal-cert-sig">Head Master<br>S.G.S. High School, Pachora</div>' +
+    '</div>' +
+  '</div></div>';
+
+  openCert('📊 Annual Statement — F.Y. ' + ann.fy, html, 'a4-land', 'ANN');
+  if (autoPdf) {
+    var safeId = (sid || 'emp').replace(/[^A-Za-z0-9_-]/g, '_');
+    var safeFy = (ann.fy || 'FY').replace(/[^A-Za-z0-9_-]/g, '_');
+    setTimeout(function() { exportCertAsPDF('Annual_Salary_' + safeId + '_FY_' + safeFy + '.pdf'); }, 220);
+  }
+}
+
